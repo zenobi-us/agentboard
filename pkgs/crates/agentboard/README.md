@@ -1,103 +1,218 @@
 # AgentBoard
 
-AgentBoard is a Rust CLI for collecting task-tracking items from multiple sources into a local workspace store, then running configured steps against those items.
+AgentBoard is a Rust CLI for turning task-tracking sources into local agent work queues, then running source-configured actions for matching items.
 
 Think:
 
 ```text
-Collect -> Store locally -> Run workspace actions
+Run workspace -> read sources -> update local store -> run pending actions
 ```
 
 ## Vision
 
 AgentBoard is a small automation layer for agent-driven work queues. It should not become another project tracker. The source of truth stays in Jira, Linear, GitHub, or local markdown. AgentBoard keeps a local copy so agents and scripts can work consistently, offline-ish, and with repeatable rules.
 
-## Workspace-driven config
+## MVP scope
 
-Workspaces live in user config:
+The first useful slice is deliberately narrow:
+
+1. Load TOML workspace config by name or explicit path.
+2. Collect local markdown items from recursive directories.
+3. Store normalized item observations and action attempts in per-source JSONL files.
+4. Render MiniJinja templates for action inputs.
+5. Run pending `agentboard/create-worktree` and `agentboard/run-cmd` actions.
+6. Inspect stored state with `list` and `show`.
+7. Validate environment/config with `doctor`.
+8. Print workspace JSON Schema with `schema`.
+
+GitHub, Jira, Linear, YAML/JSON config files, and user-defined actions can follow after the local loop works.
+
+## Workspace config
+
+Workspaces live in user config or at an explicit path:
 
 ```text
 ~/.config/agentboard/
-  workspace-one.toml
-  workspace-two.toml
-  personal.yaml
+  work.toml
+  personal.toml
 ```
 
-Each workspace declares sources, queries, and actions:
+`agentboard run work` loads `~/.config/agentboard/work.toml`.
+`agentboard run ./work.toml` loads that file directly.
+
+MVP config is TOML only. The schema is generated from the same typed config model:
+
+```bash
+agentboard schema > agentboard.schema.json
+```
+
+### Example workspace
 
 ```toml
 [[sources]]
-id = "foo"
-query = "status:ready"
+id = "local"
+query = "status:ready OR priority:high"
 
 [sources.source]
-kind = "jira"
-url = "https://example.atlassian.net"
-credential_helper = "op read op://vault/jira/token"
-
-[[sources.actions]]
-uses = "agentboard/sync"
+kind = "markdown"
+path = "~/Projects/MyProject/tasks"
 
 [[sources.actions]]
 uses = "agentboard/create-worktree"
 
 [sources.actions.with]
 repo = "~/Projects/MyProject"
-root = "{{ repo }}.worktrees/{{ branchname }}"
-branch = "{{ item.id }}/{{ item.title | slugify }}"
+root = "~/Projects/MyProject.worktrees/{{ item.id }}"
+branch = "{{ item.id }}"
 
 [[sources.actions]]
 uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 cmd = "zellij action new-tab --name {{ item.id }}"
+cwd = "~/Projects/MyProject"
 ```
 
-YAML should express the same model for humans who prefer it.
+Unknown workspace/source/action fields are validation errors, except arbitrary keys under an action `with` table.
 
-## Core concepts
+## Markdown source
 
-### Source
+MVP supports only `kind = "markdown"`.
 
-A source fetches task-like items from an external or local system.
+A markdown source reads `*.md` files recursively under `path`. Each file is one item and must have YAML frontmatter with at least:
 
-Planned source kinds:
+```markdown
+---
+id: AB-001
+title: Create the first worktree
+status: ready
+priority: high
+labels:
+  - agent
+---
 
-- `github-issues`
-- `github-projects`
-- `jira`
-- `linear`
-- `markdown`
+Task details live here.
+```
 
-### Item
+Normalized item fields:
 
-A normalized local task record. Minimum shape:
+- `id` — from frontmatter `id`
+- `title` — from frontmatter `title`
+- `status` — from frontmatter `status`
+- `url` — frontmatter `url`, or `file://<canonical path>` when missing
+- `source_id` — workspace source id
+- `source_kind` — `markdown`
+- `raw` — structured object containing frontmatter, markdown body, and source path
 
-- `id`
-- `title`
-- `url`
-- `source_id`
-- `source_kind`
-- `status`
-- `raw`
+Duplicate item ids within one source are source errors.
 
-`raw` keeps the original payload so AgentBoard does not need to model every tracker field up front.
+Markdown sources are read-only. AgentBoard never edits source markdown files in the MVP.
 
-### Store
+## Queries
 
-A local per-workspace cache of collected items and action results.
+A source `query` is optional. Missing query means all items from that source match.
 
-Goal: boring files first, likely JSONL or SQLite only when file storage becomes painful. Do not invent a sync database early.
+MVP uses `search-query-parser` for boolean syntax:
 
-### Action
+```text
+status:ready AND (priority:high OR labels:agent)
+```
 
-An action runs after collection. Built-ins:
+Rules:
 
-- `agentboard/sync` — persist fetched item state locally.
+- Terms must be fielded as `field:value`.
+- Fieldless terms are validation errors.
+- Quote the whole field/value token for values with spaces: `"title:Fix login"`.
+- Scalar YAML values match by exact string equality.
+- YAML arrays match when they contain the queried value.
+- Matching is case-sensitive.
+
+## Store
+
+AgentBoard stores data under the user's XDG data directory:
+
+```text
+${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
+  sources/
+    <source-id>/
+      items.jsonl
+      actions.jsonl
+```
+
+Workspace ids are stable:
+
+- Named workspace: `work`
+- Explicit path: filename stem plus short hash of the canonical path, e.g. `work-a1b2c3d4e5f6`
+
+`items.jsonl` appends item observations. `actions.jsonl` appends action attempts. `list` and `show` derive latest state from these files.
+
+## Actions
+
+Actions belong to the source that declares them. There are no global workspace actions in the MVP.
+
+Built-in actions:
+
 - `agentboard/create-worktree` — create or reuse a git worktree for an item.
-- `agentboard/run-cmd` — run a command rendered from item/workspace context.
+- `agentboard/run-cmd` — run a shell command rendered from item/workspace/source/action context.
 
-Action inputs are MiniJinja templates. AgentBoard provides helpers like `slugify` for branch names.
+`agentboard/*` is reserved for built-in actions. Unknown actions are validation errors.
+
+An action runs when no previous successful action result exists for:
+
+```text
+(source_id, item.id, source_action_index, rendered_action_hash)
+```
+
+Failed actions retry on the next `run` or `watch` until they succeed.
+
+Actions run in source config order, then markdown relative path order, then action config order. Actions are ordered and blocking per item: if action 1 fails, action 2 for that item does not run yet.
+
+### `agentboard/create-worktree`
+
+Uses plain `git worktree`.
+
+Required inputs:
+
+- `repo`
+- `root`
+- `branch`
+
+Behavior:
+
+- If `root` already exists and is the intended worktree for `branch`, success.
+- If `root` exists but does not match the intended worktree/branch, fail that item action.
+- If `branch` already exists, add a worktree for the existing branch.
+
+### `agentboard/run-cmd`
+
+Uses the platform shell (`sh -c` on Unix) with no interactive stdin.
+
+Required inputs:
+
+- `cmd`
+
+Optional inputs:
+
+- `cwd` — defaults to the AgentBoard process cwd.
+
+The command inherits the current environment plus `AGENTBOARD_WORKSPACE_ID`, `AGENTBOARD_SOURCE_ID`, and `AGENTBOARD_ITEM_ID`.
+
+Stdout and stderr are captured in the action result and capped at 64 KiB each.
+
+Workspace configs are trusted local code, like a Makefile or package script. AgentBoard does not sandbox commands.
+
+## Templates
+
+Action inputs are MiniJinja templates. Context includes:
+
+- `workspace`
+- `source`
+- `item`
+- `action`
+
+MVP registers a custom `slugify` filter for branch/path-safe strings.
+
+Configured paths expand leading `~` and environment variables after template rendering.
 
 ## Execution model
 
@@ -108,48 +223,58 @@ Action inputs are MiniJinja templates. AgentBoard provides helpers like `slugify
 [validate config]
       |
       v
-[collect sources]
+[acquire workspace lock]
       |
       v
-[write local store]
+[run source pipelines concurrently]
       |
       v
-[run actions per item]
+[each source: collect -> store item observations -> run serial pending actions]
       |
       v
-[record results]
+[append action attempts]
 ```
 
-Failures should be item-scoped where possible. One broken Jira item should not kill unrelated GitHub items unless config says fail-fast.
+Failures are source/item scoped where possible. Other sources continue. The process exits nonzero if any source or action failed.
+
+A workspace lock prevents overlapping `run` or `watch` processes for the same workspace. `watch` holds the lock until it exits.
 
 ## CLI shape
 
-Likely commands:
-
 ```text
-agentboard list
-agentboard collect <workspace>
-agentboard run <workspace>
-agentboard show <workspace> <item-id>
-agentboard doctor
+agentboard run <workspace> [--dry-run]
+agentboard watch <workspace> [--interval 60s]
+agentboard list <workspace> [--json]
+agentboard show <workspace> <item-id> [--json]
+agentboard doctor <workspace>
+agentboard schema
 ```
 
-Keep CLI boring. Add subcommands only when they have a real workflow.
+- `run` executes the full pipeline once.
+- `run --dry-run` parses, collects, renders, and prints pending actions without writing store files or executing actions.
+- `watch` repeatedly runs the pipeline on an interval and exits cleanly on Ctrl-C.
+- `list` shows latest item status plus derived action state.
+- `show` prints one normalized item plus latest action results.
+- `doctor` validates one workspace, store writability, and required external commands.
+- `schema` prints the workspace JSON Schema to stdout.
 
 ## Non-goals
 
 - No hosted service.
 - No UI in first pass.
 - No tracker replacement.
-- No plugin system until built-in actions prove too small.
+- No public `collect` command in the MVP; collect is an internal stage of `run`.
+- No user-defined action registry until built-in actions prove the shape.
+- No YAML/JSON workspace config until TOML is useful.
+- No GitHub/Jira/Linear source adapters until markdown works end to end.
 - No full Jira/Linear field model before real use demands it.
 
-## First useful slice
+## Implementation notes
 
-1. Load TOML workspace config.
-2. Collect local markdown items.
-3. Store normalized items locally.
-4. Render MiniJinja templates for action inputs.
-5. Run `create-worktree` and `run-cmd`.
+Use a thin `main.rs` plus library modules by concern: CLI, config, model, query, sources, actions, store, and templates.
 
-GitHub/Jira/Linear can follow after the local loop works.
+The MVP source abstraction should be an async `SourceAdapter` trait with a `collect` operation. Leave short TODO comments for future validation/auth/pagination hooks; do not build a plugin registry yet.
+
+The MVP action abstraction should be a tiny trait for built-ins only. User actions are future work.
+
+Tests should include Rust unit tests for parsing/query/store/template logic and a separate Bats task for CLI integration behavior.
