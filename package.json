@@ -1,0 +1,24 @@
+{
+  "name": "agentboard",
+  "version": "0.0.1",
+  "private": true,
+  "dependencies": {
+    "@moonrepo/cli": "*",
+    "@playwright/cli": "^0.1.14",
+    "@types/bun": "^1.3.14",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "vite": "^8.0.16"
+  },
+  "overrides": {
+    "vite": "8.0.16"
+  },
+  "resolutions": {
+    "vite": "8.0.16"
+  },
+  "workspaces": [
+    "apps/*",
+    "pkgs/crates/*",
+    "pkgs/tools/*"
+  ]
+}
