@@ -30,6 +30,15 @@ tasks:
       - "Cargo.toml"
       - "src/**/*.rs"
 
+  bats:
+    deps:
+      - "~:build"
+    command: "bats test/*.bats"
+    inputs:
+      - "Cargo.toml"
+      - "src/**/*.rs"
+      - "test/*.bats"
+
   lint:
     deps:
       - "~:check"
