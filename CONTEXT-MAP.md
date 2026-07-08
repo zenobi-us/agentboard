@@ -1,6 +1,16 @@
 # Context Map
 
-## AgentBoard flow
+This repo uses a multi-context domain-doc layout. Read this file first, then read only the `CONTEXT.md` files relevant to the app/package being changed.
+
+## Contexts
+
+| Path | Context doc | Scope |
+| --- | --- | --- |
+| `pkgs/crates/agentboard` | `pkgs/crates/agentboard/CONTEXT.md` | Rust CLI domain: workspaces, sources, items, store, actions, runs, watch loops. |
+| `apps/docs` | _none yet_ | Docs app. Uses the CLI domain terms when documenting AgentBoard behavior. |
+| `pkgs/tools/deployment` | _none yet_ | Release/deployment helper scripts. No separate domain language resolved yet. |
+
+## System flow
 
 ```text
 workspace config

@@ -8,9 +8,9 @@ This repo uses a **multi-context** domain-doc layout.
 
 Read these before exploring code:
 
-- `CONTEXT-MAP.md` at the repo root, if present. It describes component boundaries and should point agents toward relevant contexts.
-- `CONTEXT.md` at the repo root for current AgentBoard glossary and architecture constraints.
-- Any context-specific `CONTEXT.md` relevant to the touched app/package, if added later.
+- `CONTEXT-MAP.md` at the repo root. It defines the monorepo contexts and points agents to the relevant `CONTEXT.md` files.
+- `pkgs/crates/agentboard/CONTEXT.md` when touching the Rust CLI or documenting AgentBoard behavior.
+- Context-specific `CONTEXT.md` files only when `CONTEXT-MAP.md` lists one for the touched app/package.
 - `.memory/docs/adr/` for system-wide ADRs, if present.
 - `.memory/docs/adr/<relativepath>/` for context-scoped ADRs, if present.
 
@@ -18,7 +18,7 @@ If any of these files or directories do not exist, proceed silently. Do not crea
 
 ## Use the glossary vocabulary
 
-When output names a domain concept in issue titles, refactor proposals, hypotheses, or tests, use terms from `CONTEXT.md`:
+When output names a domain concept in issue titles, refactor proposals, hypotheses, or tests, use terms from the relevant `CONTEXT.md`:
 
 - workspace
 - source
