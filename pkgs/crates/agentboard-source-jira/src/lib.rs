@@ -64,6 +64,7 @@ async fn collect_jira(source_id: &str, query: JiraQuery<'_>) -> Result<Vec<Item>
         query.jql,
         query.limit,
         query.fields,
+        query.map,
     )
     .await?;
     let issues = search
@@ -113,13 +114,9 @@ async fn jira_search(
     jql: &str,
     limit: usize,
     fields: &[String],
+    map: &FieldMap,
 ) -> Result<Value> {
-    let mut requested_fields = vec!["summary".to_string(), "status".to_string()];
-    for field in fields {
-        if !requested_fields.contains(field) {
-            requested_fields.push(field.clone());
-        }
-    }
+    let requested_fields = jira_fetch_fields(fields, map);
 
     let response = Client::new()
         .post(url)
@@ -238,6 +235,43 @@ fn site_host(site: &str) -> String {
         .to_string()
 }
 
+fn jira_fetch_fields(extra_fields: &[String], map: &FieldMap) -> Vec<String> {
+    let mut fields = vec!["summary".to_string(), "status".to_string()];
+    for path in [
+        map.id.as_deref(),
+        map.title.as_deref(),
+        map.status.as_deref(),
+        map.url.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    {
+        add_mapped_fetch_field(&mut fields, path);
+    }
+    for field in extra_fields {
+        add_fetch_field(&mut fields, field);
+    }
+    fields
+}
+
+fn add_mapped_fetch_field(fields: &mut Vec<String>, path: &str) {
+    let Some(field) = path
+        .strip_prefix("fields.")
+        .and_then(|rest| rest.split('.').next())
+    else {
+        return;
+    };
+    if !field.is_empty() {
+        add_fetch_field(fields, field);
+    }
+}
+
+fn add_fetch_field(fields: &mut Vec<String>, field: &str) {
+    if !fields.iter().any(|existing| existing == field) {
+        fields.push(field.to_string());
+    }
+}
+
 fn mapped_field(issue: &Value, path: &str, name: &str) -> Result<String> {
     optional_mapped_field(issue, path)
         .ok_or_else(|| anyhow!("jira mapping {name}={path} must resolve to a string"))
@@ -277,6 +311,28 @@ mod tests {
         assert_eq!(
             mapped_field(&issue, "fields.status.name", "status").unwrap(),
             "Ready"
+        );
+    }
+
+    #[test]
+    fn infers_jira_fetch_fields_from_mapping_paths() {
+        let map = FieldMap {
+            id: Some("key".into()),
+            title: Some("fields.customfield_10010".into()),
+            status: Some("fields.parent.fields.status".into()),
+            url: Some("fields.customfield_10020".into()),
+        };
+
+        assert_eq!(
+            jira_fetch_fields(&["assignee".into(), "summary".into()], &map),
+            vec![
+                "summary",
+                "status",
+                "customfield_10010",
+                "parent",
+                "customfield_10020",
+                "assignee"
+            ]
         );
     }
 }

@@ -59,12 +59,12 @@ email_env = "JIRA_EMAIL"
 token_env = "JIRA_API_TOKEN"
 jql = "project = AB AND statusCategory != Done ORDER BY updated DESC"
 limit = 50
-fields = ["customfield_10010"]
 
 [sources.source.map]
 id = "key"
 title = "fields.summary"
 status = "fields.status.name"
+url = "fields.customfield_10010"
 ```
 
 ## Projects
