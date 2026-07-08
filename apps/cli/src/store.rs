@@ -13,7 +13,7 @@ use serde_json::json;
 
 use crate::{
     adapters::collect_items,
-    config::{source_dir, store_root},
+    config::{items_path, source_dir, source_slug, store_root},
 };
 
 /// Held workspace run lock. Unlocks when dropped.
@@ -48,7 +48,7 @@ pub fn acquire_lock(ws: &Workspace) -> Result<Lock> {
 
 /// Append item observations for one source to its JSONL store.
 pub fn append_items(ws: &Workspace, source: &SourceConfig, items: &[Item]) -> Result<()> {
-    let mut f = append_file(source_dir(ws, &source.id).join("items.jsonl"))?;
+    let mut f = append_file(items_path(ws, source))?;
     for item in items {
         writeln!(f, "{}", serde_json::to_string(item)?)?;
     }
@@ -70,14 +70,16 @@ fn append_file(path: PathBuf) -> Result<File> {
 /// Return the latest observed item per item id across configured sources.
 pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
     let mut map = HashMap::new();
+    let mut seen_paths = HashSet::new();
     for source in &ws.config.sources {
-        let path = source_dir(ws, &source.id).join("items.jsonl");
-        if !path.exists() {
+        let path = items_path(ws, source);
+        if !seen_paths.insert(path.clone()) || !path.exists() {
             continue;
         }
+        let slug = source_slug(source);
         for line in BufReader::new(File::open(path)?).lines() {
             let item: Item = serde_json::from_str(&line?)?;
-            map.insert(item.id.clone(), item);
+            map.insert(item_key(&slug, &item.id), item);
         }
     }
     Ok(map)
@@ -163,9 +165,19 @@ fn action_state(actions: &[ActionAttempt], item_id: &str) -> &'static str {
 
 /// Print one latest stored item and its action attempts.
 pub fn show_item(ws: &Workspace, item_id: &str, as_json: bool) -> Result<()> {
-    let item = latest_items(ws)?
-        .remove(item_id)
-        .ok_or_else(|| anyhow!("item {item_id} not found"))?;
+    let matches: Vec<_> = latest_items(ws)?
+        .into_values()
+        .filter(|item| item.id == item_id)
+        .collect();
+    let item = match matches.as_slice() {
+        [] => return Err(anyhow!("item {item_id} not found")),
+        [item] => item.clone(),
+        _ => {
+            return Err(anyhow!(
+                "item {item_id} is ambiguous across Store item buckets"
+            ))
+        }
+    };
     let actions: Vec<_> = all_actions(ws)?
         .into_iter()
         .filter(|a| a.item_id == item_id)
@@ -223,7 +235,111 @@ fn command_exists(cmd: &str) -> Result<()> {
         .with_context(|| format!("required command {cmd} not found"))
 }
 
+fn item_key(source_slug: &str, item_id: &str) -> String {
+    format!("{source_slug}\0{item_id}")
+}
+
 /// Build the stable identity key for one rendered source action.
 pub fn action_key(source_id: &str, item_id: &str, idx: usize, hash: &str) -> String {
     format!("{source_id}\0{item_id}\0{idx}\0{hash}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use agentboard_core::model::{SourceConfig, SourceKind, WorkspaceConfig};
+    use serde_json::json;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn same_jira_site_shares_latest_item_observations() {
+        let ws = workspace(vec![
+            jira_source("open", "https://team-a.atlassian.net", "project = AB"),
+            jira_source(
+                "mine",
+                "https://team-a.atlassian.net/",
+                "assignee = currentUser()",
+            ),
+        ]);
+        let _cleanup = StoreCleanup::new(&ws);
+
+        append_items(&ws, &ws.config.sources[0], &[item("open", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.config.sources[1], &[item("mine", "PROJ-1")]).unwrap();
+
+        let items: Vec<_> = latest_items(&ws).unwrap().into_values().collect();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].title, "mine");
+    }
+
+    #[test]
+    fn different_jira_sites_do_not_collide_on_issue_key() {
+        let ws = workspace(vec![
+            jira_source("a", "https://team-a.atlassian.net", "project = AB"),
+            jira_source("b", "https://team-b.atlassian.net", "project = AB"),
+        ]);
+        let _cleanup = StoreCleanup::new(&ws);
+
+        append_items(&ws, &ws.config.sources[0], &[item("from a", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.config.sources[1], &[item("from b", "PROJ-1")]).unwrap();
+
+        let items = latest_items(&ws).unwrap();
+        assert_eq!(items.len(), 2);
+    }
+
+    fn workspace(sources: Vec<SourceConfig>) -> Workspace {
+        Workspace {
+            id: format!(
+                "test-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            config: WorkspaceConfig { sources },
+        }
+    }
+
+    fn jira_source(id: &str, site: &str, jql: &str) -> SourceConfig {
+        SourceConfig {
+            id: id.into(),
+            source: SourceKind::Jira {
+                site: site.into(),
+                email_env: "JIRA_EMAIL".into(),
+                token_env: "JIRA_API_TOKEN".into(),
+                credentials: None,
+                jql: jql.into(),
+                limit: 50,
+                fields: vec![],
+                map: Default::default(),
+            },
+            actions: vec![],
+        }
+    }
+
+    fn item(title: &str, id: &str) -> Item {
+        Item {
+            id: id.into(),
+            title: title.into(),
+            status: "open".into(),
+            url: "https://example.test".into(),
+            source_id: "jira".into(),
+            source_kind: "jira".into(),
+            raw: json!({}),
+        }
+    }
+
+    struct StoreCleanup(PathBuf);
+
+    impl StoreCleanup {
+        fn new(ws: &Workspace) -> Self {
+            Self(store_root(ws))
+        }
+    }
+
+    impl Drop for StoreCleanup {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
 }
