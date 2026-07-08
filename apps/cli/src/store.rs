@@ -13,7 +13,7 @@ use serde_json::json;
 
 use crate::{
     adapters::collect_items,
-    config::{items_path, source_dir, source_slug, store_root},
+    config::{actions_path, items_path, source_slug, store_root},
 };
 
 /// Held workspace run lock. Unlocks when dropped.
@@ -57,7 +57,7 @@ pub fn append_items(ws: &Workspace, source: &SourceConfig, items: &[Item]) -> Re
 
 /// Append one action attempt to the source action JSONL store.
 pub fn append_action(ws: &Workspace, source: &SourceConfig, attempt: &ActionAttempt) -> Result<()> {
-    let mut f = append_file(source_dir(ws, &source.id).join("actions.jsonl"))?;
+    let mut f = append_file(actions_path(ws, source))?;
     writeln!(f, "{}", serde_json::to_string(attempt)?)?;
     Ok(())
 }
@@ -88,9 +88,10 @@ pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
 /// Return every stored action attempt for the workspace.
 pub fn all_actions(ws: &Workspace) -> Result<Vec<ActionAttempt>> {
     let mut out = Vec::new();
+    let mut seen_paths = HashSet::new();
     for source in &ws.config.sources {
-        let path = source_dir(ws, &source.id).join("actions.jsonl");
-        if !path.exists() {
+        let path = actions_path(ws, source);
+        if !seen_paths.insert(path.clone()) || !path.exists() {
             continue;
         }
         for line in BufReader::new(File::open(path)?).lines() {
@@ -101,8 +102,8 @@ pub fn all_actions(ws: &Workspace) -> Result<Vec<ActionAttempt>> {
 }
 
 /// Return identity keys for successful actions, used to skip already-completed work.
-pub fn successful_actions(ws: &Workspace, source_id: &str) -> Result<HashSet<String>> {
-    let path = source_dir(ws, source_id).join("actions.jsonl");
+pub fn successful_actions(ws: &Workspace, source: &SourceConfig) -> Result<HashSet<String>> {
+    let path = actions_path(ws, source);
     if !path.exists() {
         return Ok(HashSet::new());
     }
@@ -129,7 +130,7 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
     if as_json {
         let rows: Vec<_> = items
             .into_iter()
-            .map(|item| json!({ "item": item, "action_state": action_state(&actions, &item.id) }))
+            .map(|item| json!({ "action_state": action_state(&actions, &item), "item": item }))
             .collect();
         println!("{}", serde_json::to_string_pretty(&rows)?);
     } else {
@@ -138,7 +139,7 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
                 "{}\t{}\t{}\t{}",
                 item.id,
                 item.status,
-                action_state(&actions, &item.id),
+                action_state(&actions, &item),
                 item.title
             );
         }
@@ -147,10 +148,13 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
 }
 
 // Derive display state from action attempts for one item.
-fn action_state(actions: &[ActionAttempt], item_id: &str) -> &'static str {
+fn action_state(actions: &[ActionAttempt], item: &Item) -> &'static str {
     let mut saw_action = false;
     let mut saw_failure = false;
-    for action in actions.iter().filter(|a| a.item_id == item_id) {
+    for action in actions
+        .iter()
+        .filter(|a| a.source_id == item.source_id && a.item_id == item.id)
+    {
         saw_action = true;
         saw_failure |= !action.success;
     }
@@ -286,6 +290,35 @@ mod tests {
         assert_eq!(items.len(), 2);
     }
 
+    #[test]
+    fn successful_actions_are_scoped_to_source_hash() {
+        let old_source = jira_source("jira", "https://team-a.atlassian.net", "project = AB");
+        let new_source = jira_source(
+            "jira",
+            "https://team-a.atlassian.net",
+            "assignee = currentUser()",
+        );
+        let ws = workspace(vec![new_source.clone()]);
+        let _cleanup = StoreCleanup::new(&ws);
+
+        append_action(&ws, &old_source, &attempt("jira", "PROJ-1", true)).unwrap();
+
+        assert!(successful_actions(&ws, &new_source).unwrap().is_empty());
+    }
+
+    #[test]
+    fn action_state_is_scoped_to_item_source() {
+        let item = Item {
+            source_id: "b".into(),
+            ..item("from b", "PROJ-1")
+        };
+
+        assert_eq!(
+            action_state(&[attempt("a", "PROJ-1", true)], &item),
+            "pending"
+        );
+    }
+
     fn workspace(sources: Vec<SourceConfig>) -> Workspace {
         Workspace {
             id: format!(
@@ -326,6 +359,21 @@ mod tests {
             source_id: "jira".into(),
             source_kind: "jira".into(),
             raw: json!({}),
+        }
+    }
+
+    fn attempt(source_id: &str, item_id: &str, success: bool) -> ActionAttempt {
+        ActionAttempt {
+            ts: "2026-01-01T00:00:00Z".into(),
+            source_id: source_id.into(),
+            item_id: item_id.into(),
+            source_action_index: 0,
+            uses: "agentboard/run-cmd".into(),
+            rendered_action_hash: "abc123".into(),
+            success,
+            stdout: String::new(),
+            stderr: String::new(),
+            message: None,
         }
     }
 

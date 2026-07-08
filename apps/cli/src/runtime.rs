@@ -71,7 +71,7 @@ async fn run_source(ws: &Workspace, source: &SourceConfig, dry_run: bool) -> Res
     if !dry_run {
         append_items(ws, source, &items)?;
     }
-    let successes = successful_actions(ws, &source.id)?;
+    let successes = successful_actions(ws, source)?;
     let mut ok = true;
     for item in items {
         for (idx, action) in source.actions.iter().enumerate() {
