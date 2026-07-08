@@ -6,6 +6,10 @@ use directories::BaseDirs;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+/// Load a workspace by name or explicit TOML path, then validate it.
+///
+/// Named workspaces resolve under the user config directory. Explicit paths get
+/// a stable workspace id from the file stem plus canonical path hash.
 pub fn load_workspace(input: &str) -> Result<Workspace> {
     let path = if input.ends_with(".toml") || input.contains('/') {
         expand_path(input)
@@ -31,6 +35,7 @@ pub fn load_workspace(input: &str) -> Result<Workspace> {
     Ok(Workspace { id, path, config })
 }
 
+/// Validate workspace config invariants before a run touches sources or actions.
 pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
     let mut ids = HashSet::new();
     for src in &config.sources {
@@ -112,18 +117,21 @@ fn require_inputs(action: &ActionConfig, keys: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// Return the XDG config directory used for named workspace files.
 pub fn config_home() -> PathBuf {
     BaseDirs::new()
         .map(|d| d.config_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from(".config"))
 }
 
+/// Return the XDG data directory used for append-only store records.
 pub fn data_home() -> PathBuf {
     BaseDirs::new()
         .map(|d| d.data_dir().to_path_buf())
         .unwrap_or_else(|| PathBuf::from(".local/share"))
 }
 
+/// Return the user's home directory for `~` expansion.
 pub fn home_dir() -> PathBuf {
     BaseDirs::new()
         .map(|d| d.home_dir().to_path_buf())
@@ -131,18 +139,22 @@ pub fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Return the root store directory for one workspace.
 pub fn store_root(ws: &Workspace) -> PathBuf {
     data_home().join("agentboard").join(&ws.id)
 }
 
+/// Return the per-source store directory for one workspace source.
 pub fn source_dir(ws: &Workspace, source_id: &str) -> PathBuf {
     store_root(ws).join("sources").join(source_id)
 }
 
+/// Expand a configured path into a filesystem path.
 pub fn expand_path(s: &str) -> PathBuf {
     PathBuf::from(expand_vars(s))
 }
 
+/// Expand leading `~/`, `$VAR`, and `${VAR}` in trusted local config strings.
 pub fn expand_vars(s: &str) -> String {
     let mut out = if let Some(rest) = s.strip_prefix("~/") {
         home_dir().join(rest).display().to_string()
@@ -157,12 +169,14 @@ pub fn expand_vars(s: &str) -> String {
     out
 }
 
+/// Hash a JSON value as stable hex for action identity.
 pub fn hash_json(v: &Value) -> String {
     let mut h = Sha256::new();
     h.update(serde_json::to_vec(v).unwrap());
     hex::encode(h.finalize())
 }
 
+/// Return a short stable hash for workspace ids derived from explicit paths.
 pub fn short_hash(s: &str) -> String {
     hex::encode(Sha256::digest(s.as_bytes()))[..12].to_string()
 }

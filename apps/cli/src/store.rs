@@ -16,6 +16,7 @@ use crate::{
     config::{source_dir, store_root},
 };
 
+/// Held workspace run lock. Unlocks when dropped.
 pub struct Lock(File);
 
 impl Drop for Lock {
@@ -24,6 +25,7 @@ impl Drop for Lock {
     }
 }
 
+/// Acquire the per-workspace lock that prevents overlapping runs.
 pub fn acquire_lock(ws: &Workspace) -> Result<Lock> {
     let path = store_root(ws).join("run.lock");
     fs::create_dir_all(path.parent().unwrap())?;
@@ -44,6 +46,7 @@ pub fn acquire_lock(ws: &Workspace) -> Result<Lock> {
     }
 }
 
+/// Append item observations for one source to its JSONL store.
 pub fn append_items(ws: &Workspace, source: &SourceConfig, items: &[Item]) -> Result<()> {
     let mut f = append_file(source_dir(ws, &source.id).join("items.jsonl"))?;
     for item in items {
@@ -52,6 +55,7 @@ pub fn append_items(ws: &Workspace, source: &SourceConfig, items: &[Item]) -> Re
     Ok(())
 }
 
+/// Append one action attempt to the source action JSONL store.
 pub fn append_action(ws: &Workspace, source: &SourceConfig, attempt: &ActionAttempt) -> Result<()> {
     let mut f = append_file(source_dir(ws, &source.id).join("actions.jsonl"))?;
     writeln!(f, "{}", serde_json::to_string(attempt)?)?;
@@ -63,6 +67,7 @@ fn append_file(path: PathBuf) -> Result<File> {
     Ok(OpenOptions::new().create(true).append(true).open(path)?)
 }
 
+/// Return the latest observed item per item id across configured sources.
 pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
     let mut map = HashMap::new();
     for source in &ws.config.sources {
@@ -78,6 +83,7 @@ pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
     Ok(map)
 }
 
+/// Return every stored action attempt for the workspace.
 pub fn all_actions(ws: &Workspace) -> Result<Vec<ActionAttempt>> {
     let mut out = Vec::new();
     for source in &ws.config.sources {
@@ -92,6 +98,7 @@ pub fn all_actions(ws: &Workspace) -> Result<Vec<ActionAttempt>> {
     Ok(out)
 }
 
+/// Return identity keys for successful actions, used to skip already-completed work.
 pub fn successful_actions(ws: &Workspace, source_id: &str) -> Result<HashSet<String>> {
     let path = source_dir(ws, source_id).join("actions.jsonl");
     if !path.exists() {
@@ -112,6 +119,7 @@ pub fn successful_actions(ws: &Workspace, source_id: &str) -> Result<HashSet<Str
     Ok(out)
 }
 
+/// Print latest stored items with derived action state.
 pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
     let mut items: Vec<_> = latest_items(ws)?.into_values().collect();
     items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -136,6 +144,7 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
     Ok(())
 }
 
+// Derive display state from action attempts for one item.
 fn action_state(actions: &[ActionAttempt], item_id: &str) -> &'static str {
     let mut saw_action = false;
     let mut saw_failure = false;
@@ -152,6 +161,7 @@ fn action_state(actions: &[ActionAttempt], item_id: &str) -> &'static str {
     }
 }
 
+/// Print one latest stored item and its action attempts.
 pub fn show_item(ws: &Workspace, item_id: &str, as_json: bool) -> Result<()> {
     let item = latest_items(ws)?
         .remove(item_id)
@@ -177,6 +187,7 @@ pub fn show_item(ws: &Workspace, item_id: &str, as_json: bool) -> Result<()> {
     Ok(())
 }
 
+/// Validate config, store writability, source reachability, and required commands.
 pub async fn doctor(ws: &Workspace) -> Result<()> {
     crate::config::validate_config(&ws.config)?;
     let root = store_root(ws);
@@ -212,6 +223,7 @@ fn command_exists(cmd: &str) -> Result<()> {
         .with_context(|| format!("required command {cmd} not found"))
 }
 
+/// Build the stable identity key for one rendered source action.
 pub fn action_key(source_id: &str, item_id: &str, idx: usize, hash: &str) -> String {
     format!("{source_id}\0{item_id}\0{idx}\0{hash}")
 }

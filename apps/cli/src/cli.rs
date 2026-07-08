@@ -11,6 +11,7 @@ use crate::{
 #[derive(Debug, Parser)]
 #[command(name = "agentboard")]
 #[command(about = "Collect task-tracking items into local agent work queues")]
+/// Parsed `agentboard` command-line interface.
 pub struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -49,6 +50,7 @@ enum Command {
     Schema,
 }
 
+/// Parse CLI arguments and dispatch the requested user command.
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {

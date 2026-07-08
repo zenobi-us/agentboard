@@ -10,6 +10,7 @@ use serde_json::json;
 
 use crate::config::{expand_vars, hash_json};
 
+/// Render an action's input templates and compute its retry identity hash.
 pub fn render_action(
     ws: &Workspace,
     source: &SourceConfig,
@@ -36,6 +37,7 @@ pub fn render_action(
     Ok(RenderedAction { inputs, hash })
 }
 
+/// Convert arbitrary text into a conservative path/branch-safe slug.
 pub fn slugify(s: String) -> String {
     let mut out = String::new();
     for c in s.chars() {

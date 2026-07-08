@@ -9,6 +9,9 @@ use crate::{
     template::render_action,
 };
 
+/// Execute one workspace run.
+///
+/// A normal run holds the workspace lock. Dry runs skip locking and store writes.
 pub async fn run_once(ws: &Workspace, dry_run: bool) -> Result<()> {
     let _lock = if dry_run {
         None
@@ -18,6 +21,7 @@ pub async fn run_once(ws: &Workspace, dry_run: bool) -> Result<()> {
     run_sources(ws, dry_run).await
 }
 
+/// Repeatedly execute one workspace run until Ctrl-C.
 pub async fn watch(ws: Workspace, delay: Duration) -> Result<()> {
     let _lock = acquire_lock(&ws)?;
     loop {
@@ -31,6 +35,7 @@ pub async fn watch(ws: Workspace, delay: Duration) -> Result<()> {
     }
 }
 
+// Run source pipelines concurrently, but report a failed process if any source fails.
 async fn run_sources(ws: &Workspace, dry_run: bool) -> Result<()> {
     let ws = Arc::new(ws.clone());
     let mut handles = Vec::new();
@@ -59,6 +64,7 @@ async fn run_sources(ws: &Workspace, dry_run: bool) -> Result<()> {
     Ok(())
 }
 
+// Run one source pipeline: collect, append observations, then execute pending actions serially.
 async fn run_source(ws: &Workspace, source: &SourceConfig, dry_run: bool) -> Result<bool> {
     let mut items = collect_items(source).await?;
     items.sort_by(|a, b| a.id.cmp(&b.id));
@@ -96,6 +102,9 @@ async fn run_source(ws: &Workspace, source: &SourceConfig, dry_run: bool) -> Res
     Ok(ok)
 }
 
+/// Parse an interval string accepted by `watch`.
+///
+/// Currently accepts seconds with or without a trailing `s`.
 pub fn parse_duration(s: &str) -> Result<Duration> {
     let secs = s.strip_suffix('s').unwrap_or(s).parse()?;
     Ok(Duration::from_secs(secs))

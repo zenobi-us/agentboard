@@ -5,6 +5,7 @@ use agentboard_core::{
 use anyhow::Result;
 use chrono::Utc;
 
+/// Dispatch collection to the crate that owns the configured source kind.
 pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
     match &source.source {
         SourceKind::Qmd { .. } => agentboard_source_qmd::collect_items(source).await,
@@ -12,6 +13,7 @@ pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
     }
 }
 
+/// Dispatch one rendered action to its built-in action crate and normalize the result.
 pub fn execute_action(
     ws: &Workspace,
     source: &SourceConfig,
