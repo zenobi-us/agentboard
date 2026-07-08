@@ -15,11 +15,15 @@ AgentBoard stores data under the user's XDG data directory:
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   run.lock
-  sources/
-    <source-id>/
-      items.jsonl
-      actions.jsonl
+  items-<source.slug>.jsonl
+  actions-<source.slug>-<source.hash>.jsonl
 ```
+
+`source.slug` identifies the upstream item universe. For Jira, it is derived from the normalized site URL because Jira issue keys are only unique inside one Jira organization. Two Jira Sources for the same site and different JQL views share an item file.
+
+`source.hash` identifies the configured Source view and Action plan. Changing JQL, mappings, or Actions creates a different action file without duplicating the broad item Store.
+
+Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 
 ## Workspace lock
 
@@ -29,15 +33,15 @@ ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
 - `watch` holds the lock until it exits.
 - Overlapping normal Runs for the same Workspace fail.
 
-## `items.jsonl`
+## `items-<source.slug>.jsonl`
 
 Each line is one normalized item observation.
 
 A new Run appends new observations. It does not rewrite older lines.
 
-`list` and `show` derive the latest item by item id from the append-only file.
+`list` derives the latest item by item id inside each item universe. `show` returns one latest matching item, and reports ambiguity if the same item id exists in multiple item universes.
 
-## `actions.jsonl`
+## `actions-<source.slug>-<source.hash>.jsonl`
 
 Each line is one Action attempt.
 
@@ -71,6 +75,6 @@ This is display state, not tracker state.
 The Store is plain JSONL. Use normal shell tools:
 
 ```bash
-tail -n 20 ~/.local/share/agentboard/work/sources/local/actions.jsonl
-jq . ~/.local/share/agentboard/work/sources/local/items.jsonl
+tail -n 20 ~/.local/share/agentboard/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl
+jq . ~/.local/share/agentboard/work/items-jira-team-a-atlassian-net-abc123.jsonl
 ```
