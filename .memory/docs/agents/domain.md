@@ -9,7 +9,7 @@ This repo uses a **multi-context** domain-doc layout.
 Read these before exploring code:
 
 - `CONTEXT-MAP.md` at the repo root. It defines the monorepo contexts and points agents to the relevant `CONTEXT.md` files.
-- `pkgs/crates/agentboard/CONTEXT.md` when touching the Rust CLI or documenting AgentBoard behavior.
+- `apps/cli/CONTEXT.md` when touching the Rust CLI, split AgentBoard crates, or documenting AgentBoard behavior.
 - Context-specific `CONTEXT.md` files only when `CONTEXT-MAP.md` lists one for the touched app/package.
 - `.memory/docs/adr/` for system-wide ADRs, if present.
 - `.memory/docs/adr/<relativepath>/` for context-scoped ADRs, if present.

@@ -4,7 +4,10 @@
 
 `agentboard` is a Moon + proto monorepo for a Rust CLI that collects task-tracking items from external and local sources, stores normalized local copies, then runs workspace-configured actions.
 
-- `pkgs/crates/agentboard`: Rust CLI.
+- `apps/cli`: Rust CLI.
+- `pkgs/crates/agentboard-core`: shared model/types.
+- `pkgs/crates/agentboard-source-*`: one crate per source adapter.
+- `pkgs/crates/agentboard-action-*`: one crate per action executor.
 - `apps/docs`: docs app scaffold.
 - `pkgs/tools/deployment`: release/deployment helper scripts.
 

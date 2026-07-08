@@ -6,7 +6,8 @@ This repo uses a multi-context domain-doc layout. Read this file first, then rea
 
 | Path | Context doc | Scope |
 | --- | --- | --- |
-| `pkgs/crates/agentboard` | `pkgs/crates/agentboard/CONTEXT.md` | Rust CLI domain: workspaces, sources, items, store, actions, runs, watch loops. |
+| `apps/cli` | `apps/cli/CONTEXT.md` | Rust CLI domain: workspaces, sources, items, store, actions, runs, watch loops. |
+| `pkgs/crates/agentboard-*` | `apps/cli/CONTEXT.md` | Shared CLI domain crates for models, sources, and actions. |
 | `apps/docs` | _none yet_ | Docs app. Uses the CLI domain terms when documenting AgentBoard behavior. |
 | `pkgs/tools/deployment` | _none yet_ | Release/deployment helper scripts. No separate domain language resolved yet. |
 
@@ -32,6 +33,7 @@ config loader -> source adapters -> per-source store -> action runner
 
 ## Current scaffold
 
-- `pkgs/crates/agentboard`: CLI crate placeholder and vision.
+- `apps/cli`: CLI crate.
+- `pkgs/crates/agentboard-*`: split Rust library crates for core, sources, and actions.
 - `apps/docs`: public docs scaffold.
 - `.github`, `.moon`, `proto`: copied monorepo infrastructure.

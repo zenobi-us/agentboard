@@ -69,7 +69,10 @@ status = "fields.status.name"
 
 ## Projects
 
-- `pkgs/crates/agentboard` — Rust CLI crate.
+- `apps/cli` — Rust CLI crate.
+- `pkgs/crates/agentboard-core` — shared model/types.
+- `pkgs/crates/agentboard-source-*` — one crate per source adapter.
+- `pkgs/crates/agentboard-action-*` — one crate per action executor.
 - `apps/docs` — docs app.
 - `pkgs/tools/deployment` — release/deploy helpers.
 
