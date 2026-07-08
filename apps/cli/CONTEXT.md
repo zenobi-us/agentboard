@@ -20,6 +20,10 @@ _Avoid_: Daemon unless it is actually installed as a service
 The local append-only record of item observations and action attempts for one workspace.
 _Avoid_: Database, cache when precision matters
 
+**Item Bucket**:
+A Store partition for one stable item universe. For Jira, the item universe is keyed by the normalized Jira site URL because Jira issue keys are only unique inside one Jira organization.
+_Avoid_: Cache shard, config hash
+
 ## Boundaries
 
 - The CLI owns config loading, validation, store paths, locking, runtime orchestration, and user commands.

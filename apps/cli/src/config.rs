@@ -1,6 +1,6 @@
 use std::{collections::HashSet, env, fs, path::PathBuf};
 
-use agentboard_core::model::{ActionConfig, SourceKind, Workspace, WorkspaceConfig};
+use agentboard_core::model::{ActionConfig, SourceConfig, SourceKind, Workspace, WorkspaceConfig};
 use anyhow::{bail, Context, Result};
 use directories::BaseDirs;
 use serde_json::Value;
@@ -149,6 +149,58 @@ pub fn source_dir(ws: &Workspace, source_id: &str) -> PathBuf {
     store_root(ws).join("sources").join(source_id)
 }
 
+/// Return the item Store path for a source item universe.
+pub fn items_path(ws: &Workspace, source: &SourceConfig) -> PathBuf {
+    store_root(ws).join(format!("items-{}.jsonl", source_slug(source)))
+}
+
+/// Return the action Store path for one configured source view/action plan.
+pub fn actions_path(ws: &Workspace, source: &SourceConfig) -> PathBuf {
+    store_root(ws).join(format!(
+        "actions-{}-{}.jsonl",
+        source_slug(source),
+        source_hash(source)
+    ))
+}
+
+/// Return the stable, readable item-universe identity for one source.
+pub fn source_slug(source: &SourceConfig) -> String {
+    let (kind, identity) = match &source.source {
+        SourceKind::Jira { site, .. } => ("jira", normalize_site(site)),
+        SourceKind::Qmd { collections, .. } => {
+            let mut collections = collections.clone();
+            collections.sort();
+            ("qmd", collections.join(","))
+        }
+    };
+    format!("{kind}-{}-{}", slugify(&identity), short_hash(&identity))
+}
+
+/// Return the stable configured-source identity for action logs.
+pub fn source_hash(source: &SourceConfig) -> String {
+    short_hash(&serde_json::to_string(source).unwrap())
+}
+
+fn normalize_site(site: &str) -> String {
+    site.trim()
+        .trim_end_matches('/')
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .to_ascii_lowercase()
+}
+
+fn slugify(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
 /// Expand a configured path into a filesystem path.
 pub fn expand_path(s: &str) -> PathBuf {
     PathBuf::from(expand_vars(s))
@@ -222,5 +274,67 @@ mod tests {
             }],
         };
         assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn jira_site_controls_item_store_identity() {
+        let first = jira_source("https://team-a.atlassian.net/", "project = AB");
+        let same_site = jira_source("https://team-a.atlassian.net", "assignee = currentUser()");
+        let other_site = jira_source("https://team-b.atlassian.net", "project = AB");
+
+        assert_eq!(source_slug(&first), source_slug(&same_site));
+        assert_ne!(source_slug(&first), source_slug(&other_site));
+    }
+
+    #[test]
+    fn source_hash_tracks_configured_source_view() {
+        let first = jira_source("https://team-a.atlassian.net", "project = AB");
+        let changed_jql = jira_source("https://team-a.atlassian.net", "assignee = currentUser()");
+
+        assert_ne!(source_hash(&first), source_hash(&changed_jql));
+    }
+
+    #[test]
+    fn store_paths_use_slug_and_hash() {
+        let source = jira_source("https://team-a.atlassian.net", "project = AB");
+        let ws = Workspace {
+            id: "work".into(),
+            path: "work.toml".into(),
+            config: WorkspaceConfig {
+                sources: vec![source.clone()],
+            },
+        };
+
+        let items = items_path(&ws, &source)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+        let actions = actions_path(&ws, &source)
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .to_string();
+
+        assert!(items.starts_with("items-jira-team-a-atlassian-net-"));
+        assert!(actions.starts_with("actions-jira-team-a-atlassian-net-"));
+        assert!(actions.ends_with(&format!("-{}.jsonl", source_hash(&source))));
+    }
+
+    fn jira_source(site: &str, jql: &str) -> SourceConfig {
+        SourceConfig {
+            id: "jira".into(),
+            source: SourceKind::Jira {
+                site: site.into(),
+                email_env: "JIRA_EMAIL".into(),
+                token_env: "JIRA_API_TOKEN".into(),
+                credentials: None,
+                jql: jql.into(),
+                limit: 50,
+                fields: vec![],
+                map: Default::default(),
+            },
+            actions: vec![],
+        }
     }
 }
