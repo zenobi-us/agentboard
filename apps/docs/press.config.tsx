@@ -16,6 +16,7 @@ export default defineConfig({
   },
   mode: "static",
   site: {
+    baseUrl: "https://zenobi-us.github.io/agentboard/",
     name: "AgentBoard",
     git: {
       repo: "agentboard",
