@@ -151,10 +151,7 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
 fn action_state(actions: &[ActionAttempt], item: &Item) -> &'static str {
     let mut saw_action = false;
     let mut saw_failure = false;
-    for action in actions
-        .iter()
-        .filter(|a| a.source_id == item.source_id && a.item_id == item.id)
-    {
+    for action in actions.iter().filter(|a| action_matches_item(a, item)) {
         saw_action = true;
         saw_failure |= !action.success;
     }
@@ -184,7 +181,7 @@ pub fn show_item(ws: &Workspace, item_id: &str, as_json: bool) -> Result<()> {
     };
     let actions: Vec<_> = all_actions(ws)?
         .into_iter()
-        .filter(|a| a.item_id == item_id)
+        .filter(|action| action_matches_item(action, &item))
         .collect();
     if as_json {
         println!(
@@ -237,6 +234,10 @@ fn command_exists(cmd: &str) -> Result<()> {
         .status()
         .map(|_| ())
         .with_context(|| format!("required command {cmd} not found"))
+}
+
+fn action_matches_item(action: &ActionAttempt, item: &Item) -> bool {
+    action.source_id == item.source_id && action.item_id == item.id
 }
 
 fn item_key(source_slug: &str, item_id: &str) -> String {
@@ -317,6 +318,17 @@ mod tests {
             action_state(&[attempt("a", "PROJ-1", true)], &item),
             "pending"
         );
+    }
+
+    #[test]
+    fn action_matching_is_scoped_to_item_source() {
+        let item = Item {
+            source_id: "b".into(),
+            ..item("from b", "PROJ-1")
+        };
+
+        assert!(!action_matches_item(&attempt("a", "PROJ-1", true), &item));
+        assert!(action_matches_item(&attempt("b", "PROJ-1", true), &item));
     }
 
     fn workspace(sources: Vec<SourceConfig>) -> Workspace {
