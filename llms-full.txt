@@ -55,3 +55,161 @@ Task trackers are good at tracking. Agents need repeatable local work queues.
 AgentBoard copies task-like items from sources like QMD-backed markdown into a local store, then runs configured actions such as creating worktrees and launching commands.
 
 AgentBoard is deliberately not a tracker replacement. Keep truth upstream. Use AgentBoard as the local automation bridge.
+
+
+# Jira source (/sources/jira)
+
+
+
+# Jira source [#jira-source]
+
+Use `kind = "jira"` to collect Jira issues with JQL.
+
+```toml
+[[sources]]
+id = "jira-ready"
+
+[sources.source]
+kind = "jira"
+site = "https://example.atlassian.net"
+jql = "project = AB AND statusCategory = Todo"
+limit = 50
+fields = ["summary", "status"]
+```
+
+Credentials come from environment variables by default. Defaults are `JIRA_EMAIL`
+and `JIRA_API_TOKEN`.
+
+```toml
+[sources.source]
+kind = "jira"
+site = "https://example.atlassian.net"
+email_env = "JIRA_EMAIL"
+token_env = "JIRA_API_TOKEN"
+jql = "project = AB ORDER BY updated DESC"
+```
+
+Or configure a credential helper. AgentBoard writes Git-style request lines to
+stdin (`protocol`, `host`) and reads either `username`/`password` or
+`email`/`token` lines from stdout.
+
+```toml
+[sources.source]
+kind = "jira"
+site = "https://example.atlassian.net"
+jql = "project = AB ORDER BY updated DESC"
+
+[sources.source.credentials]
+helper = "agentboard-jira-credentials"
+```
+
+## Field mapping [#field-mapping]
+
+Defaults map `id` from `key`, `title` from `fields.summary`, `status` from
+`fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
+when you need custom Jira fields.
+
+```toml
+[sources.source.map]
+id = "key"
+title = "fields.summary"
+status = "fields.status.name"
+url = "fields.customfield_10010"
+```
+
+
+# QMD source (/sources/qmd)
+
+
+
+# QMD source [#qmd-source]
+
+Use `kind = "qmd"` to collect items from [QMD](https://github.com/tobi/qmd) collections.
+
+```toml
+[[sources]]
+id = "local-ready"
+
+[sources.source]
+kind = "qmd"
+collections = ["tasks"]
+query = "intent: Find ready work items\nlex: status ready"
+limit = 50
+```
+
+AgentBoard runs `qmd query`, then `qmd get --full` for each result. Each
+matched note must have YAML frontmatter with string fields for `id`, `title`,
+and `status`. `url` is optional; when absent AgentBoard uses the QMD document
+reference.
+
+## Field mapping [#field-mapping]
+
+Use `map` when your frontmatter uses different names or nested fields.
+
+```toml
+[sources.source.map]
+id = "agentboard.id"
+title = "title"
+status = "workflow.status"
+url = "links.issue"
+```
+
+
+# Run command action (/actions/run-cmd)
+
+
+
+# Run command action [#run-command-action]
+
+Use `agentboard/run-cmd` to run a shell command for each collected item.
+
+```toml
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+cmd = "echo {{ item.id }} {{ item.title }}"
+```
+
+AgentBoard runs the command through `sh -c`. Templates can use the collected
+item and source fields.
+
+The command receives these environment variables:
+
+* `AGENTBOARD_WORKSPACE_ID`
+* `AGENTBOARD_SOURCE_ID`
+* `AGENTBOARD_ITEM_ID`
+
+Set `cwd` when the command should run from a specific directory.
+
+```toml
+[sources.actions.with]
+cwd = "/home/me/dev/myrepo"
+cmd = "pi --prompt '{{ item.title }}'"
+```
+
+
+# Create worktree action (/actions/worktree)
+
+
+
+# Create worktree action [#create-worktree-action]
+
+Use `agentboard/create-worktree` to create or reuse a Git worktree for each
+item.
+
+```toml
+[[sources.actions]]
+uses = "agentboard/create-worktree"
+
+[sources.actions.with]
+repo = "/home/me/dev/myrepo"
+root = "/home/me/dev/myrepo.trees/{{ item.id }}"
+branch = "feat/{{ item.id }}-{{ item.title | slugify }}"
+```
+
+`repo` is the source repository. `root` is the worktree path. `branch` is the
+branch name to create or check out for the item.
+
+Pair it with `agentboard/run-cmd` when you want to open the new worktree in a
+terminal or agent session.

@@ -2,3 +2,11 @@
 
 - [Why AgentBoard](/why)
 - [Quickstart](/quickstart)
+
+- **Sources**
+- [Jira source](/sources/jira)
+- [QMD source](/sources/qmd)
+
+- **Actions**
+- [Run command action](/actions/run-cmd)
+- [Create worktree action](/actions/worktree)
