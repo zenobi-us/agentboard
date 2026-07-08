@@ -10,10 +10,13 @@ const docsSource = update(docs.toFumadocsSource())
   .page((page) => page)
   .build();
 
+const packageDocName = (path: string, prefix: string) =>
+  (path.split("/")[0] ?? path).replace(prefix, "").replaceAll("_", "-");
+
 const sourceDocsSource = update(sourceDocs.toFumadocsSource())
   .files((files) => files.filter((file) => file.path.endsWith("docs.md")))
   .page((page) => {
-    const name = page.path.split("/")[1]?.replaceAll("_", "-") ?? page.path;
+    const name = packageDocName(page.path, "agentboard-source-");
     const slugs = ["sources", name];
 
     return {
@@ -31,12 +34,10 @@ const sourceDocsSource = update(sourceDocs.toFumadocsSource())
   })
   .build();
 
-
-
 const actionDocsSource = update(actionDocs.toFumadocsSource())
   .files((files) => files.filter((file) => file.path.endsWith("docs.md")))
   .page((page) => {
-    const name = page.path.split("/")[1]?.replaceAll("_", "-") ?? page.path;
+    const name = packageDocName(page.path, "agentboard-action-");
     const slugs = ["actions", name];
 
     return {

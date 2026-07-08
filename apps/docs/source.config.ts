@@ -20,18 +20,18 @@ export const docs = defineDocs({
 });
 
 export const sourceDocs = defineDocs({
-  dir: "../../pkgs/crates/agentboard/src",
+  dir: "../../pkgs/crates",
   docs: {
-    files: ["sources/*/docs.md"],
+    files: ["agentboard-source-*/src/docs.md"],
     ...docsOptions,
   },
   meta: metaOptions,
 });
 
 export const actionDocs = defineDocs({
-  dir: "../../pkgs/crates/agentboard/src",
+  dir: "../../pkgs/crates",
   docs: {
-    files: ["actions/*/docs.md"],
+    files: ["agentboard-action-*/src/docs.md"],
     ...docsOptions,
   },
   meta: metaOptions,
