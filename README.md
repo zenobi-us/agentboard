@@ -4,10 +4,10 @@ Rust CLI for collecting task-tracking items from many sources into a local store
 
 ## Purpose
 
-AgentBoard is an automation bridge for agent work queues. It collects items from Jira, Linear, local markdown, GitHub Projects, and GitHub Issues, copies them locally, then runs rules from a TOML/YAML workspace file.
+AgentBoard is an automation bridge for agent work queues. It queries sources such as QMD-backed markdown, copies items locally, then runs rules from a TOML workspace file.
 
 ```text
-Collect -> Store locally -> Run actions
+Query sources -> Store locally -> Run actions
 ```
 
 ## Workspace config
@@ -17,7 +17,7 @@ Workspace files live in user config:
 ```text
 ~/.config/agentboard/
   work.toml
-  personal.yaml
+  personal.toml
 ```
 
 Example:
@@ -25,22 +25,18 @@ Example:
 ```toml
 [[sources]]
 id = "foo"
-query = "status:ready"
 
 [sources.source]
-kind = "jira"
-url = "https://example.atlassian.net"
-credential_helper = "op read op://vault/jira/token"
-
-[[sources.actions]]
-uses = "agentboard/sync"
+kind = "qmd"
+collections = ["tasks"]
+query = "intent: Find ready agent work\nlex: status ready"
 
 [[sources.actions]]
 uses = "agentboard/create-worktree"
 
 [sources.actions.with]
 repo = "~/Projects/MyProject"
-root = "{{ repo }}.worktrees/{{ branchname }}"
+root = "~/Projects/MyProject.worktrees/{{ item.id }}"
 branch = "{{ item.id }}/{{ item.title | slugify }}"
 
 [[sources.actions]]
@@ -48,6 +44,27 @@ uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 cmd = "zellij action new-tab --name {{ item.id }}"
+```
+
+Jira Cloud source example:
+
+```toml
+[[sources]]
+id = "jira"
+
+[sources.source]
+kind = "jira"
+site = "https://your-domain.atlassian.net"
+email_env = "JIRA_EMAIL"
+token_env = "JIRA_API_TOKEN"
+jql = "project = AB AND statusCategory != Done ORDER BY updated DESC"
+limit = 50
+fields = ["customfield_10010"]
+
+[sources.source.map]
+id = "key"
+title = "fields.summary"
+status = "fields.status.name"
 ```
 
 ## Projects

@@ -17,7 +17,7 @@ AgentBoard is a small automation layer for agent-driven work queues. It should n
 The first useful slice is deliberately narrow:
 
 1. Load TOML workspace config by name or explicit path.
-2. Collect local markdown items from recursive directories.
+2. Collect markdown-backed items through QMD collections.
 3. Store normalized item observations and action attempts in per-source JSONL files.
 4. Render MiniJinja templates for action inputs.
 5. Run pending `agentboard/create-worktree` and `agentboard/run-cmd` actions.
@@ -51,11 +51,12 @@ agentboard schema > agentboard.schema.json
 ```toml
 [[sources]]
 id = "local"
-query = "status:ready OR priority:high"
 
 [sources.source]
-kind = "markdown"
-path = "~/Projects/MyProject/tasks"
+kind = "qmd"
+collections = ["tasks"]
+query = "intent: Find ready or high-priority work items\nlex: status ready priority high"
+limit = 50
 
 [[sources.actions]]
 uses = "agentboard/create-worktree"
@@ -75,11 +76,11 @@ cwd = "~/Projects/MyProject"
 
 Unknown workspace/source/action fields are validation errors, except arbitrary keys under an action `with` table.
 
-## Markdown source
+## QMD source
 
-MVP supports only `kind = "markdown"`.
+MVP supports only `kind = "qmd"`. QMD is an optional runtime dependency: AgentBoard builds without it, but `run` and `doctor` fail clearly for QMD sources when the `qmd` command is missing.
 
-A markdown source reads `*.md` files recursively under `path`. Each file is one item and must have YAML frontmatter with at least:
+A QMD source passes its query through to `qmd query` against named collections. Each retrieved markdown document becomes one item and should have YAML frontmatter with at least:
 
 ```markdown
 ---
@@ -96,36 +97,41 @@ Task details live here.
 
 Normalized item fields:
 
-- `id` — from frontmatter `id`
-- `title` — from frontmatter `title`
-- `status` — from frontmatter `status`
-- `url` — frontmatter `url`, or `file://<canonical path>` when missing
+- `id` — from frontmatter `id` by default
+- `title` — from frontmatter `title` by default
+- `status` — from frontmatter `status` by default
+- `url` — frontmatter `url`, or the QMD document reference when missing
 - `source_id` — workspace source id
-- `source_kind` — `markdown`
-- `raw` — structured object containing frontmatter, markdown body, and source path
+- `source_kind` — `qmd`
+- `raw` — structured object containing QMD result metadata, frontmatter, and markdown body
+
+Optional field mapping lives under `[sources.source.map]` and uses frontmatter keys, including dotted paths:
+
+```toml
+[sources.source.map]
+id = "agentboard.id"
+title = "name"
+status = "state"
+url = "links.html"
+```
 
 Duplicate item ids within one source are source errors.
 
-Markdown sources are read-only. AgentBoard never edits source markdown files in the MVP.
+QMD sources are read-only. AgentBoard never edits source markdown files in the MVP.
 
 ## Queries
 
-A source `query` is optional. Missing query means all items from that source match.
+Queries are Source-owned. For QMD, `query` is required inside `[sources.source]` and is passed to `qmd query`.
 
-MVP uses `search-query-parser` for boolean syntax:
+Example:
 
 ```text
-status:ready AND (priority:high OR labels:agent)
+intent: Find work ready for agents
+lex: status ready labels agent
+vec: actionable tasks ready for autonomous coding agents
 ```
 
-Rules:
-
-- Terms must be fielded as `field:value`.
-- Fieldless terms are validation errors.
-- Quote the whole field/value token for values with spaces: `"title:Fix login"`.
-- Scalar YAML values match by exact string equality.
-- YAML arrays match when they contain the queried value.
-- Matching is case-sensitive.
+Each QMD source must name at least one collection. AgentBoard does not search the whole local QMD index by default.
 
 ## Store
 
@@ -165,7 +171,7 @@ An action runs when no previous successful action result exists for:
 
 Failed actions retry on the next `run` or `watch` until they succeed.
 
-Actions run in source config order, then markdown relative path order, then action config order. Actions are ordered and blocking per item: if action 1 fails, action 2 for that item does not run yet.
+Actions run in source config order, then item id order, then action config order. Actions are ordered and blocking per item: if action 1 fails, action 2 for that item does not run yet.
 
 ### `agentboard/create-worktree`
 
@@ -266,15 +272,15 @@ agentboard schema
 - No public `collect` command in the MVP; collect is an internal stage of `run`.
 - No user-defined action registry until built-in actions prove the shape.
 - No YAML/JSON workspace config until TOML is useful.
-- No GitHub/Jira/Linear source adapters until markdown works end to end.
+- No GitHub/Jira/Linear source adapters until QMD-backed markdown works end to end.
 - No full Jira/Linear field model before real use demands it.
 
 ## Implementation notes
 
-Use a thin `main.rs` plus library modules by concern: CLI, config, model, query, sources, actions, store, and templates.
+Use a thin `main.rs` plus library modules by concern: CLI, config, model, sources, actions, store, and templates.
 
 The MVP source abstraction should be an async `SourceAdapter` trait with a `collect` operation. Leave short TODO comments for future validation/auth/pagination hooks; do not build a plugin registry yet.
 
 The MVP action abstraction should be a tiny trait for built-ins only. User actions are future work.
 
-Tests should include Rust unit tests for parsing/query/store/template logic and a separate Bats task for CLI integration behavior.
+Tests should include Rust unit tests for config/source/store/template logic and a separate Bats task for CLI integration behavior.
