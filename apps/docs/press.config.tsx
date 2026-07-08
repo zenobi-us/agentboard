@@ -2,62 +2,93 @@ import { defineConfig } from "fumapress";
 import { llmsPlugin } from "fumapress/plugins/llms.txt";
 import { flexsearchPlugin } from "fumapress/plugins/flexsearch";
 import { fumadocsMdx } from "fumapress/adapters/mdx";
-import { update } from "fumadocs-core/source";
+import {
+  update,
+  type MetaData,
+  type PageData,
+  type StaticSource,
+} from "fumadocs-core/source";
+import type { FileInfo } from "fumadocs-mdx/runtime/types";
 // don't worry if this file is missing, we will run the dev command later to generate this file
-import { actionDocs, docs, sourceDocs } from "./.source/server";
+import { actionDocs, cliDocs, docs, sourceDocs } from "./.source/server";
 
 const docsSource = update(docs.toFumadocsSource())
   .page((page) => page)
   .build();
 
-const packageDocName = (path: string, prefix: string) =>
-  (path.split("/")[0] ?? path).replace(prefix, "").replaceAll("_", "-");
+type PressPageData = PageData & {
+  info: FileInfo;
+};
 
-const sourceDocsSource = update(sourceDocs.toFumadocsSource())
-  .files((files) => files.filter((file) => file.path.endsWith("docs.md")))
-  .page((page) => {
-    const name = packageDocName(page.path, "agentboard-source-");
-    const slugs = ["sources", name];
+type SourceConfig = {
+  pageData: PressPageData;
+  metaData: MetaData;
+};
 
-    return {
-      ...page,
-      slugs,
-      path: slugs.join("/"),
-      data: {
+type SourceUpdater<T extends SourceConfig> = ReturnType<typeof update<T>>;
+type UpdatedSource<T extends SourceConfig> = StaticSource<{
+  pageData: T["pageData"];
+  metaData: T["metaData"];
+}>;
+
+const docName = (path: string, pattern: RegExp, prefix = "") => {
+  const [, name = path] = path.match(pattern) ?? [];
+
+  return name.replace(prefix, "").replaceAll("_", "-");
+};
+
+const packageDocsSource = <T extends SourceConfig>(
+  source: SourceUpdater<T>,
+  filePattern: RegExp,
+  slugPrefix: string,
+  packagePrefix = "",
+): UpdatedSource<T> =>
+  source
+    .files((files) => files.filter((file) => file.path.match(filePattern)))
+    .page((page) => {
+      const slugs = [slugPrefix, docName(page.path, filePattern, packagePrefix)];
+      const path = slugs.join("/");
+      const data: T["pageData"] = {
         ...page.data,
         info: {
           ...page.data.info,
-          path: `/${slugs.join("/")}`,
+          path: `/${path}`,
         },
-      },
-    };
-  })
-  .build();
+      };
 
-const actionDocsSource = update(actionDocs.toFumadocsSource())
-  .files((files) => files.filter((file) => file.path.endsWith("docs.md")))
-  .page((page) => {
-    const name = packageDocName(page.path, "agentboard-action-");
-    const slugs = ["actions", name];
+      return {
+        ...page,
+        slugs,
+        path,
+        data,
+      };
+    })
+    .build();
 
-    return {
-      ...page,
-      slugs,
-      path: slugs.join("/"),
-      data: {
-        ...page.data,
-        info: {
-          ...page.data.info,
-          path: `/${slugs.join("/")}`,
-        },
-      },
-    };
-  })
-  .build();
+const cliDocsSource = packageDocsSource(
+  update(cliDocs.toFumadocsSource()),
+  /^docs\/(.+)\.md$/,
+  "cli",
+);
+
+const sourceDocsSource = packageDocsSource(
+  update(sourceDocs.toFumadocsSource()),
+  /^([^/]+)\/src\/docs\.md$/,
+  "sources",
+  "agentboard-source-",
+);
+
+const actionDocsSource = packageDocsSource(
+  update(actionDocs.toFumadocsSource()),
+  /^([^/]+)\/src\/docs\.md$/,
+  "actions",
+  "agentboard-action-",
+);
 
 export default defineConfig({
   content: {
     docs: docsSource,
+    cliDocs: cliDocsSource,
     sourceDocs: sourceDocsSource,
     actionDocs: actionDocsSource,
   },
