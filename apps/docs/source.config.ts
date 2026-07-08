@@ -19,6 +19,15 @@ export const docs = defineDocs({
   meta: metaOptions,
 });
 
+export const cliDocs = defineDocs({
+  dir: "../cli",
+  docs: {
+    files: ["docs/*.md"],
+    ...docsOptions,
+  },
+  meta: metaOptions,
+});
+
 export const sourceDocs = defineDocs({
   dir: "../../pkgs/crates",
   docs: {

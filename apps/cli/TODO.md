@@ -1,0 +1,6 @@
+- hash workspace config, work out best way to invalidate item store and action log.
+  - problem: clobbering items.jsonl and actions.jsonl on workspace config change is not ideal.
+  - idea: store action log and item store separately. 
+    - items most likely won't change if the source query changes, source login changes.
+    - items are most likely different entire source if remote url, kind, changes
+    - maybe source needs to own the idea of how and when a store of items needs a different bucket.  

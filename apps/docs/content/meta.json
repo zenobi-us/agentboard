@@ -3,6 +3,8 @@
   "pages": [
     "why",
     "quickstart",
+    "---Cli---",
+    ".../cli",
     "---Sources---",
     ".../sources",
     "---Actions---",
