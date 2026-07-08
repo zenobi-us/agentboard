@@ -1,0 +1,1 @@
+import{t as e}from"./flexsearch-static-D3Y1Diup.js";export default e();

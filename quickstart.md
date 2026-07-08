@@ -23,14 +23,11 @@ Example workspace:
 ```toml
 [[sources]]
 id = "local"
-query = "status:ready"
 
 [sources.source]
-kind = "markdown"
-path = "~/Projects/MyProject/tasks"
-
-[[sources.actions]]
-uses = "agentboard/sync"
+kind = "qmd"
+collections = ["tasks"]
+query = "intent: Find ready work items\nlex: status ready"
 
 [[sources.actions]]
 uses = "agentboard/run-cmd"
@@ -42,7 +39,6 @@ cmd = "echo {{ item.id }} {{ item.title }}"
 Planned CLI shape:
 
 ```bash
-agentboard collect work
 agentboard run work
-agentboard list
+agentboard list work
 ```
