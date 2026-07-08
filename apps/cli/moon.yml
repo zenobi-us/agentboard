@@ -1,0 +1,64 @@
+---
+$schema: "file://../../.moon/cache/schemas/project.json"
+id: agentboard
+language: rust
+layer: application
+
+tasks:
+  build:
+    command: "cargo build -p agentboard"
+    inputs:
+      - "Cargo.toml"
+      - "src/**/*.rs"
+      - "/pkgs/crates/agentboard-*/Cargo.toml"
+      - "/pkgs/crates/agentboard-*/src/**/*.rs"
+    outputs:
+      - "/target/debug/agentboard"
+
+  check:
+    command: "cargo check -p agentboard"
+    inputs:
+      - "Cargo.toml"
+      - "src/**/*.rs"
+      - "/pkgs/crates/agentboard-*/Cargo.toml"
+      - "/pkgs/crates/agentboard-*/src/**/*.rs"
+
+  typecheck:
+    deps:
+      - "~:check"
+    command: "noop"
+
+  test:
+    command: "cargo test -p agentboard"
+    inputs:
+      - "Cargo.toml"
+      - "src/**/*.rs"
+      - "/pkgs/crates/agentboard-*/Cargo.toml"
+      - "/pkgs/crates/agentboard-*/src/**/*.rs"
+
+  bats:
+    deps:
+      - "~:build"
+    command: "bats test/*.bats"
+    inputs:
+      - "Cargo.toml"
+      - "src/**/*.rs"
+      - "/pkgs/crates/agentboard-*/Cargo.toml"
+      - "/pkgs/crates/agentboard-*/src/**/*.rs"
+      - "test/*.bats"
+
+  lint:
+    deps:
+      - "~:check"
+    command: "noop"
+
+  publish:
+    type: run
+    deps:
+      - "~:build"
+    options:
+      cache: false
+      runInCI: true
+    script: |
+      set -euo pipefail
+      echo "No publish target configured for agentboard yet."

@@ -1,0 +1,29 @@
+[package]
+name = "agentboard"
+version = "0.0.1"
+edition = "2021"
+description = "CLI for collecting task tracking items into local agent work queues"
+license = "MIT"
+repository = "https://github.com/zenobi-us/agentboard"
+
+[dependencies]
+agentboard-action-run-cmd = { path = "../../pkgs/crates/agentboard-action-run-cmd" }
+agentboard-action-worktree = { path = "../../pkgs/crates/agentboard-action-worktree" }
+agentboard-core = { path = "../../pkgs/crates/agentboard-core" }
+agentboard-source-jira = { path = "../../pkgs/crates/agentboard-source-jira" }
+agentboard-source-qmd = { path = "../../pkgs/crates/agentboard-source-qmd" }
+anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+fs4 = "1"
+hex = "0.4"
+minijinja = "2.21"
+schemars = { version = "0.8", features = ["preserve_order"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3"

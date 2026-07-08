@@ -1,0 +1,11 @@
+[package]
+name = "agentboard-action-run-cmd"
+version = "0.0.1"
+edition = "2021"
+description = "AgentBoard shell command action"
+license = "MIT"
+repository = "https://github.com/zenobi-us/agentboard"
+
+[dependencies]
+agentboard-core = { path = "../agentboard-core" }
+anyhow = "1"

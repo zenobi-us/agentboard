@@ -1,0 +1,32 @@
+---
+$schema: "file://../../../.moon/cache/schemas/project.json"
+language: rust
+layer: library
+
+tasks:
+  check:
+    command: "cargo check"
+    inputs:
+      - "Cargo.toml"
+      - "src/**/*.rs"
+
+  typecheck:
+    deps:
+      - "~:check"
+    command: "noop"
+
+  test:
+    command: "cargo test"
+    inputs:
+      - "Cargo.toml"
+      - "src/**/*.rs"
+
+  build:
+    deps:
+      - "~:check"
+    command: "noop"
+
+  lint:
+    deps:
+      - "~:check"
+    command: "noop"

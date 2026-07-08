@@ -1,0 +1,10 @@
+[workspace]
+members = [
+  "apps/cli",
+  "pkgs/crates/agentboard-action-run-cmd",
+  "pkgs/crates/agentboard-action-worktree",
+  "pkgs/crates/agentboard-core",
+  "pkgs/crates/agentboard-source-jira",
+  "pkgs/crates/agentboard-source-qmd",
+]
+resolver = "2"
