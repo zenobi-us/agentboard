@@ -1,4 +1,11 @@
 {
   "title": "AgentBoard",
-  "pages": ["why", "quickstart"]
+  "pages": [
+    "why",
+    "quickstart",
+    "---Sources---",
+    ".../sources",
+    "---Actions---",
+    ".../actions"
+  ]
 }

@@ -4,15 +4,61 @@ import { flexsearchPlugin } from "fumapress/plugins/flexsearch";
 import { fumadocsMdx } from "fumapress/adapters/mdx";
 import { update } from "fumadocs-core/source";
 // don't worry if this file is missing, we will run the dev command later to generate this file
-import { docs } from "./.source/server";
+import { actionDocs, docs, sourceDocs } from "./.source/server";
 
 const docsSource = update(docs.toFumadocsSource())
   .page((page) => page)
   .build();
 
+const sourceDocsSource = update(sourceDocs.toFumadocsSource())
+  .files((files) => files.filter((file) => file.path.endsWith("docs.md")))
+  .page((page) => {
+    const name = page.path.split("/")[1]?.replaceAll("_", "-") ?? page.path;
+    const slugs = ["sources", name];
+
+    return {
+      ...page,
+      slugs,
+      path: slugs.join("/"),
+      data: {
+        ...page.data,
+        info: {
+          ...page.data.info,
+          path: `/${slugs.join("/")}`,
+        },
+      },
+    };
+  })
+  .build();
+
+
+
+const actionDocsSource = update(actionDocs.toFumadocsSource())
+  .files((files) => files.filter((file) => file.path.endsWith("docs.md")))
+  .page((page) => {
+    const name = page.path.split("/")[1]?.replaceAll("_", "-") ?? page.path;
+    const slugs = ["actions", name];
+
+    return {
+      ...page,
+      slugs,
+      path: slugs.join("/"),
+      data: {
+        ...page.data,
+        info: {
+          ...page.data.info,
+          path: `/${slugs.join("/")}`,
+        },
+      },
+    };
+  })
+  .build();
+
 export default defineConfig({
   content: {
     docs: docsSource,
+    sourceDocs: sourceDocsSource,
+    actionDocs: actionDocsSource,
   },
   mode: "static",
   site: {

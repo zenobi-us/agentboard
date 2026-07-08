@@ -18,6 +18,7 @@ tasks:
     command: waku build
     inputs:
       - "content/**/*"
+      - "/pkgs/crates/agentboard/src/**/docs.md"
       - "public/**/*"
       - "package.json"
       - "press.config.tsx"
@@ -46,6 +47,7 @@ tasks:
     command: fumadocs-mdx
     inputs:
       - "content/**/*"
+      - "/pkgs/crates/agentboard/src/**/docs.md"
       - "public/**/*"
       - "package.json"
       - "press.config.tsx"
