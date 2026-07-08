@@ -3,6 +3,15 @@
 - [Why AgentBoard](/why)
 - [Quickstart](/quickstart)
 
+- **Cli**
+- [Actions](/cli/actions)
+- [Commands](/cli/commands)
+- [Sources](/cli/sources)
+- [Store](/cli/store)
+- [Templates](/cli/templates)
+- [Troubleshooting](/cli/troubleshooting)
+- [Workspaces](/cli/workspaces)
+
 - **Sources**
 - [Jira source](/sources/jira)
 - [QMD source](/sources/qmd)

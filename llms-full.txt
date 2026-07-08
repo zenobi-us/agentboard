@@ -57,6 +57,562 @@ AgentBoard copies task-like items from sources like QMD-backed markdown into a l
 AgentBoard is deliberately not a tracker replacement. Keep truth upstream. Use AgentBoard as the local automation bridge.
 
 
+# Actions (/cli/actions)
+
+
+
+# Actions [#actions]
+
+Actions are steps that are run after new items have been retrieved from a source.
+
+Define them in the `sources.actions` array in your workspace config.
+
+Each action is a sequential step that runs for each item in the source. Actions are blocking per item.
+
+This CLI doc only covers orchestration: ordering, retry identity, and trust model. Action-specific config belongs in each action crate doc.
+
+## Workspace Shape [#workspace-shape]
+
+```toml
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+cmd = "echo {{ item.id }}"
+```
+
+## Execution Order [#execution-order]
+
+Sources run concurrently. Item Actions inside one Source are serial.
+
+For each item retrieved by a Source, agentboard will then execute Actions in the order they are defined in the `sources.actions` array.
+
+Actions are blocking per item. If action `0` fails for an item, action `1` for that item does not run during that Run.
+
+## Retry Identity [#retry-identity]
+
+An Action runs when no previous successful attempt exists for:
+
+```text
+(source_id, item.id, source_action_index, rendered_action_hash)
+```
+
+Changing the rendered inputs changes the hash and makes the Action eligible to run again.
+
+Failed Actions retry on the next `run` or `watch` until they succeed.
+
+## Action Docs [#action-docs]
+
+* [`agentboard/create-worktree`](/actions/worktree)
+* [`agentboard/run-cmd`](/actions/run-cmd)
+
+## Trust Model [#trust-model]
+
+Workspace configs are trusted local code, like a `Makefile`. AgentBoard does not sandbox commands.
+
+
+# Commands (/cli/commands)
+
+
+
+# Commands [#commands]
+
+## `run` [#run]
+
+Execute one Workspace Run: load config, read Sources, append item observations, render pending Actions, and execute Actions.
+
+```bash
+agentboard run work
+agentboard run ./work.toml
+```
+
+Dry run collects and renders pending Actions without writing Store files or executing Actions:
+
+```bash
+agentboard run ./work.toml --dry-run
+```
+
+## `watch` [#watch]
+
+Repeatedly run one Workspace until Ctrl-C.
+
+```bash
+agentboard watch work
+agentboard watch work --interval 30s
+```
+
+Intervals are seconds with or without a trailing `s`.
+
+`watch` holds the Workspace lock until it exits.
+
+## `list` [#list]
+
+List latest stored items and derived Action state.
+
+```bash
+agentboard list work
+```
+
+Plain output:
+
+```text
+AB-001	ready	pending	Create the first worktree
+```
+
+JSON output:
+
+```bash
+agentboard list work --json
+```
+
+## `show` [#show]
+
+Show one latest stored item and its Action attempts.
+
+```bash
+agentboard show work AB-001
+agentboard show work AB-001 --json
+```
+
+## `doctor` [#doctor]
+
+Validate a Workspace and local environment.
+
+```bash
+agentboard doctor work
+```
+
+Checks include:
+
+* Workspace config validation.
+* Store directory writability.
+* Required Source commands, for example `qmd`.
+* Required Action commands, for example `git` for `agentboard/create-worktree`.
+* Source reachability by collecting items.
+
+## `schema` [#schema]
+
+Print the Workspace JSON Schema.
+
+```bash
+agentboard schema > agentboard.schema.json
+```
+
+Use this for editor validation and config discovery.
+
+
+# Sources (/cli/sources)
+
+
+
+# Sources [#sources]
+
+A Source reads items from an external or local system.
+
+This CLI doc only covers how Sources fit into a Workspace.
+
+For Source-specific config and behavior, see the specific source docs.
+
+## Workspace Shape [#workspace-shape]
+
+```toml
+[[sources]]
+id = "local"
+
+[sources.source]
+kind = "qmd"
+# source-specific fields live here
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+cmd = "echo {{ item.id }}"
+```
+
+## Execution Order [#execution-order]
+
+A workspace can define multiple Sources, and they can be sources of the same or different kinds.
+
+They are run concurrently, and when a source has finished retrieving items, its Actions are run sequentially for each item.
+
+## Normalized Item Shape [#normalized-item-shape]
+
+After downloading or reading items from a source, agentboard normalizes them into a small model that is stored in the Workspace store.
+
+They are stored in a common shape, so Actions can be written to work with any Source.
+
+Every Source produces normalized items:
+
+* `id`
+* `title`
+* `status`
+* `url`
+* `source_id`
+* `source_kind`
+* `raw`
+
+`raw` keeps the original Source payload so the normalized model can stay small.
+
+## Source Docs [#source-docs]
+
+* [QMD source](/sources/qmd)
+* [Jira source](/sources/jira)
+
+## CLI-Owned Behavior [#cli-owned-behavior]
+
+The CLI validates Source ids before a Run:
+
+* Source ids must be nonempty.
+* Source ids must be unique within one Workspace.
+
+Source crates own Source-specific validation and collection behavior.
+
+
+# Store (/cli/store)
+
+
+
+# Store [#store]
+
+The Store is AgentBoard's local append-only record of item observations and Action attempts.
+
+It is not the source of truth. The tracker or markdown collection remains the source of truth.
+
+## Location [#location]
+
+AgentBoard stores data under the user's XDG data directory:
+
+```text
+${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
+  run.lock
+  sources/
+    <source-id>/
+      items.jsonl
+      actions.jsonl
+```
+
+## Workspace lock [#workspace-lock]
+
+`run` and `watch` acquire `run.lock` for the Workspace.
+
+* `run --dry-run` skips the lock and does not write Store files.
+* `watch` holds the lock until it exits.
+* Overlapping normal Runs for the same Workspace fail.
+
+## `items.jsonl` [#itemsjsonl]
+
+Each line is one normalized item observation.
+
+A new Run appends new observations. It does not rewrite older lines.
+
+`list` and `show` derive the latest item by item id from the append-only file.
+
+## `actions.jsonl` [#actionsjsonl]
+
+Each line is one Action attempt.
+
+Action attempts include:
+
+* timestamp
+* source id
+* item id
+* source Action index
+* Action name
+* rendered Action hash
+* success flag
+* stdout
+* stderr
+* message
+
+Successful attempts are used to skip completed work on later Runs.
+
+## Derived action state [#derived-action-state]
+
+`list` shows a derived state for each item:
+
+* `pending` — no Action attempt exists for that item.
+* `succeeded` — at least one attempt exists and no attempt failed.
+* `failed` — at least one attempt failed.
+
+This is display state, not tracker state.
+
+## Inspecting by hand [#inspecting-by-hand]
+
+The Store is plain JSONL. Use normal shell tools:
+
+```bash
+tail -n 20 ~/.local/share/agentboard/work/sources/local/actions.jsonl
+jq . ~/.local/share/agentboard/work/sources/local/items.jsonl
+```
+
+
+# Templates (/cli/templates)
+
+
+
+# Templates [#templates]
+
+Action inputs are MiniJinja templates.
+
+```toml
+[sources.actions.with]
+cmd = "echo {{ item.id }}: {{ item.title }}"
+```
+
+## Context [#context]
+
+Templates can read:
+
+* `workspace`
+* `source`
+* `item`
+* `action`
+
+Example values:
+
+```jinja
+{{ workspace.id }}
+{{ workspace.path }}
+{{ source.id }}
+{{ item.id }}
+{{ item.title }}
+{{ item.status }}
+{{ item.url }}
+{{ action.uses }}
+{{ action.index }}
+```
+
+`item.raw` contains the original Source payload:
+
+```jinja
+{{ item.raw.jira.fields.priority.name }}
+```
+
+## Filters [#filters]
+
+AgentBoard registers `slugify` for conservative path and branch names:
+
+```jinja
+{{ item.title | slugify }}
+```
+
+Example:
+
+```text
+"Fix Login!" -> "fix-login"
+```
+
+## Expansion order [#expansion-order]
+
+AgentBoard renders MiniJinja first, then expands configured path variables:
+
+* leading `~/`
+* `$VAR`
+* `${VAR}`
+
+Example:
+
+```toml
+root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+```
+
+## Action hash [#action-hash]
+
+AgentBoard hashes the rendered Action inputs. That hash is part of retry identity:
+
+```text
+(source_id, item.id, source_action_index, rendered_action_hash)
+```
+
+If a template renders different inputs, AgentBoard treats it as new work.
+
+## Examples [#examples]
+
+Create one worktree per item:
+
+```toml
+[sources.actions.with]
+repo = "~/Projects/MyProject"
+root = "~/Projects/MyProject.worktrees/{{ item.id | slugify }}"
+branch = "{{ item.id | slugify }}"
+```
+
+Open a terminal tab:
+
+```toml
+[sources.actions.with]
+cmd = "zellij action new-tab --name {{ item.id | slugify }}"
+cwd = "~/Projects/MyProject"
+```
+
+
+# Troubleshooting (/cli/troubleshooting)
+
+
+
+# Troubleshooting [#troubleshooting]
+
+## `workspace lock is held` [#workspace-lock-is-held]
+
+Another `run` or `watch` is active for the same Workspace.
+
+Fix: stop the other process. Do not delete `run.lock` while a process is running.
+
+## `required command qmd not found` [#required-command-qmd-not-found]
+
+The Workspace has a QMD Source, but `qmd` is not on `PATH`.
+
+Fix: install QMD or remove the QMD Source from the Workspace.
+
+## `required command git not found` [#required-command-git-not-found]
+
+The Workspace uses `agentboard/create-worktree`, but `git` is not on `PATH`.
+
+Fix: install Git or remove that Action.
+
+## Action keeps retrying [#action-keeps-retrying]
+
+AgentBoard retries failed Actions until one succeeds for the same retry identity:
+
+```text
+(source_id, item.id, source_action_index, rendered_action_hash)
+```
+
+Fix the command, credentials, paths, or Source item data. Then run again.
+
+## Worktree path already exists [#worktree-path-already-exists]
+
+`agentboard/create-worktree` fails when `root` exists but is not the intended worktree for the configured branch.
+
+Fix: choose a different `root`, remove the bad directory, or repair the existing worktree.
+
+## Environment variable did not expand [#environment-variable-did-not-expand]
+
+AgentBoard expands variables after template rendering:
+
+* `$VAR`
+* `${VAR}`
+* leading `~/`
+
+Check that the variable exists in the environment of the `agentboard` process, not just your interactive shell startup file.
+
+## Jira credentials fail [#jira-credentials-fail]
+
+For environment variables, check:
+
+```bash
+echo "$JIRA_EMAIL"
+test -n "$JIRA_API_TOKEN"
+```
+
+For credential helpers, check that the helper prints one username key and one password key:
+
+```text
+username=you@example.com
+password=api-token
+```
+
+Accepted username keys: `username`, `email`.
+Accepted password keys: `password`, `token`.
+
+## Bad TOML or unknown field [#bad-toml-or-unknown-field]
+
+Workspace config denies unknown fields except under `[sources.actions.with]`.
+
+Use the schema:
+
+```bash
+agentboard schema > agentboard.schema.json
+```
+
+## `list` shows stale items [#list-shows-stale-items]
+
+The Store is append-only. `list` shows the latest observed item by id from Store files. If the Source no longer returns an item, old observations can still exist locally.
+
+For now, inspect or remove the Workspace Store manually if you need a clean local view.
+
+
+# Workspaces (/cli/workspaces)
+
+
+
+# Workspaces [#workspaces]
+
+A Workspace is a TOML file that names Sources and the Actions to run for each Source.
+
+## Location [#location]
+
+Named workspaces live under the user config directory:
+
+```text
+~/.config/agentboard/work.toml
+```
+
+Run by name:
+
+```bash
+agentboard run work
+```
+
+Or pass a path:
+
+```bash
+agentboard run ./work.toml
+```
+
+## Workspace ids [#workspace-ids]
+
+AgentBoard uses the workspace id in Store paths and action environment variables.
+
+* Named workspace: `work`
+* Path workspace: file stem plus canonical path hash, for example `work-a1b2c3d4e5f6`
+
+## Minimal shape [#minimal-shape]
+
+```toml
+[[sources]]
+id = "local"
+
+[sources.source]
+kind = "qmd"
+collections = ["tasks"]
+query = "intent: ready work"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+cmd = "echo {{ item.id }}"
+```
+
+Unknown fields are validation errors, except arbitrary keys under `[sources.actions.with]`.
+
+## Where specific config lives [#where-specific-config-lives]
+
+Source-specific fields are documented by source crates:
+
+* [QMD source](/sources/qmd)
+* [Jira source](/sources/jira)
+
+Action-specific inputs are documented by action crates:
+
+* [`agentboard/create-worktree`](/actions/worktree)
+* [`agentboard/run-cmd`](/actions/run-cmd)
+
+## CLI validation rules [#cli-validation-rules]
+
+* Source ids must be non-empty and unique.
+* Unknown Actions fail validation.
+* Unknown Workspace fields fail validation, except arbitrary keys under `[sources.actions.with]`.
+
+Generate the JSON Schema from the same typed model:
+
+```bash
+agentboard schema > agentboard.schema.json
+```
+
+
 # Jira source (/sources/jira)
 
 
@@ -74,7 +630,6 @@ kind = "jira"
 site = "https://example.atlassian.net"
 jql = "project = AB AND statusCategory = Todo"
 limit = 50
-fields = ["summary", "status"]
 ```
 
 Credentials come from environment variables by default. Defaults are `JIRA_EMAIL`
@@ -109,12 +664,23 @@ Defaults map `id` from `key`, `title` from `fields.summary`, `status` from
 `fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
 when you need custom Jira fields.
 
+AgentBoard automatically requests Jira fields referenced by mapping paths that
+start with `fields.`. For example, `fields.customfield_10010.value` requests
+the top-level Jira field `customfield_10010`.
+
 ```toml
 [sources.source.map]
 id = "key"
 title = "fields.summary"
 status = "fields.status.name"
 url = "fields.customfield_10010"
+```
+
+Use `fields` only for extra Jira API fields you want preserved in the raw
+payload but do not use in `map`.
+
+```toml
+fields = ["assignee"]
 ```
 
 

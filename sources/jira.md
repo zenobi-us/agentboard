@@ -15,7 +15,6 @@ kind = "jira"
 site = "https://example.atlassian.net"
 jql = "project = AB AND statusCategory = Todo"
 limit = 50
-fields = ["summary", "status"]
 ```
 
 Credentials come from environment variables by default. Defaults are `JIRA_EMAIL`
@@ -50,10 +49,21 @@ Defaults map `id` from `key`, `title` from `fields.summary`, `status` from
 `fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
 when you need custom Jira fields.
 
+AgentBoard automatically requests Jira fields referenced by mapping paths that
+start with `fields.`. For example, `fields.customfield_10010.value` requests
+the top-level Jira field `customfield_10010`.
+
 ```toml
 [sources.source.map]
 id = "key"
 title = "fields.summary"
 status = "fields.status.name"
 url = "fields.customfield_10010"
+```
+
+Use `fields` only for extra Jira API fields you want preserved in the raw
+payload but do not use in `map`.
+
+```toml
+fields = ["assignee"]
 ```

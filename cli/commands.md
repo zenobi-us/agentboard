@@ -1,0 +1,88 @@
+# Commands (/cli/commands)
+
+
+
+# Commands [#commands]
+
+## `run` [#run]
+
+Execute one Workspace Run: load config, read Sources, append item observations, render pending Actions, and execute Actions.
+
+```bash
+agentboard run work
+agentboard run ./work.toml
+```
+
+Dry run collects and renders pending Actions without writing Store files or executing Actions:
+
+```bash
+agentboard run ./work.toml --dry-run
+```
+
+## `watch` [#watch]
+
+Repeatedly run one Workspace until Ctrl-C.
+
+```bash
+agentboard watch work
+agentboard watch work --interval 30s
+```
+
+Intervals are seconds with or without a trailing `s`.
+
+`watch` holds the Workspace lock until it exits.
+
+## `list` [#list]
+
+List latest stored items and derived Action state.
+
+```bash
+agentboard list work
+```
+
+Plain output:
+
+```text
+AB-001	ready	pending	Create the first worktree
+```
+
+JSON output:
+
+```bash
+agentboard list work --json
+```
+
+## `show` [#show]
+
+Show one latest stored item and its Action attempts.
+
+```bash
+agentboard show work AB-001
+agentboard show work AB-001 --json
+```
+
+## `doctor` [#doctor]
+
+Validate a Workspace and local environment.
+
+```bash
+agentboard doctor work
+```
+
+Checks include:
+
+* Workspace config validation.
+* Store directory writability.
+* Required Source commands, for example `qmd`.
+* Required Action commands, for example `git` for `agentboard/create-worktree`.
+* Source reachability by collecting items.
+
+## `schema` [#schema]
+
+Print the Workspace JSON Schema.
+
+```bash
+agentboard schema > agentboard.schema.json
+```
+
+Use this for editor validation and config discovery.
