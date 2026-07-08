@@ -8,13 +8,22 @@ This repo uses a **multi-context** domain-doc layout.
 
 Read these before exploring code:
 
-- `CONTEXT-MAP.md` at the repo root. It defines the monorepo contexts and points agents to the relevant `CONTEXT.md` files.
-- `apps/cli/CONTEXT.md` when touching the Rust CLI, split AgentBoard crates, or documenting AgentBoard behavior.
-- Context-specific `CONTEXT.md` files only when `CONTEXT-MAP.md` lists one for the touched app/package.
-- `.memory/docs/adr/` for system-wide ADRs, if present.
-- `.memory/docs/adr/<relativepath>/` for context-scoped ADRs, if present.
+- `CONTEXT-MAP.md` at the repo root. It defines each monorepo context and its scoped ADR directory.
+- The `CONTEXT.md` file listed for the app/package being changed.
+- The scoped ADR directory listed for that app/package, if it exists.
+- `.memory/docs/adr/` for system-wide ADRs, if files exist there.
+- If a change crosses contexts, read every touched context and ADR scope.
 
-If any of these files or directories do not exist, proceed silently. Do not create ADR folders upfront; producer skills create them lazily when decisions exist.
+Current context docs:
+
+- `apps/cli/CONTEXT.md` for CLI commands, config loading, runtime orchestration, local store, template rendering, and dispatch.
+- `pkgs/crates/agentboard-core/CONTEXT.md` for shared model/config/result types.
+- `pkgs/crates/agentboard-source-qmd/CONTEXT.md` for the QMD source adapter.
+- `pkgs/crates/agentboard-source-jira/CONTEXT.md` for the Jira source adapter.
+- `pkgs/crates/agentboard-action-run-cmd/CONTEXT.md` for the shell command action.
+- `pkgs/crates/agentboard-action-worktree/CONTEXT.md` for the Git worktree action.
+
+If any listed ADR directory is empty, proceed silently. Do not create new ADR folders just to satisfy layout; producer skills create them when decisions exist.
 
 ## Use the glossary vocabulary
 
@@ -25,6 +34,8 @@ When output names a domain concept in issue titles, refactor proposals, hypothes
 - item
 - store
 - action
+- run
+- watch
 
 Do not drift to synonyms unless the glossary changes.
 
