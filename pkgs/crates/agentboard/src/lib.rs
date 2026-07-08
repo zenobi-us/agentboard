@@ -2,7 +2,6 @@ pub mod actions;
 pub mod cli;
 pub mod config;
 pub mod model;
-pub mod query;
 pub mod runtime;
 pub mod sources;
 pub mod store;

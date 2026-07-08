@@ -1,9 +1,11 @@
-pub mod markdown;
+pub mod jira;
+pub mod qmd;
 
 use anyhow::Result;
 
 use crate::model::{Item, SourceConfig, SourceKind};
-use markdown::MarkdownSource;
+use jira::JiraSource;
+use qmd::QmdSource;
 
 #[allow(async_fn_in_trait)]
 pub trait SourceAdapter {
@@ -13,6 +15,7 @@ pub trait SourceAdapter {
 
 pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
     match &source.source {
-        SourceKind::Markdown { .. } => MarkdownSource.collect(source).await,
+        SourceKind::Qmd { .. } => QmdSource.collect(source).await,
+        SourceKind::Jira { .. } => JiraSource.collect(source).await,
     }
 }

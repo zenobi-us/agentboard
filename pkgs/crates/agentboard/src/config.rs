@@ -5,10 +5,7 @@ use directories::BaseDirs;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::{
-    model::{ActionConfig, SourceKind, Workspace, WorkspaceConfig},
-    query::parse_query,
-};
+use crate::model::{ActionConfig, SourceKind, Workspace, WorkspaceConfig};
 
 pub fn load_workspace(input: &str) -> Result<Workspace> {
     let path = if input.ends_with(".toml") || input.contains('/') {
@@ -44,11 +41,47 @@ pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
         if src.id.trim().is_empty() {
             bail!("source id cannot be empty");
         }
-        if let Some(q) = &src.query {
-            parse_query(q).with_context(|| format!("invalid query for source {}", src.id))?;
-        }
         match &src.source {
-            SourceKind::Markdown { .. } => {}
+            SourceKind::Qmd {
+                collections,
+                query,
+                limit,
+                ..
+            } => {
+                if collections.is_empty() {
+                    bail!("qmd source {} requires at least one collection", src.id);
+                }
+                if query.trim().is_empty() {
+                    bail!("qmd source {} requires query", src.id);
+                }
+                if *limit == 0 {
+                    bail!("qmd source {} limit must be greater than zero", src.id);
+                }
+            }
+            SourceKind::Jira {
+                site,
+                email_env,
+                token_env,
+                jql,
+                limit,
+                ..
+            } => {
+                if site.trim().is_empty() {
+                    bail!("jira source {} requires site", src.id);
+                }
+                if email_env.trim().is_empty() {
+                    bail!("jira source {} requires email_env", src.id);
+                }
+                if token_env.trim().is_empty() {
+                    bail!("jira source {} requires token_env", src.id);
+                }
+                if jql.trim().is_empty() {
+                    bail!("jira source {} requires jql", src.id);
+                }
+                if *limit == 0 {
+                    bail!("jira source {} limit must be greater than zero", src.id);
+                }
+            }
         }
         for action in &src.actions {
             match action.uses.as_str() {
@@ -126,4 +159,47 @@ pub fn hash_json(v: &Value) -> String {
 
 pub fn short_hash(s: &str) -> String {
     hex::encode(Sha256::digest(s.as_bytes()))[..12].to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{SourceConfig, SourceKind};
+
+    #[test]
+    fn qmd_source_requires_collections_and_query() {
+        let config = WorkspaceConfig {
+            sources: vec![SourceConfig {
+                id: "local".into(),
+                source: SourceKind::Qmd {
+                    collections: vec![],
+                    query: "ready".into(),
+                    limit: 10,
+                    map: Default::default(),
+                },
+                actions: vec![],
+            }],
+        };
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn jira_source_requires_site_and_jql() {
+        let config = WorkspaceConfig {
+            sources: vec![SourceConfig {
+                id: "jira".into(),
+                source: SourceKind::Jira {
+                    site: "".into(),
+                    email_env: "JIRA_EMAIL".into(),
+                    token_env: "JIRA_API_TOKEN".into(),
+                    jql: "project = AB".into(),
+                    limit: 50,
+                    fields: vec![],
+                    map: Default::default(),
+                },
+                actions: vec![],
+            }],
+        };
+        assert!(validate_config(&config).is_err());
+    }
 }

@@ -14,7 +14,6 @@ pub struct WorkspaceConfig {
 #[serde(deny_unknown_fields)]
 pub struct SourceConfig {
     pub id: String,
-    pub query: Option<String>,
     pub source: SourceKind,
     #[serde(default)]
     pub actions: Vec<ActionConfig>,
@@ -23,7 +22,49 @@ pub struct SourceConfig {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
 pub enum SourceKind {
-    Markdown { path: String },
+    Qmd {
+        collections: Vec<String>,
+        query: String,
+        #[serde(default = "default_source_limit")]
+        limit: usize,
+        #[serde(default)]
+        map: FieldMap,
+    },
+    Jira {
+        site: String,
+        #[serde(default = "default_jira_email_env")]
+        email_env: String,
+        #[serde(default = "default_jira_token_env")]
+        token_env: String,
+        jql: String,
+        #[serde(default = "default_source_limit")]
+        limit: usize,
+        #[serde(default)]
+        fields: Vec<String>,
+        #[serde(default)]
+        map: FieldMap,
+    },
+}
+
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FieldMap {
+    pub id: Option<String>,
+    pub title: Option<String>,
+    pub status: Option<String>,
+    pub url: Option<String>,
+}
+
+fn default_source_limit() -> usize {
+    50
+}
+
+fn default_jira_email_env() -> String {
+    "JIRA_EMAIL".into()
+}
+
+fn default_jira_token_env() -> String {
+    "JIRA_API_TOKEN".into()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]

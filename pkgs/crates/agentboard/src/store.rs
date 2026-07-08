@@ -12,7 +12,7 @@ use serde_json::json;
 
 use crate::{
     config::{source_dir, store_root},
-    model::{ActionAttempt, Item, SourceConfig, Workspace},
+    model::{ActionAttempt, Item, SourceConfig, SourceKind, Workspace},
     sources::collect_items,
 };
 
@@ -31,6 +31,7 @@ pub fn acquire_lock(ws: &Workspace) -> Result<Lock> {
         .read(true)
         .write(true)
         .create(true)
+        .truncate(false)
         .open(&path)?;
     match FileExt::try_lock(&file) {
         Ok(()) => Ok(Lock(file)),
@@ -184,6 +185,10 @@ pub async fn doctor(ws: &Workspace) -> Result<()> {
     fs::write(&probe, b"ok")?;
     fs::remove_file(probe)?;
     for source in &ws.config.sources {
+        match &source.source {
+            SourceKind::Qmd { .. } => command_exists("qmd")?,
+            SourceKind::Jira { .. } => {}
+        }
         let _ = collect_items(source).await?;
     }
     for source in &ws.config.sources {

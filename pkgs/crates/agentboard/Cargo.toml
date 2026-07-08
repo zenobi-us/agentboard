@@ -12,8 +12,8 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 hex = "0.4"
 minijinja = "2.21"
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 schemars = { version = "0.8", features = ["preserve_order"] }
-search-query-parser = "0.1.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }

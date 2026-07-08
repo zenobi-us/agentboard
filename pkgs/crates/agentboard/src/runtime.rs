@@ -5,7 +5,6 @@ use anyhow::{bail, Result};
 use crate::{
     actions::execute_action,
     model::{SourceConfig, Workspace},
-    query::{eval_query, parse_query},
     sources::collect_items,
     store::{acquire_lock, action_key, append_action, append_items, successful_actions},
     template::render_action,
@@ -63,11 +62,7 @@ async fn run_sources(ws: &Workspace, dry_run: bool) -> Result<()> {
 
 async fn run_source(ws: &Workspace, source: &SourceConfig, dry_run: bool) -> Result<bool> {
     let mut items = collect_items(source).await?;
-    items.sort_by_key(|item| item.raw["path"].as_str().unwrap_or("").to_string());
-    if let Some(q) = &source.query {
-        let expr = parse_query(q)?;
-        items.retain(|item| eval_query(&expr, &item.raw["frontmatter"]));
-    }
+    items.sort_by(|a, b| a.id.cmp(&b.id));
     if !dry_run {
         append_items(ws, source, &items)?;
     }
