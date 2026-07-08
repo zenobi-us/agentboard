@@ -36,6 +36,8 @@ pub enum SourceKind {
         email_env: String,
         #[serde(default = "default_jira_token_env")]
         token_env: String,
+        #[serde(default)]
+        credentials: Option<JiraCredentialConfig>,
         jql: String,
         #[serde(default = "default_source_limit")]
         limit: usize,
@@ -44,6 +46,12 @@ pub enum SourceKind {
         #[serde(default)]
         map: FieldMap,
     },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct JiraCredentialConfig {
+    pub helper: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]

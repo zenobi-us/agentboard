@@ -62,6 +62,7 @@ pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
                 site,
                 email_env,
                 token_env,
+                credentials,
                 jql,
                 limit,
                 ..
@@ -69,11 +70,17 @@ pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
                 if site.trim().is_empty() {
                     bail!("jira source {} requires site", src.id);
                 }
-                if email_env.trim().is_empty() {
-                    bail!("jira source {} requires email_env", src.id);
-                }
-                if token_env.trim().is_empty() {
-                    bail!("jira source {} requires token_env", src.id);
+                if let Some(credentials) = credentials {
+                    if credentials.helper.trim().is_empty() {
+                        bail!("jira source {} credential helper cannot be empty", src.id);
+                    }
+                } else {
+                    if email_env.trim().is_empty() {
+                        bail!("jira source {} requires email_env", src.id);
+                    }
+                    if token_env.trim().is_empty() {
+                        bail!("jira source {} requires token_env", src.id);
+                    }
                 }
                 if jql.trim().is_empty() {
                     bail!("jira source {} requires jql", src.id);
@@ -192,6 +199,7 @@ mod tests {
                     site: "".into(),
                     email_env: "JIRA_EMAIL".into(),
                     token_env: "JIRA_API_TOKEN".into(),
+                    credentials: None,
                     jql: "project = AB".into(),
                     limit: 50,
                     fields: vec![],

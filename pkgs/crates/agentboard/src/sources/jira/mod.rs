@@ -1,11 +1,16 @@
-use std::{collections::HashSet, env};
+use std::{
+    collections::HashSet,
+    env,
+    io::Write,
+    process::{Command, Stdio},
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use reqwest::Client;
 use serde_json::{json, Value};
 
 use crate::{
-    model::{FieldMap, Item, SourceConfig, SourceKind},
+    model::{FieldMap, Item, JiraCredentialConfig, SourceConfig, SourceKind},
     sources::SourceAdapter,
 };
 
@@ -18,6 +23,7 @@ impl SourceAdapter for JiraSource {
                 site,
                 email_env,
                 token_env,
+                credentials,
                 jql,
                 limit,
                 fields,
@@ -29,6 +35,7 @@ impl SourceAdapter for JiraSource {
                         site,
                         email_env,
                         token_env,
+                        credentials: credentials.as_ref(),
                         jql,
                         limit: *limit,
                         fields,
@@ -46,6 +53,7 @@ struct JiraQuery<'a> {
     site: &'a str,
     email_env: &'a str,
     token_env: &'a str,
+    credentials: Option<&'a JiraCredentialConfig>,
     jql: &'a str,
     limit: usize,
     fields: &'a [String],
@@ -53,13 +61,18 @@ struct JiraQuery<'a> {
 }
 
 async fn collect_jira(source_id: &str, query: JiraQuery<'_>) -> Result<Vec<Item>> {
-    let email =
-        env::var(query.email_env).with_context(|| format!("read env {}", query.email_env))?;
-    let token =
-        env::var(query.token_env).with_context(|| format!("read env {}", query.token_env))?;
     let site = query.site.trim_end_matches('/');
+    let credential = jira_credential(&query, site)?;
     let url = format!("{site}/rest/api/3/search/jql");
-    let search = jira_search(&url, &email, &token, query.jql, query.limit, query.fields).await?;
+    let search = jira_search(
+        &url,
+        &credential.username,
+        &credential.password,
+        query.jql,
+        query.limit,
+        query.fields,
+    )
+    .await?;
     let issues = search
         .get("issues")
         .and_then(Value::as_array)
@@ -134,6 +147,104 @@ async fn jira_search(
     serde_json::from_str(&text).context("parse jira search JSON")
 }
 
+struct JiraCredential {
+    username: String,
+    password: String,
+}
+
+fn jira_credential(query: &JiraQuery<'_>, site: &str) -> Result<JiraCredential> {
+    if let Some(credentials) = query.credentials {
+        let output = run_jira_credential_helper(
+            &credentials.helper,
+            &format!("protocol=https\nhost={}\n\n", site_host(site)),
+        )?;
+        return parse_jira_credential(&output);
+    }
+
+    Ok(JiraCredential {
+        username: env::var(query.email_env)
+            .with_context(|| format!("read env {}", query.email_env))?,
+        password: env::var(query.token_env)
+            .with_context(|| format!("read env {}", query.token_env))?,
+    })
+}
+
+fn run_jira_credential_helper(helper: &str, stdin: &str) -> Result<String> {
+    if helper.trim().is_empty() {
+        bail!("jira credential helper cannot be empty");
+    }
+
+    let mut child = shell_command(helper)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .with_context(|| format!("run jira credential helper {helper}"))?;
+
+    child
+        .stdin
+        .as_mut()
+        .context("open jira credential helper stdin")?
+        .write_all(stdin.as_bytes())
+        .context("write jira credential helper request")?;
+
+    let output = child
+        .wait_with_output()
+        .context("read jira credential helper output")?;
+    if !output.status.success() {
+        bail!(
+            "jira credential helper failed with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+fn shell_command(command: &str) -> Command {
+    #[cfg(windows)]
+    {
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", command]);
+        cmd
+    }
+    #[cfg(not(windows))]
+    {
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", command]);
+        cmd
+    }
+}
+
+fn parse_jira_credential(output: &str) -> Result<JiraCredential> {
+    let mut username = None;
+    let mut password = None;
+    for line in output.lines() {
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key {
+            "username" | "email" => username = Some(value.to_string()),
+            "password" | "token" => password = Some(value.to_string()),
+            _ => {}
+        }
+    }
+
+    Ok(JiraCredential {
+        username: username.ok_or_else(|| anyhow!("jira credential helper missing username"))?,
+        password: password.ok_or_else(|| anyhow!("jira credential helper missing password"))?,
+    })
+}
+
+fn site_host(site: &str) -> String {
+    site.trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .split('/')
+        .next()
+        .unwrap_or(site)
+        .to_string()
+}
+
 fn mapped_field(issue: &Value, path: &str, name: &str) -> Result<String> {
     optional_mapped_field(issue, path)
         .ok_or_else(|| anyhow!("jira mapping {name}={path} must resolve to a string"))
@@ -150,6 +261,21 @@ fn optional_mapped_field(issue: &Value, path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_jira_credential_helper_output() {
+        let credential = parse_jira_credential("email=user@example.com\ntoken=secret\n").unwrap();
+        assert_eq!(credential.username, "user@example.com");
+        assert_eq!(credential.password, "secret");
+    }
+
+    #[test]
+    fn extracts_jira_site_host() {
+        assert_eq!(
+            site_host("https://example.atlassian.net/foo"),
+            "example.atlassian.net"
+        );
+    }
 
     #[test]
     fn supports_nested_jira_field_mapping() {
