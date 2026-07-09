@@ -47,22 +47,28 @@ helper = "agentboard-jira-credentials"
 
 Defaults map `id` from `key`, `title` from `fields.summary`, `status` from
 `fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
-when you need custom Jira fields.
+when you need custom Jira fields. Use `status_map` to normalize Jira status names.
 
 AgentBoard automatically requests Jira fields referenced by mapping paths that
 start with `fields.`. For example, `fields.customfield_10010.value` requests
 the top-level Jira field `customfield_10010`.
 
 ```toml
-[sources.source.map]
+[sources.source.field_map]
 id = "key"
 title = "fields.summary"
 status = "fields.status.name"
 url = "fields.customfield_10010"
 ```
 
+Use `status_map` when Jira's status names should normalize to AgentBoard statuses.
+
+```toml
+status_map = { "To Do" = "ready", "In Progress" = "doing" }
+```
+
 Use `fields` only for extra Jira API fields you want preserved in the raw
-payload but do not use in `map`.
+payload but do not use in `field_map`.
 
 ```toml
 fields = ["assignee"]

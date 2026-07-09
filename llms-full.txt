@@ -174,6 +174,12 @@ agentboard show work AB-001
 agentboard show work AB-001 --json
 ```
 
+If the same item id exists in multiple Store item buckets, use the qualified form shown in the ambiguity error:
+
+```bash
+agentboard show work jira-team-a-atlassian-net-abc123:AB-001
+```
+
 ## `doctor` [#doctor]
 
 Validate a Workspace and local environment.
@@ -258,6 +264,7 @@ Every Source produces normalized items:
 
 * [QMD source](/sources/qmd)
 * [Jira source](/sources/jira)
+* [GitHub source](/sources/github)
 
 ## CLI-Owned Behavior [#cli-owned-behavior]
 
@@ -286,11 +293,15 @@ AgentBoard stores data under the user's XDG data directory:
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   run.lock
-  sources/
-    <source-id>/
-      items.jsonl
-      actions.jsonl
+  items-<source.slug>.jsonl
+  actions-<source.slug>-<source.hash>.jsonl
 ```
+
+`source.slug` identifies the upstream item universe. For Jira, it is derived from the normalized site URL because Jira issue keys are only unique inside one Jira organization. Two Jira Sources for the same site and different JQL views share an item file.
+
+`source.hash` identifies the configured Source view and Action plan. Changing JQL, mappings, or Actions creates a different action file without duplicating the broad item Store.
+
+Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 
 ## Workspace lock [#workspace-lock]
 
@@ -300,15 +311,15 @@ ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
 * `watch` holds the lock until it exits.
 * Overlapping normal Runs for the same Workspace fail.
 
-## `items.jsonl` [#itemsjsonl]
+## `items-<source.slug>.jsonl` [#items-sourceslugjsonl]
 
 Each line is one normalized item observation.
 
 A new Run appends new observations. It does not rewrite older lines.
 
-`list` and `show` derive the latest item by item id from the append-only file.
+`list` derives the latest item by item id inside each item universe. JSON output includes `source_slug` for disambiguation. `show` returns one latest matching item, and accepts `source.slug:item-id` when the same item id exists in multiple item universes.
 
-## `actions.jsonl` [#actionsjsonl]
+## `actions-<source.slug>-<source.hash>.jsonl` [#actions-sourceslug-sourcehashjsonl]
 
 Each line is one Action attempt.
 
@@ -342,8 +353,8 @@ This is display state, not tracker state.
 The Store is plain JSONL. Use normal shell tools:
 
 ```bash
-tail -n 20 ~/.local/share/agentboard/work/sources/local/actions.jsonl
-jq . ~/.local/share/agentboard/work/sources/local/items.jsonl
+tail -n 20 ~/.local/share/agentboard/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl
+jq . ~/.local/share/agentboard/work/items-jira-team-a-atlassian-net-abc123.jsonl
 ```
 
 
@@ -613,6 +624,56 @@ agentboard schema > agentboard.schema.json
 ```
 
 
+# GitHub source (/sources/github)
+
+
+
+# GitHub source [#github-source]
+
+Use `kind = "github"` with `mode = "issue"` to collect GitHub issues through GitHub issue search.
+
+```toml
+[[sources]]
+id = "github-ready"
+
+[sources.source]
+kind = "github"
+mode = "issue"
+query = "repo:zenobi-us/agentboard is:open label:ready"
+limit = 50
+
+[sources.source.credentials]
+helper = "gh auth token"
+```
+
+Issue mode injects `is:issue` when it is missing so GitHub pull requests do not become AgentBoard Items.
+
+## Identity and status [#identity-and-status]
+
+Issue mode item ids default to `owner/repo#number`. Status comes from the first matching `status_map` entry on the issue labels. If no label matches, status falls back to the GitHub issue state.
+
+Use `field_map` only when the default normalized fields are wrong for a workspace.
+
+```toml
+[sources.source.field_map]
+title = "title"
+url = "html_url"
+```
+
+Use `status_map` to normalize GitHub issue labels to workspace status values.
+
+```toml
+[sources.source.status_map]
+"ready" = "ready"
+"blocked" = "blocked"
+"done" = "done"
+```
+
+## Credentials [#credentials]
+
+The credential helper is any command that writes a token to stdout. `gh auth token` is the common human-friendly helper, but any secret manager command can be used.
+
+
 # Jira source (/sources/jira)
 
 
@@ -662,22 +723,28 @@ helper = "agentboard-jira-credentials"
 
 Defaults map `id` from `key`, `title` from `fields.summary`, `status` from
 `fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
-when you need custom Jira fields.
+when you need custom Jira fields. Use `status_map` to normalize Jira status names.
 
 AgentBoard automatically requests Jira fields referenced by mapping paths that
 start with `fields.`. For example, `fields.customfield_10010.value` requests
 the top-level Jira field `customfield_10010`.
 
 ```toml
-[sources.source.map]
+[sources.source.field_map]
 id = "key"
 title = "fields.summary"
 status = "fields.status.name"
 url = "fields.customfield_10010"
 ```
 
+Use `status_map` when Jira's status names should normalize to AgentBoard statuses.
+
+```toml
+status_map = { "To Do" = "ready", "In Progress" = "doing" }
+```
+
 Use `fields` only for extra Jira API fields you want preserved in the raw
-payload but do not use in `map`.
+payload but do not use in `field_map`.
 
 ```toml
 fields = ["assignee"]

@@ -13,6 +13,7 @@
 - [Workspaces](/cli/workspaces)
 
 - **Sources**
+- [GitHub source](/sources/github)
 - [Jira source](/sources/jira)
 - [QMD source](/sources/qmd)
 
