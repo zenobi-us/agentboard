@@ -82,8 +82,8 @@ teardown() {
   [ "$status" -eq 0 ]
 
   run jq -e '. == [
-    {"target":"features","tag":"next","mode":"next","version":""},
-    {"target":"public-site","tag":"next","mode":"next","version":""}
+    {"target":"features","tag":"next","mode":"next"},
+    {"target":"public-site","tag":"next","mode":"next"}
   ]' <<<"$output"
   [ "$status" -eq 0 ]
 }
@@ -99,7 +99,7 @@ teardown() {
   [ "$status" -eq 0 ]
 
   run jq -e '. == [
-    {"target":"features","tag":"latest","mode":"latest","version":""}
+    {"target":"features","tag":"latest","mode":"latest"}
   ]' <<<"$output"
   [ "$status" -eq 0 ]
 }
@@ -121,24 +121,7 @@ EOF
 
   [ "$status" -eq 0 ]
   run jq -e '. == [
-    {"target":"features","tag":"next","mode":"next","version":""}
-  ]' <<<"$output"
-  [ "$status" -eq 0 ]
-}
-@test "reads publish versions from release-please manifest" {
-  export MOON_MOCK_OUTPUT='{
-    "projects": [
-      { "id": "docs", "source": "apps/docs", "tasks": { "publish": {} } },
-      { "id": "agentboard", "source": "apps/cli", "tasks": { "publish": {} } }
-    ]
-  }'
-
-  run bash "${SCRIPT}" "${PAYLOAD_FALSE}" "${BASE}" "${HEAD}"
-  [ "$status" -eq 0 ]
-
-  run jq -e '. == [
-    {"target":"agentboard","tag":"next","mode":"next","version":"0.0.1"},
-    {"target":"docs","tag":"next","mode":"next","version":"0.0.1"}
+    {"target":"features","tag":"next","mode":"next"}
   ]' <<<"$output"
   [ "$status" -eq 0 ]
 }

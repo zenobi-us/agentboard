@@ -35,7 +35,6 @@ jobs:
     env:
       PUBLISH_TARGET: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.target || inputs.target }}
       PUBLISH_TAG: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.tag || inputs.tag }}
-      PUBLISH_VERSION: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || inputs.version || '' }}
     steps:
 
       - name: Checkout
@@ -61,20 +60,6 @@ jobs:
       - name: Validate publish target
         run: |
           set -euo pipefail
-          
-          # if version is missing, fail.
-          if [ -z "${PUBLISH_VERSION}" ]; then
-            echo "ERROR: PUBLISH_VERSION is empty. Provide a version to publish." >&2
-            {
-              echo "## Publish Validation Failed"
-              echo
-              echo "- reason: empty version"
-              echo "- tag: \`${PUBLISH_TAG}\`"
-              echo "- target: \`${PUBLISH_TARGET}\`"
-              echo "- trigger: \`${{ github.event_name }}\`"
-            } >> "${GITHUB_STEP_SUMMARY}"
-            exit 1
-          fi
 
           if [ -z "${PUBLISH_TARGET}" ]; then
             echo "ERROR: PUBLISH_TARGET is empty. Provide a moon project id." >&2
@@ -83,7 +68,6 @@ jobs:
               echo
               echo "- reason: empty target"
               echo "- tag: \`${PUBLISH_TAG}\`"
-              echo "- version: \`${PUBLISH_VERSION}\`"
               echo "- trigger: \`${{ github.event_name }}\`"
             } >> "${GITHUB_STEP_SUMMARY}"
             exit 1
@@ -102,7 +86,6 @@ jobs:
               echo "- reason: unknown target"
               echo "- target: \`${PUBLISH_TARGET}\`"
               echo "- tag: \`${PUBLISH_TAG}\`"
-              echo "- version: \`${PUBLISH_VERSION}\`"              
               echo "- trigger: \`${{ github.event_name }}\`"
               echo
               echo "### Valid moon project ids"
@@ -113,6 +96,35 @@ jobs:
             exit 1
           fi
 
+      - name: Resolve publish version
+        id: publish-version
+        run: |
+          set -euo pipefail
+
+          projects_json="$(moon query projects)"
+          project_source="$(jq -r --arg target "${PUBLISH_TARGET}" '.projects[] | select(.id == $target) | .source // empty' <<<"${projects_json}")"
+          version="$(jq -r \
+            --arg target "${PUBLISH_TARGET}" \
+            --arg source "${project_source}" \
+            '.[$target] // .[$source] // .["pkgs/crates/" + $target] // empty' \
+            .release-please-manifest.json)"
+
+          if [ -z "${version}" ]; then
+            echo "ERROR: No version found for PUBLISH_TARGET '${PUBLISH_TARGET}' in .release-please-manifest.json." >&2
+            {
+              echo "## Publish Validation Failed"
+              echo
+              echo "- reason: missing release version"
+              echo "- target: \`${PUBLISH_TARGET}\`"
+              echo "- project source: \`${project_source}\`"
+              echo "- tag: \`${PUBLISH_TAG}\`"
+              echo "- trigger: \`${{ github.event_name }}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
+
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+
       - name: Publish target(s)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -122,13 +134,15 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
           PUBLISH_TARGET: ${{ env.PUBLISH_TARGET }}
           PUBLISH_TAG: ${{ env.PUBLISH_TAG }}
-          PUBLISH_VERSION: ${{ env.PUBLISH_VERSION }}
+          PUBLISH_VERSION: ${{ steps.publish-version.outputs.version }}
         run: |
           set -euo pipefail
-          moon run ${PUBLISH_TARGET}:publish --force
+          moon run "${PUBLISH_TARGET}:publish" --force
 
       - name: Publish summary
         if: always()
+        env:
+          PUBLISH_VERSION: ${{ steps.publish-version.outputs.version }}
         run: |
           set -euo pipefail
           {

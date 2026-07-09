@@ -123,7 +123,7 @@ jobs:
             echo
             echo "${publish_matrix}" | jq -r '
               .[] |
-              "- target: \(.target // ""), version: \(.version // ""), mode: \(.mode // "")"
+              "- target: \(.target // ""), mode: \(.mode // "")"
             '
             echo "<details><summary>publish matrix json</summary>"
             echo
@@ -149,4 +149,4 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: publish-package
-          client-payload: '{"target":"${{ matrix.target }}","tag":"${{ matrix.tag }}","mode":"${{ matrix.mode }}","version":"${{ matrix.version }}"}'
+          client-payload: '{"target":"${{ matrix.target }}","tag":"${{ matrix.tag }}","mode":"${{ matrix.mode }}"}'
