@@ -35,6 +35,7 @@ jobs:
     env:
       PUBLISH_TARGET: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.target || inputs.target }}
       PUBLISH_TAG: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.tag || inputs.tag }}
+      PUBLISH_VERSION: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || inputs.version || '' }}
     steps:
 
       - name: Checkout
@@ -60,6 +61,20 @@ jobs:
       - name: Validate publish target
         run: |
           set -euo pipefail
+          
+          # if version is missing, fail.
+          if [ -z "${PUBLISH_VERSION}" ]; then
+            echo "ERROR: PUBLISH_VERSION is empty. Provide a version to publish." >&2
+            {
+              echo "## Publish Validation Failed"
+              echo
+              echo "- reason: empty version"
+              echo "- tag: \`${PUBLISH_TAG}\`"
+              echo "- target: \`${PUBLISH_TARGET}\`"
+              echo "- trigger: \`${{ github.event_name }}\`"
+            } >> "${GITHUB_STEP_SUMMARY}"
+            exit 1
+          fi
 
           if [ -z "${PUBLISH_TARGET}" ]; then
             echo "ERROR: PUBLISH_TARGET is empty. Provide a moon project id." >&2
@@ -68,6 +83,7 @@ jobs:
               echo
               echo "- reason: empty target"
               echo "- tag: \`${PUBLISH_TAG}\`"
+              echo "- version: \`${PUBLISH_VERSION}\`"
               echo "- trigger: \`${{ github.event_name }}\`"
             } >> "${GITHUB_STEP_SUMMARY}"
             exit 1
@@ -86,6 +102,7 @@ jobs:
               echo "- reason: unknown target"
               echo "- target: \`${PUBLISH_TARGET}\`"
               echo "- tag: \`${PUBLISH_TAG}\`"
+              echo "- version: \`${PUBLISH_VERSION}\`"              
               echo "- trigger: \`${{ github.event_name }}\`"
               echo
               echo "### Valid moon project ids"
@@ -105,9 +122,11 @@ jobs:
           NPM_CONFIG_PROVENANCE: true
           PUBLISH_TARGET: ${{ env.PUBLISH_TARGET }}
           PUBLISH_TAG: ${{ env.PUBLISH_TAG }}
+          PUBLISH_VERSION: ${{ env.PUBLISH_VERSION }}
         run: |
           set -euo pipefail
           moon run ${PUBLISH_TARGET}:publish --force
+
       - name: Publish summary
         if: always()
         run: |
@@ -119,6 +138,7 @@ jobs:
             echo "|---|---|"
             echo "| target | \`${PUBLISH_TARGET}\` |"
             echo "| tag | \`${PUBLISH_TAG}\` |"
+            echo "| version | \`${PUBLISH_VERSION}\` |"
             echo "| trigger | \`${{ github.event_name }}\` |"
             echo "| result | \`${{ job.status }}\` |"
           } >> "${GITHUB_STEP_SUMMARY}"

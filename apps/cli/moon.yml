@@ -54,11 +54,46 @@ tasks:
 
   publish:
     type: run
-    deps:
-      - "~:build"
     options:
       cache: false
       runInCI: true
     script: |
       set -euo pipefail
-      echo "No publish target configured for agentboard yet."
+
+      if [ -z "${PUBLISH_VERSION:-}" ]; then
+        echo "ERROR: PUBLISH_VERSION is required." >&2
+        exit 1
+      fi
+
+      cd "${MOON_WORKSPACE_ROOT}"
+
+      dist="${MOON_PROJECT_ROOT}/dist/publish"
+      rm -rf "${dist}"
+      mkdir -p "${dist}"
+
+      targets=(
+        "x86_64-unknown-linux-gnu"
+        "x86_64-apple-darwin"
+        "x86_64-pc-windows-gnu"
+      )
+
+      rustup target add "${targets[@]}"
+
+      for target in "${targets[@]}"; do
+        cargo build --release -p agentboard --target "${target}"
+
+        case "${target}" in
+          *windows*)
+            binary="target/${target}/release/agentboard.exe"
+            archive="${dist}/agentboard-${PUBLISH_VERSION}-${target}.zip"
+            (cd "$(dirname "${binary}")" && zip -q -9 "${archive}" "$(basename "${binary}")")
+            ;;
+          *)
+            binary="target/${target}/release/agentboard"
+            archive="${dist}/agentboard-${PUBLISH_VERSION}-${target}.tar.gz"
+            tar -C "$(dirname "${binary}")" -czf "${archive}" "$(basename "${binary}")"
+            ;;
+        esac
+      done
+
+      gh release upload "${PUBLISH_VERSION}" "${dist}"/* --clobber
