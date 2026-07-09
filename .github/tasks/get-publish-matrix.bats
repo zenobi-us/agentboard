@@ -125,3 +125,20 @@ EOF
   ]' <<<"$output"
   [ "$status" -eq 0 ]
 }
+@test "reads publish versions from release-please manifest" {
+  export MOON_MOCK_OUTPUT='{
+    "projects": [
+      { "id": "docs", "source": "apps/docs", "tasks": { "publish": {} } },
+      { "id": "agentboard", "source": "apps/cli", "tasks": { "publish": {} } }
+    ]
+  }'
+
+  run bash "${SCRIPT}" "${PAYLOAD_FALSE}" "${BASE}" "${HEAD}"
+  [ "$status" -eq 0 ]
+
+  run jq -e '. == [
+    {"target":"agentboard","tag":"next","mode":"next","version":"0.0.1"},
+    {"target":"docs","tag":"next","mode":"next","version":"0.0.1"}
+  ]' <<<"$output"
+  [ "$status" -eq 0 ]
+}

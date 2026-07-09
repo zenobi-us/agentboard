@@ -88,7 +88,8 @@ main() {
   printf '%s' "${signal_json}" >"${signal_file}"
   jq -cn \
     --slurpfile affected "${affected_file}" \
-    --slurpfile signal "${signal_file}" '
+    --slurpfile signal "${signal_file}" \
+    --slurpfile manifest .release-please-manifest.json '
       [
         (($affected[0].projects // [])[])
         | select(( (.tasks // {}) | has("publish") ))
@@ -96,7 +97,12 @@ main() {
             target: .id,
             tag: $signal[0].tag,
             mode: $signal[0].mode,
-            version: ""
+            version: (
+              $manifest[0][(.source // "")]
+              // $manifest[0]["pkgs/crates/" + .id]
+              // $manifest[0][.id]
+              // ""
+            )
           }
       ]
       | sort_by(.target)
