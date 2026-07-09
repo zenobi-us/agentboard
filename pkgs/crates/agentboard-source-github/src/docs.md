@@ -15,7 +15,6 @@ kind = "github"
 mode = "issue"
 query = "repo:zenobi-us/agentboard is:open label:ready"
 limit = 50
-status_map = { ready = "ready", doing = "in-progress" }
 
 [sources.source.credentials]
 helper = "gh auth token"
@@ -33,6 +32,15 @@ Use `field_map` only when the default normalized fields are wrong for a workspac
 [sources.source.field_map]
 title = "title"
 url = "html_url"
+```
+
+Use `status_map` to normalize GitHub issue labels to workspace status values.
+
+```toml
+[sources.source.status_map]
+"ready" = "ready"
+"blocked" = "blocked"
+"done" = "done"
 ```
 
 ## Credentials
