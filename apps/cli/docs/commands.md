@@ -61,6 +61,12 @@ agentboard show work AB-001
 agentboard show work AB-001 --json
 ```
 
+If the same item id exists in multiple Store item buckets, use the qualified form shown in the ambiguity error:
+
+```bash
+agentboard show work jira-team-a-atlassian-net-abc123:AB-001
+```
+
 ## `doctor`
 
 Validate a Workspace and local environment.

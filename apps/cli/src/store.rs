@@ -16,6 +16,17 @@ use crate::{
     config::{actions_path, items_path, source_slug, store_root},
 };
 
+#[derive(Clone, Debug)]
+struct StoredItem {
+    slug: String,
+    item: Item,
+}
+
+struct StoredAction {
+    slug: String,
+    attempt: ActionAttempt,
+}
+
 /// Held workspace run lock. Unlocks when dropped.
 pub struct Lock(File);
 
@@ -69,6 +80,13 @@ fn append_file(path: PathBuf) -> Result<File> {
 
 /// Return the latest observed item per item id across configured sources.
 pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
+    Ok(latest_item_records(ws)?
+        .into_iter()
+        .map(|(key, stored)| (key, stored.item))
+        .collect())
+}
+
+fn latest_item_records(ws: &Workspace) -> Result<HashMap<String, StoredItem>> {
     let mut map = HashMap::new();
     let mut seen_paths = HashSet::new();
     for source in &ws.config.sources {
@@ -79,7 +97,13 @@ pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
         let slug = source_slug(source);
         for line in BufReader::new(File::open(path)?).lines() {
             let item: Item = serde_json::from_str(&line?)?;
-            map.insert(item_key(&slug, &item.id), item);
+            map.insert(
+                item_key(&slug, &item.id),
+                StoredItem {
+                    slug: slug.clone(),
+                    item,
+                },
+            );
         }
     }
     Ok(map)
@@ -87,6 +111,13 @@ pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
 
 /// Return every stored action attempt for the workspace.
 pub fn all_actions(ws: &Workspace) -> Result<Vec<ActionAttempt>> {
+    Ok(all_stored_actions(ws)?
+        .into_iter()
+        .map(|stored| stored.attempt)
+        .collect())
+}
+
+fn all_stored_actions(ws: &Workspace) -> Result<Vec<StoredAction>> {
     let mut out = Vec::new();
     let mut seen_paths = HashSet::new();
     for source in &ws.config.sources {
@@ -94,8 +125,12 @@ pub fn all_actions(ws: &Workspace) -> Result<Vec<ActionAttempt>> {
         if !seen_paths.insert(path.clone()) || !path.exists() {
             continue;
         }
+        let slug = source_slug(source);
         for line in BufReader::new(File::open(path)?).lines() {
-            out.push(serde_json::from_str(&line?)?);
+            out.push(StoredAction {
+                slug: slug.clone(),
+                attempt: serde_json::from_str(&line?)?,
+            });
         }
     }
     Ok(out)
@@ -124,23 +159,23 @@ pub fn successful_actions(ws: &Workspace, source: &SourceConfig) -> Result<HashS
 
 /// Print latest stored items with derived action state.
 pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
-    let mut items: Vec<_> = latest_items(ws)?.into_values().collect();
-    items.sort_by(|a, b| a.id.cmp(&b.id));
-    let actions = all_actions(ws)?;
+    let mut items: Vec<_> = latest_item_records(ws)?.into_values().collect();
+    items.sort_by(|a, b| a.item.id.cmp(&b.item.id));
+    let actions = all_stored_actions(ws)?;
     if as_json {
         let rows: Vec<_> = items
             .into_iter()
-            .map(|item| json!({ "action_state": action_state(&actions, &item), "item": item }))
+            .map(|item| json!({ "action_state": action_state(&actions, &item), "source_slug": item.slug, "item": item.item }))
             .collect();
         println!("{}", serde_json::to_string_pretty(&rows)?);
     } else {
         for item in items {
             println!(
                 "{}\t{}\t{}\t{}",
-                item.id,
-                item.status,
+                item.item.id,
+                item.item.status,
                 action_state(&actions, &item),
-                item.title
+                item.item.title
             );
         }
     }
@@ -148,12 +183,12 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
 }
 
 // Derive display state from action attempts for one item.
-fn action_state(actions: &[ActionAttempt], item: &Item) -> &'static str {
+fn action_state(actions: &[StoredAction], item: &StoredItem) -> &'static str {
     let mut saw_action = false;
     let mut saw_failure = false;
     for action in actions.iter().filter(|a| action_matches_item(a, item)) {
         saw_action = true;
-        saw_failure |= !action.success;
+        saw_failure |= !action.attempt.success;
     }
     if saw_failure {
         "failed"
@@ -165,31 +200,25 @@ fn action_state(actions: &[ActionAttempt], item: &Item) -> &'static str {
 }
 
 /// Print one latest stored item and its action attempts.
-pub fn show_item(ws: &Workspace, item_id: &str, as_json: bool) -> Result<()> {
-    let matches: Vec<_> = latest_items(ws)?
-        .into_values()
-        .filter(|item| item.id == item_id)
-        .collect();
-    let item = match matches.as_slice() {
-        [] => return Err(anyhow!("item {item_id} not found")),
-        [item] => item.clone(),
-        _ => {
-            return Err(anyhow!(
-                "item {item_id} is ambiguous across Store item buckets"
-            ))
-        }
-    };
-    let actions: Vec<_> = all_actions(ws)?
+pub fn show_item(ws: &Workspace, item_ref: &str, as_json: bool) -> Result<()> {
+    let item = resolve_item(ws, item_ref)?;
+    let actions: Vec<_> = all_stored_actions(ws)?
         .into_iter()
         .filter(|action| action_matches_item(action, &item))
+        .map(|stored| stored.attempt)
         .collect();
     if as_json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&json!({"item": item, "actions": actions}))?
+            serde_json::to_string_pretty(
+                &json!({"source_slug": item.slug, "item": item.item, "actions": actions})
+            )?
         );
     } else {
-        println!("{}\n{}\n{}\n{}", item.id, item.title, item.status, item.url);
+        println!(
+            "{}\n{}\n{}\n{}",
+            item.item.id, item.item.title, item.item.status, item.item.url
+        );
         for a in actions {
             println!(
                 "action#{} {} success={}",
@@ -198,6 +227,35 @@ pub fn show_item(ws: &Workspace, item_id: &str, as_json: bool) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn resolve_item(ws: &Workspace, item_ref: &str) -> Result<StoredItem> {
+    let mut records = latest_item_records(ws)?;
+    if let Some((slug, id)) = item_ref.split_once(':') {
+        return records
+            .remove(&item_key(slug, id))
+            .ok_or_else(|| anyhow!("item {item_ref} not found"));
+    }
+
+    let matches: Vec<_> = records
+        .into_values()
+        .filter(|stored| stored.item.id == item_ref)
+        .collect();
+    match matches.as_slice() {
+        [] => Err(anyhow!("item {item_ref} not found")),
+        [item] => Ok(item.clone()),
+        _ => {
+            let mut refs: Vec<_> = matches
+                .iter()
+                .map(|stored| format!("{}:{}", stored.slug, stored.item.id))
+                .collect();
+            refs.sort();
+            Err(anyhow!(
+                "item {item_ref} is ambiguous across Store item buckets; use one of: {}",
+                refs.join(", ")
+            ))
+        }
+    }
 }
 
 /// Validate config, store writability, source reachability, and required commands.
@@ -236,8 +294,8 @@ fn command_exists(cmd: &str) -> Result<()> {
         .with_context(|| format!("required command {cmd} not found"))
 }
 
-fn action_matches_item(action: &ActionAttempt, item: &Item) -> bool {
-    action.source_id == item.source_id && action.item_id == item.id
+fn action_matches_item(action: &StoredAction, item: &StoredItem) -> bool {
+    action.slug == item.slug && action.attempt.item_id == item.item.id
 }
 
 fn item_key(source_slug: &str, item_id: &str) -> String {
@@ -308,27 +366,55 @@ mod tests {
     }
 
     #[test]
-    fn action_state_is_scoped_to_item_source() {
-        let item = Item {
-            source_id: "b".into(),
-            ..item("from b", "PROJ-1")
-        };
+    fn action_state_matches_item_bucket_not_source_label() {
+        let ws = workspace(vec![
+            jira_source("a", "https://team-a.atlassian.net", "project = AB"),
+            jira_source(
+                "b",
+                "https://team-a.atlassian.net",
+                "assignee = currentUser()",
+            ),
+        ]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(
+            &ws,
+            &ws.config.sources[1],
+            &[Item {
+                source_id: "b".into(),
+                ..item("from b", "PROJ-1")
+            }],
+        )
+        .unwrap();
+        append_action(&ws, &ws.config.sources[0], &attempt("a", "PROJ-1", true)).unwrap();
 
-        assert_eq!(
-            action_state(&[attempt("a", "PROJ-1", true)], &item),
-            "pending"
-        );
+        let item = resolve_item(&ws, "PROJ-1").unwrap();
+        let actions = all_stored_actions(&ws).unwrap();
+
+        assert_eq!(action_state(&actions, &item), "succeeded");
     }
 
     #[test]
-    fn action_matching_is_scoped_to_item_source() {
-        let item = Item {
-            source_id: "b".into(),
-            ..item("from b", "PROJ-1")
-        };
+    fn qualified_item_ref_disambiguates_item_bucket() {
+        let ws = workspace(vec![
+            jira_source("a", "https://team-a.atlassian.net", "project = AB"),
+            jira_source("b", "https://team-b.atlassian.net", "project = AB"),
+        ]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.config.sources[0], &[item("from a", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.config.sources[1], &[item("from b", "PROJ-1")]).unwrap();
 
-        assert!(!action_matches_item(&attempt("a", "PROJ-1", true), &item));
-        assert!(action_matches_item(&attempt("b", "PROJ-1", true), &item));
+        let slug = source_slug(&ws.config.sources[1]);
+        assert_eq!(
+            resolve_item(&ws, &format!("{slug}:PROJ-1"))
+                .unwrap()
+                .item
+                .title,
+            "from b"
+        );
+        assert!(resolve_item(&ws, "PROJ-1")
+            .unwrap_err()
+            .to_string()
+            .contains("ambiguous"));
     }
 
     fn workspace(sources: Vec<SourceConfig>) -> Workspace {

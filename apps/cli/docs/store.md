@@ -39,7 +39,7 @@ Each line is one normalized item observation.
 
 A new Run appends new observations. It does not rewrite older lines.
 
-`list` derives the latest item by item id inside each item universe. `show` returns one latest matching item, and reports ambiguity if the same item id exists in multiple item universes.
+`list` derives the latest item by item id inside each item universe. JSON output includes `source_slug` for disambiguation. `show` returns one latest matching item, and accepts `source.slug:item-id` when the same item id exists in multiple item universes.
 
 ## `actions-<source.slug>-<source.hash>.jsonl`
 
