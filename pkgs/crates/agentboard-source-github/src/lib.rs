@@ -11,25 +11,24 @@ const GITHUB_SEARCH_URL: &str = "https://api.github.com/search/issues";
 
 pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
     match &source.source {
-        SourceKind::Github { mode } => match mode {
-            GithubSourceMode::Issue {
-                query,
-                credentials,
-                limit,
-                status_labels,
-            } => {
-                collect_github_issues(
-                    &source.id,
-                    IssueQuery {
-                        query,
-                        credentials,
-                        limit: *limit,
-                        status_labels,
-                    },
-                )
-                .await
-            }
-        },
+        SourceKind::Github {
+            mode: GithubSourceMode::Issue,
+            query,
+            credentials,
+            limit,
+            status_labels,
+        } => {
+            collect_github_issues(
+                &source.id,
+                IssueQuery {
+                    query,
+                    credentials,
+                    limit: *limit,
+                    status_labels,
+                },
+            )
+            .await
+        }
         _ => bail!("source {} is not github", source.id),
     }
 }

@@ -95,35 +95,34 @@ pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
                     bail!("jira source {} limit must be greater than zero", src.id);
                 }
             }
-            SourceKind::Github { mode } => match mode {
-                GithubSourceMode::Issue {
-                    query,
-                    credentials,
-                    limit,
-                    status_labels,
-                } => {
-                    if query.trim().is_empty() {
-                        bail!("github source {} requires query", src.id);
-                    }
-                    if credentials.helper.trim().is_empty() {
-                        bail!("github source {} credential helper cannot be empty", src.id);
-                    }
-                    if status_labels.is_empty() {
-                        bail!("github source {} requires status_labels", src.id);
-                    }
-                    for (label, status) in status_labels {
-                        if label.trim().is_empty() || status.trim().is_empty() {
-                            bail!(
-                                "github source {} status_labels cannot contain empty labels or statuses",
-                                src.id
-                            );
-                        }
-                    }
-                    if *limit == 0 {
-                        bail!("github source {} limit must be greater than zero", src.id);
+            SourceKind::Github {
+                mode: GithubSourceMode::Issue,
+                query,
+                credentials,
+                limit,
+                status_labels,
+            } => {
+                if query.trim().is_empty() {
+                    bail!("github source {} requires query", src.id);
+                }
+                if credentials.helper.trim().is_empty() {
+                    bail!("github source {} credential helper cannot be empty", src.id);
+                }
+                if status_labels.is_empty() {
+                    bail!("github source {} requires status_labels", src.id);
+                }
+                for (label, status) in status_labels {
+                    if label.trim().is_empty() || status.trim().is_empty() {
+                        bail!(
+                            "github source {} status_labels cannot contain empty labels or statuses",
+                            src.id
+                        );
                     }
                 }
-            },
+                if *limit == 0 {
+                    bail!("github source {} limit must be greater than zero", src.id);
+                }
+            }
         }
         for action in &src.actions {
             match action.uses.as_str() {
@@ -365,14 +364,13 @@ mod tests {
         .is_ok());
 
         source.source = SourceKind::Github {
-            mode: GithubSourceMode::Issue {
-                query: "".into(),
-                credentials: GithubCredentialConfig {
-                    helper: "gh auth token".into(),
-                },
-                limit: 50,
-                status_labels: Default::default(),
+            mode: GithubSourceMode::Issue,
+            query: "".into(),
+            credentials: GithubCredentialConfig {
+                helper: "gh auth token".into(),
             },
+            limit: 50,
+            status_labels: Default::default(),
         };
         assert!(validate_config(&WorkspaceConfig {
             sources: vec![source]
@@ -397,12 +395,10 @@ mod tests {
 
             [sources.source]
             kind = "github"
-
-            [sources.source.mode]
             mode = "issue"
             query = "repo:zenobi-us/agentboard is:open"
 
-            [sources.source.mode.credentials]
+            [sources.source.credentials]
             helper = "gh auth token"
         "#;
         assert!(toml::from_str::<WorkspaceConfig>(missing).is_err());
@@ -413,13 +409,11 @@ mod tests {
 
             [sources.source]
             kind = "github"
-
-            [sources.source.mode]
             mode = "issue"
             query = "repo:zenobi-us/agentboard is:open"
             status_labels = {}
 
-            [sources.source.mode.credentials]
+            [sources.source.credentials]
             helper = "gh auth token"
         "#;
         let config = toml::from_str::<WorkspaceConfig>(explicit_empty).unwrap();
@@ -429,10 +423,7 @@ mod tests {
     #[test]
     fn github_status_labels_reject_empty_entries() {
         let mut source = github_source("repo:zenobi-us/agentboard is:open");
-        if let SourceKind::Github {
-            mode: GithubSourceMode::Issue { status_labels, .. },
-        } = &mut source.source
-        {
+        if let SourceKind::Github { status_labels, .. } = &mut source.source {
             *status_labels = BTreeMap::from([("ready".into(), "".into())]);
         }
 
@@ -463,14 +454,13 @@ mod tests {
         SourceConfig {
             id: "github".into(),
             source: SourceKind::Github {
-                mode: GithubSourceMode::Issue {
-                    query: query.into(),
-                    credentials: GithubCredentialConfig {
-                        helper: "gh auth token".into(),
-                    },
-                    limit: 50,
-                    status_labels: [("ready".to_string(), "ready".to_string())].into(),
+                mode: GithubSourceMode::Issue,
+                query: query.into(),
+                credentials: GithubCredentialConfig {
+                    helper: "gh auth token".into(),
                 },
+                limit: 50,
+                status_labels: [("ready".to_string(), "ready".to_string())].into(),
             },
             actions: vec![],
         }

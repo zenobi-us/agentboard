@@ -12,7 +12,7 @@ GitHub exposes issue data through REST issue/search APIs, while GitHub Projects 
 
 ## Decision
 
-Use one `agentboard-source-github` package and one `SourceKind::Github` with explicit nested mode-specific config.
+Use one `agentboard-source-github` package and one `SourceKind::Github` with explicit mode-specific config flattened under `sources.source`, matching the Jira source shape.
 
 MVP mode is `issue`:
 

@@ -12,14 +12,12 @@ id = "github-ready"
 
 [sources.source]
 kind = "github"
-
-[sources.source.mode]
 mode = "issue"
 query = "repo:zenobi-us/agentboard is:open label:ready"
 limit = 50
 status_labels = { ready = "ready", doing = "in-progress" }
 
-[sources.source.mode.credentials]
+[sources.source.credentials]
 helper = "gh auth token"
 ```
 

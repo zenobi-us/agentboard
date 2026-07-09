@@ -48,19 +48,18 @@ pub enum SourceKind {
     },
     Github {
         mode: GithubSourceMode,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
-pub enum GithubSourceMode {
-    Issue {
         query: String,
         credentials: GithubCredentialConfig,
         #[serde(default = "default_source_limit")]
         limit: usize,
         status_labels: BTreeMap<String, String>,
     },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum GithubSourceMode {
+    Issue,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
