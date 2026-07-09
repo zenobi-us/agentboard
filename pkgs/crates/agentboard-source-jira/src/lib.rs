@@ -21,7 +21,8 @@ pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
             jql,
             limit,
             fields,
-            map,
+            field_map,
+            status_map,
         } => {
             collect_jira(
                 &source.id,
@@ -33,7 +34,8 @@ pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
                     jql,
                     limit: *limit,
                     fields,
-                    map,
+                    field_map,
+                    status_map,
                 },
             )
             .await
@@ -50,7 +52,8 @@ struct JiraQuery<'a> {
     jql: &'a str,
     limit: usize,
     fields: &'a [String],
-    map: &'a FieldMap,
+    field_map: &'a FieldMap,
+    status_map: &'a std::collections::BTreeMap<String, String>,
 }
 
 async fn collect_jira(source_id: &str, query: JiraQuery<'_>) -> Result<Vec<Item>> {
@@ -64,7 +67,7 @@ async fn collect_jira(source_id: &str, query: JiraQuery<'_>) -> Result<Vec<Item>
         query.jql,
         query.limit,
         query.fields,
-        query.map,
+        query.field_map,
     )
     .await?;
     let issues = search
@@ -75,21 +78,26 @@ async fn collect_jira(source_id: &str, query: JiraQuery<'_>) -> Result<Vec<Item>
     let mut ids = HashSet::new();
     let mut out = Vec::new();
     for issue in issues {
-        let id = mapped_field(issue, query.map.id.as_deref().unwrap_or("key"), "id")?;
+        let id = mapped_field(issue, query.field_map.id.as_deref().unwrap_or("key"), "id")?;
         if !ids.insert(id.clone()) {
             bail!("duplicate item id {id} in source {source_id}");
         }
         let title = mapped_field(
             issue,
-            query.map.title.as_deref().unwrap_or("fields.summary"),
+            query.field_map.title.as_deref().unwrap_or("fields.summary"),
             "title",
         )?;
         let status = mapped_field(
             issue,
-            query.map.status.as_deref().unwrap_or("fields.status.name"),
+            query
+                .field_map
+                .status
+                .as_deref()
+                .unwrap_or("fields.status.name"),
             "status",
         )?;
-        let url = match query.map.url.as_deref() {
+        let status = mapped_status(&status, query.status_map);
+        let url = match query.field_map.url.as_deref() {
             Some(path) => mapped_field(issue, path, "url")?,
             None => format!("{site}/browse/{id}"),
         };
@@ -277,6 +285,13 @@ fn mapped_field(issue: &Value, path: &str, name: &str) -> Result<String> {
         .ok_or_else(|| anyhow!("jira mapping {name}={path} must resolve to a string"))
 }
 
+fn mapped_status(status: &str, status_map: &std::collections::BTreeMap<String, String>) -> String {
+    status_map
+        .get(status)
+        .cloned()
+        .unwrap_or_else(|| status.to_string())
+}
+
 fn optional_mapped_field(issue: &Value, path: &str) -> Option<String> {
     let mut value = issue;
     for part in path.split('.') {
@@ -312,6 +327,13 @@ mod tests {
             mapped_field(&issue, "fields.status.name", "status").unwrap(),
             "Ready"
         );
+    }
+
+    #[test]
+    fn maps_jira_status_values() {
+        let status_map = std::collections::BTreeMap::from([("To Do".into(), "ready".into())]);
+        assert_eq!(mapped_status("To Do", &status_map), "ready");
+        assert_eq!(mapped_status("Done", &status_map), "Done");
     }
 
     #[test]

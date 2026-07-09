@@ -18,7 +18,8 @@ MVP mode is `issue`:
 
 - query: GitHub issue search query
 - item identity: repository plus issue number
-- normalized status: configured label mapping
+- field overrides: `field_map`, matching Jira's config vocabulary
+- normalized status: `status_map`, matching issue labels first and issue state as fallback
 - credential path: generic credential helper that returns a token, allowing helpers such as `gh auth token`
 
 Later `project` mode is justified by Project custom fields/status. It must stay a separate collector inside the GitHub package, not a vague shared query path.

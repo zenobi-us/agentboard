@@ -60,7 +60,7 @@ token_env = "JIRA_API_TOKEN"
 jql = "project = AB AND statusCategory != Done ORDER BY updated DESC"
 limit = 50
 
-[sources.source.map]
+[sources.source.field_map]
 id = "key"
 title = "fields.summary"
 status = "fields.status.name"
@@ -78,7 +78,7 @@ kind = "github"
 mode = "issue"
 query = "repo:zenobi-us/agentboard is:open label:ready"
 limit = 50
-status_labels = { ready = "ready" }
+status_map = { ready = "ready" }
 
 [sources.source.credentials]
 helper = "gh auth token"

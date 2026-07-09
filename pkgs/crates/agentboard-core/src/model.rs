@@ -44,7 +44,9 @@ pub enum SourceKind {
         #[serde(default)]
         fields: Vec<String>,
         #[serde(default)]
-        map: FieldMap,
+        field_map: FieldMap,
+        #[serde(default)]
+        status_map: BTreeMap<String, String>,
     },
     Github {
         mode: GithubSourceMode,
@@ -52,7 +54,9 @@ pub enum SourceKind {
         credentials: GithubCredentialConfig,
         #[serde(default = "default_source_limit")]
         limit: usize,
-        status_labels: BTreeMap<String, String>,
+        #[serde(default)]
+        field_map: FieldMap,
+        status_map: BTreeMap<String, String>,
     },
 }
 

@@ -17,7 +17,7 @@ kind = "github"
 mode = "issue"
 query = "repo:zenobi-us/agentboard is:open label:ready"
 limit = 50
-status_labels = { ready = "ready" }
+status_map = { ready = "ready" }
 
 [sources.source.credentials]
 helper = "gh auth token"
@@ -80,7 +80,7 @@ Cost: too much machinery before first value. It also forces every user to grant 
 ## Minimum viable implementation path
 
 1. Add `agentboard-source-github` crate with dependencies similar to Jira: `agentboard-core`, `anyhow`, `reqwest`, `serde_json` (`pkgs/crates/agentboard-source-jira/Cargo.toml`).
-2. Add one `SourceKind::Github { mode: GithubSourceMode }` in `agentboard-core`, with `GithubSourceMode::Issue { query, credentials, limit, status_labels }` first (`pkgs/crates/agentboard-core/src/model.rs`).
+2. Add one `SourceKind::Github { mode, query, credentials, limit, field_map, status_map }` in `agentboard-core`, with `GithubSourceMode::Issue` first (`pkgs/crates/agentboard-core/src/model.rs`).
 3. Wire `SourceKind::Github` to `agentboard_source_github::collect_items` in CLI dispatch (`apps/cli/src/adapters.rs`).
 4. Implement Issue mode using REST search when `search` is present; require users to include `is:issue` or inject it deliberately to avoid pull requests, because GitHub's search endpoint is for issues and pull requests together (https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests).
 5. Page with REST `Link` headers and `per_page=100` until `limit` is reached; preserve `raw.github.issue` and reject duplicate normalized ids (`https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api`, `pkgs/crates/agentboard-source-jira/src/lib.rs`).

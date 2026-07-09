@@ -20,8 +20,9 @@ _Avoid_: Login flow
 
 - GitHub owns request construction, credential lookup, GitHub response normalization, and mode-specific query semantics.
 - Issue mode query semantics belong to GitHub issue search. AgentBoard must not reinterpret the query beyond guarding against pull requests.
-- Issue mode item ids are `owner/repo#number`.
-- Issue mode requires configured status label mapping; when no configured label matches an issue, status falls back to the GitHub issue state.
+- Issue mode item ids default to `owner/repo#number`.
+- Issue mode uses `field_map` for normalized Item field overrides.
+- Issue mode requires `status_map`; matching issue labels are mapped first, otherwise the GitHub issue state is mapped or used as-is.
 - The normalized Item must preserve the raw GitHub issue payload.
 - Duplicate normalized item ids in one source are source errors.
 

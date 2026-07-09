@@ -20,7 +20,8 @@ _Avoid_: Login flow
 
 - Jira owns REST request construction, credential lookup, field selection, and Jira response normalization.
 - Jira query semantics belong to Jira. AgentBoard must not reinterpret JQL.
-- Jira field selection includes defaults, fields inferred from `map` paths that start with `fields.`, and explicit extra `fields` entries.
+- Jira field selection includes defaults, fields inferred from `field_map` paths that start with `fields.`, and explicit extra `fields` entries.
+- Jira uses `status_map` to normalize mapped Jira status values when configured.
 - The normalized Item must preserve the raw Jira issue payload.
 - Duplicate normalized item ids in one source are source errors.
 

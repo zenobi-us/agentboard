@@ -100,7 +100,8 @@ pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
                 query,
                 credentials,
                 limit,
-                status_labels,
+                status_map,
+                ..
             } => {
                 if query.trim().is_empty() {
                     bail!("github source {} requires query", src.id);
@@ -108,13 +109,13 @@ pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
                 if credentials.helper.trim().is_empty() {
                     bail!("github source {} credential helper cannot be empty", src.id);
                 }
-                if status_labels.is_empty() {
-                    bail!("github source {} requires status_labels", src.id);
+                if status_map.is_empty() {
+                    bail!("github source {} requires status_map", src.id);
                 }
-                for (label, status) in status_labels {
+                for (label, status) in status_map {
                     if label.trim().is_empty() || status.trim().is_empty() {
                         bail!(
-                            "github source {} status_labels cannot contain empty labels or statuses",
+                            "github source {} status_map cannot contain empty labels or statuses",
                             src.id
                         );
                     }
@@ -302,7 +303,8 @@ mod tests {
                     jql: "project = AB".into(),
                     limit: 50,
                     fields: vec![],
-                    map: Default::default(),
+                    field_map: Default::default(),
+                    status_map: Default::default(),
                 },
                 actions: vec![],
             }],
@@ -370,7 +372,8 @@ mod tests {
                 helper: "gh auth token".into(),
             },
             limit: 50,
-            status_labels: Default::default(),
+            field_map: Default::default(),
+            status_map: Default::default(),
         };
         assert!(validate_config(&WorkspaceConfig {
             sources: vec![source]
@@ -388,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn github_status_labels_must_be_explicit_in_config() {
+    fn github_status_map_must_be_explicit_in_config() {
         let missing = r#"
             [[sources]]
             id = "github"
@@ -411,7 +414,7 @@ mod tests {
             kind = "github"
             mode = "issue"
             query = "repo:zenobi-us/agentboard is:open"
-            status_labels = {}
+            status_map = {}
 
             [sources.source.credentials]
             helper = "gh auth token"
@@ -421,10 +424,10 @@ mod tests {
     }
 
     #[test]
-    fn github_status_labels_reject_empty_entries() {
+    fn github_status_map_rejects_empty_entries() {
         let mut source = github_source("repo:zenobi-us/agentboard is:open");
-        if let SourceKind::Github { status_labels, .. } = &mut source.source {
-            *status_labels = BTreeMap::from([("ready".into(), "".into())]);
+        if let SourceKind::Github { status_map, .. } = &mut source.source {
+            *status_map = BTreeMap::from([("ready".into(), "".into())]);
         }
 
         assert!(validate_config(&WorkspaceConfig {
@@ -444,7 +447,8 @@ mod tests {
                 jql: jql.into(),
                 limit: 50,
                 fields: vec![],
-                map: Default::default(),
+                field_map: Default::default(),
+                status_map: Default::default(),
             },
             actions: vec![],
         }
@@ -460,7 +464,8 @@ mod tests {
                     helper: "gh auth token".into(),
                 },
                 limit: 50,
-                status_labels: [("ready".to_string(), "ready".to_string())].into(),
+                field_map: Default::default(),
+                status_map: [("ready".to_string(), "ready".to_string())].into(),
             },
             actions: vec![],
         }

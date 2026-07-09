@@ -443,7 +443,8 @@ mod tests {
                 jql: jql.into(),
                 limit: 50,
                 fields: vec![],
-                map: Default::default(),
+                field_map: Default::default(),
+                status_map: Default::default(),
             },
             actions: vec![],
         }

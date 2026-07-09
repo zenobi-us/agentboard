@@ -16,7 +16,8 @@ pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
             query,
             credentials,
             limit,
-            status_labels,
+            field_map,
+            status_map,
         } => {
             collect_github_issues(
                 &source.id,
@@ -24,7 +25,8 @@ pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
                     query,
                     credentials,
                     limit: *limit,
-                    status_labels,
+                    field_map,
+                    status_map,
                 },
             )
             .await
@@ -37,7 +39,8 @@ struct IssueQuery<'a> {
     query: &'a str,
     credentials: &'a GithubCredentialConfig,
     limit: usize,
-    status_labels: &'a std::collections::BTreeMap<String, String>,
+    field_map: &'a agentboard_core::model::FieldMap,
+    status_map: &'a std::collections::BTreeMap<String, String>,
 }
 
 async fn collect_github_issues(source_id: &str, query: IssueQuery<'_>) -> Result<Vec<Item>> {
@@ -60,7 +63,7 @@ async fn collect_github_issues(source_id: &str, query: IssueQuery<'_>) -> Result
         }
 
         for issue in issues {
-            let item = normalize_issue(source_id, issue, query.status_labels)?;
+            let item = normalize_issue(source_id, issue, query.field_map, query.status_map)?;
             if !ids.insert(item.id.clone()) {
                 bail!("duplicate item id {} in source {source_id}", item.id);
             }
@@ -110,7 +113,8 @@ async fn github_issue_search(
 fn normalize_issue(
     source_id: &str,
     issue: &Value,
-    status_labels: &std::collections::BTreeMap<String, String>,
+    field_map: &agentboard_core::model::FieldMap,
+    status_map: &std::collections::BTreeMap<String, String>,
 ) -> Result<Item> {
     if issue.get("pull_request").is_some() {
         bail!("github issue search returned pull request; query must exclude pull requests");
@@ -127,11 +131,23 @@ fn normalize_issue(
         .get("number")
         .and_then(Value::as_i64)
         .ok_or_else(|| anyhow!("github issue number must be an integer"))?;
-    let id = format!("{repo}#{number}");
-    let title = string_field(issue.get("title"), "github issue title")?;
-    let state = string_field(issue.get("state"), "github issue state")?;
-    let url = string_field(issue.get("html_url"), "github issue html_url")?;
-    let status = mapped_status(issue, status_labels).unwrap_or_else(|| state.clone());
+    let id = match field_map.id.as_deref() {
+        Some(path) => mapped_field(issue, path, "id")?,
+        None => format!("{repo}#{number}"),
+    };
+    let title = mapped_field(
+        issue,
+        field_map.title.as_deref().unwrap_or("title"),
+        "title",
+    )?;
+    let state = mapped_field(
+        issue,
+        field_map.status.as_deref().unwrap_or("state"),
+        "status",
+    )?;
+    let url = mapped_field(issue, field_map.url.as_deref().unwrap_or("html_url"), "url")?;
+    let status = mapped_status(issue, status_map)
+        .unwrap_or_else(|| status_map.get(&state).cloned().unwrap_or(state));
 
     Ok(Item {
         id,
@@ -146,18 +162,31 @@ fn normalize_issue(
 
 fn mapped_status(
     issue: &Value,
-    status_labels: &std::collections::BTreeMap<String, String>,
+    status_map: &std::collections::BTreeMap<String, String>,
 ) -> Option<String> {
     let labels = issue.get("labels")?.as_array()?;
     for label in labels {
         let Some(name) = label.get("name").and_then(Value::as_str) else {
             continue;
         };
-        if let Some(status) = status_labels.get(name) {
+        if let Some(status) = status_map.get(name) {
             return Some(status.clone());
         }
     }
     None
+}
+
+fn mapped_field(value: &Value, path: &str, name: &str) -> Result<String> {
+    let mut current = value;
+    for part in path.split('.') {
+        current = current
+            .get(part)
+            .ok_or_else(|| anyhow!("github field_map {name}={path} must resolve to a string"))?;
+    }
+    current
+        .as_str()
+        .map(str::to_string)
+        .ok_or_else(|| anyhow!("github field_map {name}={path} must resolve to a string"))
 }
 
 fn string_field(value: Option<&Value>, name: &str) -> Result<String> {
@@ -241,11 +270,31 @@ mod tests {
             "labels": [{"name": "ready"}]
         });
 
-        let item = normalize_issue("gh", &issue, &statuses).unwrap();
+        let item = normalize_issue("gh", &issue, &Default::default(), &statuses).unwrap();
         assert_eq!(item.id, "zenobi-us/agentboard#42");
         assert_eq!(item.status, "ready-for-agent");
         assert_eq!(item.source_kind, "github");
         assert_eq!(item.raw["github"]["issue"]["number"], 42);
+    }
+
+    #[test]
+    fn supports_github_field_mapping() {
+        let issue = json!({
+            "repository_url": "https://api.github.com/repos/zenobi-us/agentboard",
+            "number": 8,
+            "title": "Original",
+            "state": "open",
+            "html_url": "https://github.com/zenobi-us/agentboard/issues/8",
+            "labels": [],
+            "custom": {"title": "Mapped"}
+        });
+        let field_map = agentboard_core::model::FieldMap {
+            title: Some("custom.title".into()),
+            ..Default::default()
+        };
+
+        let item = normalize_issue("gh", &issue, &field_map, &BTreeMap::new()).unwrap();
+        assert_eq!(item.title, "Mapped");
     }
 
     #[test]
@@ -259,7 +308,7 @@ mod tests {
             "labels": []
         });
 
-        let item = normalize_issue("gh", &issue, &BTreeMap::new()).unwrap();
+        let item = normalize_issue("gh", &issue, &Default::default(), &BTreeMap::new()).unwrap();
         assert_eq!(item.status, "closed");
     }
 
@@ -274,6 +323,6 @@ mod tests {
             "pull_request": {}
         });
 
-        assert!(normalize_issue("gh", &issue, &BTreeMap::new()).is_err());
+        assert!(normalize_issue("gh", &issue, &Default::default(), &BTreeMap::new()).is_err());
     }
 }
