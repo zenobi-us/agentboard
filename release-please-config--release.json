@@ -4,13 +4,13 @@
   "versioning": "always-bump-minor",
   "bump-patch-for-minor-pre-major": true,
   "packages": {
+    "apps/cli": {
+      "group": "application",
+      "release-type": "rust"
+    },
     "apps/docs": {
       "group": "application",
       "release-type": "node"
-    },
-    "pkgs/crates/agentboard": {
-      "group": "cli",
-      "release-type": "rust"
     }
   },
   "plugins": [

@@ -3,13 +3,13 @@
   "separate-pull-requests": false,
   "versioning": "always-bump-patch",
   "packages": {
+    "apps/cli": {
+      "group": "application",
+      "release-type": "rust"
+    },
     "apps/docs": {
       "group": "application",
       "release-type": "node"
-    },
-    "pkgs/crates/agentboard": {
-      "group": "cli",
-      "release-type": "rust"
     }
   },
   "plugins": [
