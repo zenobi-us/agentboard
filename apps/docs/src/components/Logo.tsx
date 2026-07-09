@@ -15,7 +15,7 @@ export function Logo(
         props.className,
       )}
     >
-      <h1>AgentBoard{props.suffix}</h1>
+      <h1><span className="material-symbols-outline">developer_board</span> AgentBoard{props.suffix}</h1>
     </div>
   );
 }
