@@ -1,6 +1,8 @@
 use std::{collections::HashSet, env, fs, path::PathBuf};
 
-use agentboard_core::model::{ActionConfig, SourceConfig, SourceKind, Workspace, WorkspaceConfig};
+use agentboard_core::model::{
+    ActionConfig, GithubSourceMode, SourceConfig, SourceKind, Workspace, WorkspaceConfig,
+};
 use anyhow::{bail, Context, Result};
 use directories::BaseDirs;
 use serde_json::Value;
@@ -93,6 +95,35 @@ pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
                     bail!("jira source {} limit must be greater than zero", src.id);
                 }
             }
+            SourceKind::Github { mode } => match mode {
+                GithubSourceMode::Issue {
+                    query,
+                    credentials,
+                    limit,
+                    status_labels,
+                } => {
+                    if query.trim().is_empty() {
+                        bail!("github source {} requires query", src.id);
+                    }
+                    if credentials.helper.trim().is_empty() {
+                        bail!("github source {} credential helper cannot be empty", src.id);
+                    }
+                    if status_labels.is_empty() {
+                        bail!("github source {} requires status_labels", src.id);
+                    }
+                    for (label, status) in status_labels {
+                        if label.trim().is_empty() || status.trim().is_empty() {
+                            bail!(
+                                "github source {} status_labels cannot contain empty labels or statuses",
+                                src.id
+                            );
+                        }
+                    }
+                    if *limit == 0 {
+                        bail!("github source {} limit must be greater than zero", src.id);
+                    }
+                }
+            },
         }
         for action in &src.actions {
             match action.uses.as_str() {
@@ -172,6 +203,7 @@ pub fn source_slug(source: &SourceConfig) -> String {
             collections.sort();
             ("qmd", collections.join(","))
         }
+        SourceKind::Github { .. } => ("github", "github.com".to_string()),
     };
     format!("{kind}-{}-{}", slugify(&identity), short_hash(&identity))
 }
@@ -236,7 +268,10 @@ pub fn short_hash(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentboard_core::model::{SourceConfig, SourceKind};
+    use agentboard_core::model::{
+        GithubCredentialConfig, GithubSourceMode, SourceConfig, SourceKind,
+    };
+    use std::collections::BTreeMap;
 
     #[test]
     fn qmd_source_requires_collections_and_query() {
@@ -321,6 +356,92 @@ mod tests {
         assert!(actions.ends_with(&format!("-{}.jsonl", source_hash(&source))));
     }
 
+    #[test]
+    fn github_issue_source_requires_query_helper_and_limit() {
+        let mut source = github_source("repo:zenobi-us/agentboard is:open");
+        assert!(validate_config(&WorkspaceConfig {
+            sources: vec![source.clone()]
+        })
+        .is_ok());
+
+        source.source = SourceKind::Github {
+            mode: GithubSourceMode::Issue {
+                query: "".into(),
+                credentials: GithubCredentialConfig {
+                    helper: "gh auth token".into(),
+                },
+                limit: 50,
+                status_labels: Default::default(),
+            },
+        };
+        assert!(validate_config(&WorkspaceConfig {
+            sources: vec![source]
+        })
+        .is_err());
+    }
+
+    #[test]
+    fn github_sources_share_item_store_identity() {
+        let first = github_source("repo:zenobi-us/agentboard is:open");
+        let second = github_source("repo:zenobi-us/agentboard label:ready");
+
+        assert_eq!(source_slug(&first), source_slug(&second));
+        assert!(source_slug(&first).starts_with("github-github-com-"));
+    }
+
+    #[test]
+    fn github_status_labels_must_be_explicit_in_config() {
+        let missing = r#"
+            [[sources]]
+            id = "github"
+
+            [sources.source]
+            kind = "github"
+
+            [sources.source.mode]
+            mode = "issue"
+            query = "repo:zenobi-us/agentboard is:open"
+
+            [sources.source.mode.credentials]
+            helper = "gh auth token"
+        "#;
+        assert!(toml::from_str::<WorkspaceConfig>(missing).is_err());
+
+        let explicit_empty = r#"
+            [[sources]]
+            id = "github"
+
+            [sources.source]
+            kind = "github"
+
+            [sources.source.mode]
+            mode = "issue"
+            query = "repo:zenobi-us/agentboard is:open"
+            status_labels = {}
+
+            [sources.source.mode.credentials]
+            helper = "gh auth token"
+        "#;
+        let config = toml::from_str::<WorkspaceConfig>(explicit_empty).unwrap();
+        assert!(validate_config(&config).is_err());
+    }
+
+    #[test]
+    fn github_status_labels_reject_empty_entries() {
+        let mut source = github_source("repo:zenobi-us/agentboard is:open");
+        if let SourceKind::Github {
+            mode: GithubSourceMode::Issue { status_labels, .. },
+        } = &mut source.source
+        {
+            *status_labels = BTreeMap::from([("ready".into(), "".into())]);
+        }
+
+        assert!(validate_config(&WorkspaceConfig {
+            sources: vec![source]
+        })
+        .is_err());
+    }
+
     fn jira_source(site: &str, jql: &str) -> SourceConfig {
         SourceConfig {
             id: "jira".into(),
@@ -333,6 +454,23 @@ mod tests {
                 limit: 50,
                 fields: vec![],
                 map: Default::default(),
+            },
+            actions: vec![],
+        }
+    }
+
+    fn github_source(query: &str) -> SourceConfig {
+        SourceConfig {
+            id: "github".into(),
+            source: SourceKind::Github {
+                mode: GithubSourceMode::Issue {
+                    query: query.into(),
+                    credentials: GithubCredentialConfig {
+                        helper: "gh auth token".into(),
+                    },
+                    limit: 50,
+                    status_labels: [("ready".to_string(), "ready".to_string())].into(),
+                },
             },
             actions: vec![],
         }

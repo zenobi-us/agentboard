@@ -10,6 +10,7 @@ repository = "https://github.com/zenobi-us/agentboard"
 agentboard-action-run-cmd = { path = "../../pkgs/crates/agentboard-action-run-cmd" }
 agentboard-action-worktree = { path = "../../pkgs/crates/agentboard-action-worktree" }
 agentboard-core = { path = "../../pkgs/crates/agentboard-core" }
+agentboard-source-github = { path = "../../pkgs/crates/agentboard-source-github" }
 agentboard-source-jira = { path = "../../pkgs/crates/agentboard-source-jira" }
 agentboard-source-qmd = { path = "../../pkgs/crates/agentboard-source-qmd" }
 anyhow = "1"

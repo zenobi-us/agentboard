@@ -46,11 +46,32 @@ pub enum SourceKind {
         #[serde(default)]
         map: FieldMap,
     },
+    Github {
+        mode: GithubSourceMode,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(tag = "mode", rename_all = "kebab-case", deny_unknown_fields)]
+pub enum GithubSourceMode {
+    Issue {
+        query: String,
+        credentials: GithubCredentialConfig,
+        #[serde(default = "default_source_limit")]
+        limit: usize,
+        status_labels: BTreeMap<String, String>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct JiraCredentialConfig {
+    pub helper: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GithubCredentialConfig {
     pub helper: String,
 }
 

@@ -10,6 +10,7 @@ pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
     match &source.source {
         SourceKind::Qmd { .. } => agentboard_source_qmd::collect_items(source).await,
         SourceKind::Jira { .. } => agentboard_source_jira::collect_items(source).await,
+        SourceKind::Github { .. } => agentboard_source_github::collect_items(source).await,
     }
 }
 

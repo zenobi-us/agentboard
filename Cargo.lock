@@ -9,6 +9,7 @@ dependencies = [
  "agentboard-action-run-cmd",
  "agentboard-action-worktree",
  "agentboard-core",
+ "agentboard-source-github",
  "agentboard-source-jira",
  "agentboard-source-qmd",
  "anyhow",
@@ -48,6 +49,16 @@ version = "0.0.1"
 dependencies = [
  "schemars",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "agentboard-source-github"
+version = "0.0.1"
+dependencies = [
+ "agentboard-core",
+ "anyhow",
+ "reqwest",
  "serde_json",
 ]
 

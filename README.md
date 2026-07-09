@@ -67,6 +67,25 @@ status = "fields.status.name"
 url = "fields.customfield_10010"
 ```
 
+GitHub issue source example:
+
+```toml
+[[sources]]
+id = "github"
+
+[sources.source]
+kind = "github"
+
+[sources.source.mode]
+mode = "issue"
+query = "repo:zenobi-us/agentboard is:open label:ready"
+limit = 50
+status_labels = { ready = "ready" }
+
+[sources.source.mode.credentials]
+helper = "gh auth token"
+```
+
 ## Projects
 
 - `apps/cli` — Rust CLI crate.

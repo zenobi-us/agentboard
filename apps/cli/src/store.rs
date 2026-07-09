@@ -270,6 +270,7 @@ pub async fn doctor(ws: &Workspace) -> Result<()> {
         match &source.source {
             SourceKind::Qmd { .. } => command_exists("qmd")?,
             SourceKind::Jira { .. } => {}
+            SourceKind::Github { .. } => {}
         }
         let _ = collect_items(source).await?;
     }

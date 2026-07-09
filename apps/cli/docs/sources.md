@@ -55,6 +55,7 @@ Every Source produces normalized items:
 
 - [QMD source](/sources/qmd)
 - [Jira source](/sources/jira)
+- [GitHub source](/sources/github)
 
 ## CLI-Owned Behavior
 
