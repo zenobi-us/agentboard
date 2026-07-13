@@ -52,6 +52,11 @@ tasks:
       - "~:check"
     command: "noop"
 
+  install:
+    deps:
+      - "~:build"
+    command: "cargo install --path . --force --locked"
+
   publish:
     type: run
     options:
