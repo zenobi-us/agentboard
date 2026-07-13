@@ -2,7 +2,7 @@
 title: Run command action
 ---
 
-# Run command action
+# Run Command Action
 
 Use `agentboard/run-cmd` to run a shell command for each collected item.
 
