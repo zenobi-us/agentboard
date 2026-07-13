@@ -162,7 +162,9 @@ jobs:
             fi
           fi
 
-          if [ -z "${base_ref}" ] || [ "${base_ref}" = "0000000000000000000000000000000000000000" ]; then
+          if [ -z "${base_ref}" ] || \
+            [ "${base_ref}" = "0000000000000000000000000000000000000000" ] || \
+            ! git cat-file -e "${base_ref}^{commit}" 2>/dev/null; then
             base_ref="$(git rev-parse HEAD^ 2>/dev/null || printf '%s' "${GITHUB_SHA}")"
           fi
 
