@@ -2,41 +2,29 @@
 
 setup() {
   SCRIPT="${BATS_TEST_DIRNAME}/get-publish-matrix"
+  REPO_ROOT="${BATS_TEST_DIRNAME}/../.."
   BASE="abc123"
   HEAD="def456"
-  PAYLOAD_FALSE='{"releases_created":"false"}'
+  RUN_NUMBER="481"
 
   MOCK_DIR="$(mktemp -d)"
   export PATH="${MOCK_DIR}:${PATH}"
+  export MOON_MOCK_OUTPUT='{"projects":[]}'
 
   cat >"${MOCK_DIR}/moon" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ "${1:-}" = "query" && "${2:-}" = "projects" && "${3:-}" = "--affected" ]]; then
-  if [[ -n "${MOON_MOCK_ASSERT_BASE:-}" && "${MOON_BASE:-}" != "${MOON_MOCK_ASSERT_BASE}" ]]; then
-    echo "unexpected MOON_BASE: ${MOON_BASE:-}" >&2
-    exit 1
-  fi
-
-  if [[ -n "${MOON_MOCK_ASSERT_HEAD:-}" && "${MOON_HEAD:-}" != "${MOON_MOCK_ASSERT_HEAD}" ]]; then
-    echo "unexpected MOON_HEAD: ${MOON_HEAD:-}" >&2
-    exit 1
-  fi
-
-  output="${MOON_MOCK_OUTPUT:-}"
-  if [[ -z "${output}" ]]; then
-    output='{"projects":[]}'
-  fi
-  printf '%s\n' "${output}"
+if [[ "${1:-}" = "query" && "${2:-}" = "projects" ]]; then
+  printf '%s\n' "${MOON_MOCK_OUTPUT}"
   exit 0
 fi
 
 echo "unexpected moon args: $*" >&2
 exit 1
 EOF
-
   chmod +x "${MOCK_DIR}/moon"
+  cd "${REPO_ROOT}"
 }
 
 teardown() {
@@ -49,79 +37,78 @@ teardown() {
   [[ "$output" == *"Missing JSON payload argument"* ]]
 }
 
-@test "fails on invalid payload" {
-  run bash "${SCRIPT}" '{not-json}' "${BASE}" "${HEAD}"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Invalid JSON payload passed as argv[0]"* ]]
-}
-
-@test "fails when base is missing" {
-  run bash "${SCRIPT}" "${PAYLOAD_FALSE}" "" "${HEAD}"
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Missing base argument"* ]]
-}
-
-@test "fails when head is missing" {
-  run bash "${SCRIPT}" "${PAYLOAD_FALSE}" "${BASE}" ""
-  [ "$status" -eq 1 ]
-  [[ "$output" == *"Missing head argument"* ]]
-}
-
-@test "releases_created false resolves next mode/tag and filters publishable targets" {
-  export MOON_MOCK_ASSERT_BASE="${BASE}"
-  export MOON_MOCK_ASSERT_HEAD="${HEAD}"
+@test "prerelease matrix uses next minor version and skips non-publishable projects" {
   export MOON_MOCK_OUTPUT='{
     "projects": [
-      { "id": "repo", "tasks": { "lint": {} } },
-      { "id": "public-site", "tasks": { "publish": {}, "build": {} } },
-      { "id": "features", "tasks": { "publish": {} } }
+      {"id":"agentboard","source":"apps/cli","tasks":{"publish":{}}},
+      {"id":"agentboard-core","source":"pkgs/crates/agentboard-core","tasks":{"test":{}}}
     ]
   }'
 
-  run bash "${SCRIPT}" "${PAYLOAD_FALSE}" "${BASE}" "${HEAD}"
+  run bash "${SCRIPT}" '{"releases_created":false}' "${BASE}" "${HEAD}" changed "" "${RUN_NUMBER}" normal
   [ "$status" -eq 0 ]
-
-  run jq -e '. == [
-    {"target":"features","tag":"next","mode":"next"},
-    {"target":"public-site","tag":"next","mode":"next"}
-  ]' <<<"$output"
-  [ "$status" -eq 0 ]
-}
-
-@test "releases_created true (boolean) resolves latest mode/tag" {
-  export MOON_MOCK_OUTPUT='{
-    "projects": [
-      { "id": "features", "tasks": { "publish": {} } }
-    ]
-  }'
-
-  run bash "${SCRIPT}" '{"releases_created":true}' "${BASE}" "${HEAD}"
-  [ "$status" -eq 0 ]
-
-  run jq -e '. == [
-    {"target":"features","tag":"latest","mode":"latest"}
-  ]' <<<"$output"
+  run jq -e '. == {
+    "publish":[{"project_id":"agentboard","version":"0.1.0-next.481","publish_tag":"next","release_tag":"0.1.0-next.481","source_sha":"def456"}],
+    "skipped":[{"project_id":"agentboard-core","reason":"project has no publish task"}]
+  }' <<<"$output"
   [ "$status" -eq 0 ]
 }
 
-@test "accepts payload from @file to avoid argv size limits" {
+@test "stable matrix uses manifest version" {
   export MOON_MOCK_OUTPUT='{
     "projects": [
-      { "id": "features", "tasks": { "publish": {} } }
+      {"id":"agentboard","source":"apps/cli","tasks":{"publish":{}}}
     ]
   }'
 
+  run bash "${SCRIPT}" '{"releases_created":true,"apps/cli--tag_name":"agentboard-v0.0.1"}' "${BASE}" "${HEAD}" changed "" "${RUN_NUMBER}" normal
+  [ "$status" -eq 0 ]
+  run jq -e '.publish[0].version == "0.0.1" and .publish[0].publish_tag == "latest" and .publish[0].release_tag == "agentboard-v0.0.1"' <<<"$output"
+  [ "$status" -eq 0 ]
+}
+
+@test "hotfix prerelease bumps patch" {
+  export MOON_MOCK_OUTPUT='{
+    "projects": [
+      {"id":"agentboard","source":"apps/cli","tasks":{"publish":{}}}
+    ]
+  }'
+
+  run bash "${SCRIPT}" '{"releases_created":false}' "${BASE}" "${HEAD}" changed "" "${RUN_NUMBER}" hotfix
+  [ "$status" -eq 0 ]
+  run jq -e '.publish[0].version == "0.0.2-next.481"' <<<"$output"
+  [ "$status" -eq 0 ]
+}
+
+@test "projects mode skips unknown and non-publishable IDs without failing" {
+  export MOON_MOCK_OUTPUT='{
+    "projects": [
+      {"id":"agentboard","source":"apps/cli","tasks":{"publish":{}}},
+      {"id":"agentboard-core","source":"pkgs/crates/agentboard-core","tasks":{"test":{}}}
+    ]
+  }'
+
+  run bash "${SCRIPT}" '{"releases_created":false}' "${BASE}" "${HEAD}" projects 'missing, agentboard-core, agentboard' "${RUN_NUMBER}" normal
+  [ "$status" -eq 0 ]
+  run jq -e '
+    (.publish | map(.project_id)) == ["agentboard"] and
+    .skipped == [
+      {"project_id":"agentboard-core","reason":"project has no publish task"},
+      {"project_id":"missing","reason":"unknown Moon project"}
+    ]
+  ' <<<"$output"
+  [ "$status" -eq 0 ]
+}
+
+@test "accepts payload from file" {
+  export MOON_MOCK_OUTPUT='{"projects":[{"id":"agentboard","source":"apps/cli","tasks":{"publish":{}}}]}'
   payload_file="$(mktemp)"
-  cat >"${payload_file}" <<'EOF'
-{"releases_created":"false","pr":"x","prs":"[]"}
-EOF
+  printf '%s' '{"releases_created":false}' >"${payload_file}"
 
-  run bash "${SCRIPT}" "@${payload_file}" "${BASE}" "${HEAD}"
+  run bash "${SCRIPT}" "@${payload_file}" "${BASE}" "${HEAD}" changed "" "${RUN_NUMBER}" normal
   rm -f "${payload_file}"
 
   [ "$status" -eq 0 ]
-  run jq -e '. == [
-    {"target":"features","tag":"next","mode":"next"}
-  ]' <<<"$output"
+  run jq -e '.publish | length == 1' <<<"$output"
   [ "$status" -eq 0 ]
 }

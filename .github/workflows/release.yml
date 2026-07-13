@@ -5,6 +5,21 @@ on:
     branches:
       - main
       - release/*
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Projects to publish
+        required: true
+        default: changed
+        type: choice
+        options:
+          - changed
+          - all
+          - projects
+      projects:
+        description: Comma-separated Moon project IDs when mode=projects
+        required: false
+        type: string
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,32 +54,59 @@ jobs:
           key-prefix: moon-release
           cache-version: v1
 
+      - name: DetermineReleaseOwnership
+        id: ownership
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          git fetch origin '+refs/heads/release/*:refs/remotes/origin/release/*' --quiet
+          process=true
+          reason="branch owns commit"
+
+          if [[ "${GITHUB_REF_NAME}" == release/* ]]; then
+            if .github/tasks/release-branches.sh is-root-commit "${GITHUB_SHA}" "${GITHUB_REF_NAME}" origin/main; then
+              process=false
+              reason="release branch root was already released from main"
+            fi
+          else
+            hotfix_pr="$(gh api \
+              -H 'Accept: application/vnd.github+json' \
+              "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" \
+              --jq 'any(.[]; .head.ref | startswith("release/"))')"
+
+            if [ "${hotfix_pr}" = "true" ] || \
+              .github/tasks/release-branches.sh is-hotfix-merge "${GITHUB_SHA}" '${{ github.event.before }}'; then
+              process=false
+              reason="commit is owned by a hotfix release branch"
+            fi
+          fi
+
+          echo "process=${process}" >> "${GITHUB_OUTPUT}"
+          echo "reason=${reason}" >> "${GITHUB_OUTPUT}"
+          echo "Release ownership: ${reason}" >> "${GITHUB_STEP_SUMMARY}"
+
       - name: PrepareReleasePleaseMode
         id: mode
         run: |
           set -euo pipefail
 
           mode="$(.github/tasks/get-release-mode "${GITHUB_REF_NAME}")"
-
           case "${mode}" in
-            hotfix)
-              config_file="release-please-config--hotfix.json"
-              ;;
-            normal)
-              config_file="release-please-config--release.json"
-              ;;
-            *)
-              echo "Unsupported release mode: ${mode}" >&2
-              exit 1
-              ;;
+            hotfix) config_file="release-please-config--hotfix.json" ;;
+            normal) config_file="release-please-config--release.json" ;;
+            *) echo "Unsupported release mode: ${mode}" >&2; exit 1 ;;
           esac
 
           echo "mode=${mode}" >> "${GITHUB_OUTPUT}"
           echo "config_file=${config_file}" >> "${GITHUB_OUTPUT}"
 
-      - uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
+      - name: RunReleasePlease
+        if: github.event_name == 'push' && steps.ownership.outputs.process == 'true'
         id: release-please
-        name: RunReleasePlease
+        uses: googleapis/release-please-action@16a9c90856f42705d54a6fda1823352bdc62cf38 # v4
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           config-file: ${{ steps.mode.outputs.config_file }}
@@ -72,6 +114,7 @@ jobs:
           skip-github-pull-request: false
 
       - name: SummaryReleasePleaseOutputs
+        if: github.event_name == 'push' && steps.ownership.outputs.process == 'true'
         run: |
           cat <<'EOF' | ./.github/tasks/summarise-release-please.sh
           ${{ toJson(steps.release-please.outputs) }}
@@ -82,56 +125,78 @@ jobs:
 
       - id: publish-matrix
         name: GeneratePublishMatrix
+        env:
+          SELECTION_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'changed' }}
+          REQUESTED_PROJECTS: ${{ github.event_name == 'workflow_dispatch' && inputs.projects || '' }}
+          PROCESS_RELEASE: ${{ github.event_name == 'workflow_dispatch' || steps.ownership.outputs.process == 'true' }}
         run: |
           set -euo pipefail
 
-          payload_file="$(mktemp)"
-          trap 'rm -f "${payload_file}"' EXIT
+          if [ "${PROCESS_RELEASE}" != "true" ]; then
+            echo 'publish_matrix=[]' >> "${GITHUB_OUTPUT}"
+            echo '## Publish selection' >> "${GITHUB_STEP_SUMMARY}"
+            echo '- skipped: commit belongs to another release lane' >> "${GITHUB_STEP_SUMMARY}"
+            exit 0
+          fi
 
-          cat >"${payload_file}" <<'EOF'
+          payload_file="$(mktemp)"
+          result_file="$(mktemp)"
+          trap 'rm -f "${payload_file}" "${result_file}"' EXIT
+
+          if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
+            cat >"${payload_file}" <<'EOF'
           ${{ toJson(steps.release-please.outputs) }}
           EOF
-          # release-please output is used only as a mode/tag signal via releases_created.
-          # publish units are resolved from moon affected query in get-publish-matrix.
-          base_ref='${{ github.event.before }}'
-          head_ref='${{ github.sha }}'
-          if [ -z "${base_ref}" ] || [ "${base_ref}" = "0000000000000000000000000000000000000000" ]; then
-            if git rev-parse --verify HEAD^ >/dev/null 2>&1; then
-              base_ref="$(git rev-parse HEAD^)"
+            base_ref='${{ github.event.before }}'
+          else
+            printf '%s' '{"releases_created":false}' >"${payload_file}"
+            if [ "${SELECTION_MODE}" = "changed" ]; then
+              git fetch origin main --quiet
+              if [ "${GITHUB_REF_NAME}" = "main" ]; then
+                base_ref="$(git rev-parse HEAD^)"
+              else
+                base_ref="$(git merge-base HEAD origin/main)"
+              fi
             else
-              base_ref="${head_ref}"
+              base_ref="${GITHUB_SHA}"
             fi
           fi
 
-          publish_matrix="$(.github/tasks/get-publish-matrix "@${payload_file}" "${base_ref}" "${head_ref}" | jq -rc '.')"
-          echo "publish_matrix=${publish_matrix}" >> "${GITHUB_OUTPUT}"
+          if [ -z "${base_ref}" ] || [ "${base_ref}" = "0000000000000000000000000000000000000000" ]; then
+            base_ref="$(git rev-parse HEAD^ 2>/dev/null || printf '%s' "${GITHUB_SHA}")"
+          fi
 
-      - name: SummaryPublishMatrixOutputs
-        run: |
-          set -euo pipefail
+          .github/tasks/get-publish-matrix \
+            "@${payload_file}" \
+            "${base_ref}" \
+            "${GITHUB_SHA}" \
+            "${SELECTION_MODE}" \
+            "${REQUESTED_PROJECTS}" \
+            "${GITHUB_RUN_NUMBER}" \
+            '${{ steps.mode.outputs.mode }}' >"${result_file}"
 
-          publish_matrix=$(cat <<'EOF'
-          ${{ steps.publish-matrix.outputs.publish_matrix }}
-          EOF
-          )
+          echo "publish_matrix=$(jq -c '.publish' "${result_file}")" >> "${GITHUB_OUTPUT}"
 
           {
-            echo "## Publish Matrix Outputs"
-            echo "- source of publish units: \`moon query projects --affected\`"
-            echo "- mode/tag signal: \`release-please outputs.releases_created\`"
-            echo "- released paths: informational only"
+            echo "## Publish selection"
             echo
-            echo "${publish_matrix}" | jq -r '
-              .[] |
-              "- target: \(.target // ""), mode: \(.mode // "")"
-            '
-            echo "<details><summary>publish matrix json</summary>"
+            echo "- selection mode: \`${SELECTION_MODE}\`"
+            echo "- source SHA: \`${GITHUB_SHA}\`"
+            echo
+            echo "### Selected"
+            jq -r '.publish[]? | "- \(.project_id): \(.version) [\(.publish_tag)]"' "${result_file}"
+            if [ "$(jq '.publish | length' "${result_file}")" -eq 0 ]; then echo "- none"; fi
+            echo
+            echo "### Skipped"
+            jq -r '.skipped[]? | "- \(.project_id): \(.reason)"' "${result_file}"
+            if [ "$(jq '.skipped | length' "${result_file}")" -eq 0 ]; then echo "- none"; fi
+            echo
+            echo '<details><summary>selection JSON</summary>'
             echo
             echo '```json'
-            echo "${publish_matrix}" | jq .
+            jq . "${result_file}"
             echo '```'
-            echo
-            echo "</details>"
+            echo '</details>'
           } >> "${GITHUB_STEP_SUMMARY}"
 
   publish:
@@ -144,9 +209,9 @@ jobs:
       matrix:
         include: ${{ fromJson(needs.process.outputs.publish_matrix) }}
     steps:
-      - name: DispatchPublish-${{ matrix.target }}-${{ matrix.tag }}
+      - name: DispatchPublish-${{ matrix.project_id }}-${{ matrix.publish_tag }}
         uses: peter-evans/repository-dispatch@bf47d102fdb849e755b0b0023ea3e81a44b6f570 # v2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           event-type: publish-package
-          client-payload: '{"target":"${{ matrix.target }}","tag":"${{ matrix.tag }}","mode":"${{ matrix.mode }}"}'
+          client-payload: '{"project_id":"${{ matrix.project_id }}","version":"${{ matrix.version }}","publish_tag":"${{ matrix.publish_tag }}","release_tag":"${{ matrix.release_tag }}","source_sha":"${{ matrix.source_sha }}"}'

@@ -65,6 +65,11 @@ tasks:
         exit 1
       fi
 
+      if [ -z "${PUBLISH_RELEASE_TAG:-}" ]; then
+        echo "ERROR: PUBLISH_RELEASE_TAG is required." >&2
+        exit 1
+      fi
+
       cd "${MOON_WORKSPACE_ROOT}"
 
       dist="${MOON_PROJECT_ROOT}/dist/publish"
@@ -96,4 +101,4 @@ tasks:
         esac
       done
 
-      gh release upload "${PUBLISH_VERSION}" "${dist}"/* --clobber
+      gh release upload "${PUBLISH_RELEASE_TAG}" "${dist}"/* --clobber
