@@ -1,0 +1,14 @@
+---
+$schema: "file://../.moon/cache/schemas/project.json"
+id: github
+language: bash
+layer: tool
+
+tasks:
+  test:
+    command: "bats tasks/*.bats"
+    inputs:
+      - "actions/**/*"
+      - "tasks/**/*"
+      - "workflows/**/*"
+      - "/.memory/docs/adr/0009-coordinate-releases-with-release-please-and-moon.md"

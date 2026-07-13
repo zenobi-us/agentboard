@@ -14,6 +14,7 @@ This repo uses a multi-context domain-doc layout. Read this file first, then rea
 | `pkgs/crates/agentboard-action-worktree` | `pkgs/crates/agentboard-action-worktree/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/agentboard-action-worktree/` | Git worktree action executor. |
 | `apps/docs` | _none yet_ | _none yet_ | Docs app. Uses AgentBoard terms from the CLI/core contexts when documenting product behavior. |
 | `pkgs/tools/deployment` | _none yet_ | _none yet_ | Release/deployment helper scripts. No separate domain language resolved yet. |
+| `.github` | _none yet_ | `.memory/docs/adr/` | Release coordination, publish dispatch, and CI helper scripts. |
 
 ## System flow
 
