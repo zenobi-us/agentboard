@@ -67,6 +67,18 @@ store_files() {
   find "$XDG_DATA_HOME/agentboard" -type f 2>/dev/null | sort
 }
 
+@test "workspaces lists named configs in order" {
+  mkdir -p "$XDG_CONFIG_HOME/agentboard"
+  touch "$XDG_CONFIG_HOME/agentboard/zeta.toml"
+  touch "$XDG_CONFIG_HOME/agentboard/alpha.toml"
+  touch "$XDG_CONFIG_HOME/agentboard/ignored.txt"
+
+  run "$AB" workspaces
+
+  [ "$status" -eq 0 ]
+  [ "$output" = $'alpha\nzeta' ]
+}
+
 @test "run success" {
   write_item AB-1
   write_workspace "echo \$AGENTBOARD_ITEM_ID >> '$TMP/ran'"

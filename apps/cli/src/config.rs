@@ -8,6 +8,29 @@ use directories::BaseDirs;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+/// List named workspace config files from the user config directory.
+pub fn list_workspaces() -> Result<Vec<String>> {
+    let dir = config_home().join("agentboard");
+    let entries = match fs::read_dir(&dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(error) => {
+            return Err(error).with_context(|| format!("read workspaces {}", dir.display()))
+        }
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let path = entry?.path();
+        if path.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("toml") {
+            if let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) {
+                names.push(name.to_owned());
+            }
+        }
+    }
+    names.sort();
+    Ok(names)
+}
+
 /// Load a workspace by name or explicit TOML path, then validate it.
 ///
 /// Named workspaces resolve under the user config directory. Explicit paths get

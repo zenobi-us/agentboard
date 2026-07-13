@@ -3,7 +3,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 use crate::{
-    config::load_workspace,
+    config::{list_workspaces, load_workspace},
     runtime::{parse_duration, run_once, watch},
     store::{doctor, list_items, show_item},
 };
@@ -19,6 +19,8 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// List available named workspaces.
+    Workspaces,
     /// Execute one workspace run.
     Run {
         workspace: String,
@@ -54,6 +56,12 @@ enum Command {
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
+        Command::Workspaces => {
+            for workspace in list_workspaces()? {
+                println!("{workspace}");
+            }
+            Ok(())
+        }
         Command::Run { workspace, dry_run } => {
             run_once(&load_workspace(&workspace)?, dry_run).await
         }
