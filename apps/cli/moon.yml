@@ -90,7 +90,18 @@ tasks:
       rustup target add "${targets[@]}"
 
       for target in "${targets[@]}"; do
-        cargo build --release -p agentboard --target "${target}"
+        case "${target}" in
+          *apple-darwin)
+            docker run --rm \
+              -v "${MOON_WORKSPACE_ROOT}:/io" \
+              -w /io \
+              ghcr.io/rust-cross/cargo-zigbuild@sha256:b8364c2c60cdcc9b95c402d17654bff517410926a35678bd89dd924b8158d6ae \
+              cargo zigbuild --release -p agentboard --target "${target}"
+            ;;
+          *)
+            cargo build --release -p agentboard --target "${target}"
+            ;;
+        esac
 
         case "${target}" in
           *windows*)

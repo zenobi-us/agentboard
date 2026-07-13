@@ -117,6 +117,10 @@ jobs:
               --generate-notes
           fi
 
+      - name: InstallAgentboardCrossCompiler
+        if: env.PUBLISH_TARGET == 'agentboard'
+        run: sudo apt-get update && sudo apt-get install --yes gcc-mingw-w64-x86-64
+
       - name: PublishTarget
         env:
           GH_TOKEN: ${{ github.token }}
