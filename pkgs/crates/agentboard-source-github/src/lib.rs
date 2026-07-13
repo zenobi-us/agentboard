@@ -10,6 +10,11 @@ use serde_json::{json, Value};
 const GITHUB_SEARCH_URL: &str = "https://api.github.com/search/issues";
 
 pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
+    Ok(inspect_items(source).await?.0)
+}
+
+/// Collect configured Items and return GitHub's total matching issue count.
+pub async fn inspect_items(source: &SourceConfig) -> Result<(Vec<Item>, usize)> {
     match &source.source {
         SourceKind::Github {
             mode: GithubSourceMode::Issue,
@@ -43,17 +48,27 @@ struct IssueQuery<'a> {
     status_map: &'a std::collections::BTreeMap<String, String>,
 }
 
-async fn collect_github_issues(source_id: &str, query: IssueQuery<'_>) -> Result<Vec<Item>> {
+async fn collect_github_issues(
+    source_id: &str,
+    query: IssueQuery<'_>,
+) -> Result<(Vec<Item>, usize)> {
     let token = github_token(query.credentials)?;
     let client = Client::new();
     let search_query = issue_only_query(query.query);
     let mut page = 1usize;
     let mut out = Vec::new();
     let mut ids = HashSet::new();
+    let mut available = None;
 
     while out.len() < query.limit {
         let page_size = (query.limit - out.len()).min(100);
         let response = github_issue_search(&client, &token, &search_query, page_size, page).await?;
+        let total = response
+            .get("total_count")
+            .and_then(Value::as_u64)
+            .ok_or_else(|| anyhow!("github issue search response missing total_count"))?
+            as usize;
+        available.get_or_insert(total);
         let issues = response
             .get("items")
             .and_then(Value::as_array)
@@ -75,7 +90,7 @@ async fn collect_github_issues(source_id: &str, query: IssueQuery<'_>) -> Result
         page += 1;
     }
 
-    Ok(out)
+    Ok((out, available.unwrap_or(0)))
 }
 
 async fn github_issue_search(

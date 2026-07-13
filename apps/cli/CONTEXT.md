@@ -5,8 +5,12 @@ The CLI crate is the public entrypoint for AgentBoard. It loads workspace config
 ## Language
 
 **Workspace**:
-A TOML config file that names sources and the actions to run for each source.
+A TOML config file that names sources and the actions to run for each source. A Workspace may be empty while being initialized before Sources are configured.
 _Avoid_: Project config, repo config
+
+**Workspace Initialization**:
+Creation of a named, empty Workspace ready for Source configuration.
+_Avoid_: Project initialization, repository initialization
 
 **Run**:
 One execution of the AgentBoard pipeline: load a workspace, read sources, update the store, and execute pending actions.

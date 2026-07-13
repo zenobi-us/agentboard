@@ -7,13 +7,14 @@ use std::{
 };
 
 use agentboard_core::model::{ActionAttempt, Item, SourceConfig, SourceKind, Workspace};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use fs4::{FileExt, TryLockError};
 use serde_json::json;
 
 use crate::{
-    adapters::collect_items,
+    adapters::{inspect_source, SourceInspection},
     config::{actions_path, items_path, source_slug, store_root},
+    output::Output,
 };
 
 #[derive(Clone, Debug)]
@@ -258,41 +259,165 @@ fn resolve_item(ws: &Workspace, item_ref: &str) -> Result<StoredItem> {
     }
 }
 
-/// Validate config, store writability, source reachability, and required commands.
-pub async fn doctor(ws: &Workspace) -> Result<()> {
-    crate::config::validate_config(&ws.config)?;
+/// Validate config, Store writability, Source reachability, and required commands.
+pub async fn doctor(ws: &Workspace, output: &Output) -> Result<()> {
+    output.info(
+        "doctor.start",
+        &format!("doctor {} starting", ws.id),
+        json!({"workspace": ws.id}),
+    )?;
+    let mut failures = 0_usize;
+
+    let config = crate::config::validate_config(&ws.config);
+    report_check(output, ws, "config", config, &mut failures)?;
+
     let root = store_root(ws);
-    fs::create_dir_all(&root)?;
     let probe = root.join(".doctor-write-test");
-    fs::write(&probe, b"ok")?;
-    fs::remove_file(probe)?;
+    let store = (|| -> Result<()> {
+        fs::create_dir_all(&root)?;
+        fs::write(&probe, b"ok")?;
+        fs::remove_file(&probe)?;
+        Ok(())
+    })();
+    let _ = fs::remove_file(&probe);
+    report_check(output, ws, "store", store, &mut failures)?;
+
+    let mut commands = HashSet::new();
     for source in &ws.config.sources {
-        match &source.source {
-            SourceKind::Qmd { .. } => command_exists("qmd")?,
-            SourceKind::Jira { .. } => {}
-            SourceKind::Github { .. } => {}
+        if matches!(&source.source, SourceKind::Qmd { .. }) {
+            commands.insert("qmd");
         }
-        let _ = collect_items(source).await?;
-    }
-    for source in &ws.config.sources {
-        for action in &source.actions {
-            if action.uses == "agentboard/create-worktree" {
-                command_exists("git")?;
+        match inspect_source(source).await {
+            Ok(inspection) => output.success(
+                "doctor.check",
+                &source_reachable_message(&source.id, &inspection),
+                json!({
+                    "workspace": ws.id,
+                    "check": "source",
+                    "source": source.id,
+                    "outcome": "pass",
+                    "fetched": inspection.items.len(),
+                    "available": inspection.available,
+                    "limit": inspection.limit,
+                }),
+            )?,
+            Err(err) => {
+                failures += 1;
+                output.error(
+                    "doctor.check",
+                    &format!("fail source {}: {err:#}", source.id),
+                    json!({"workspace": ws.id, "check": "source", "source": source.id, "outcome": "fail", "error": format!("{err:#}")}),
+                )?;
+            }
+        }
+        output.info(
+            "doctor.actions",
+            &format!("actions [{}]", source.actions.len()),
+            json!({"workspace": ws.id, "source": source.id, "actions": source.actions.len()}),
+        )?;
+        for (index, action) in source.actions.iter().enumerate() {
+            match check_action(action) {
+                Ok(()) => output.success(
+                    "doctor.action",
+                    &format!("  - {} [ok]", action.uses),
+                    json!({"workspace": ws.id, "source": source.id, "action_index": index, "uses": action.uses, "outcome": "pass"}),
+                )?,
+                Err(err) => {
+                    failures += 1;
+                    output.error(
+                        "doctor.action",
+                        &format!("  - {} [fail: {err:#}]", action.uses),
+                        json!({"workspace": ws.id, "source": source.id, "action_index": index, "uses": action.uses, "outcome": "fail", "error": format!("{err:#}")}),
+                    )?;
+                }
             }
         }
     }
-    println!("ok {}", ws.id);
+    for command in commands {
+        report_check(
+            output,
+            ws,
+            &format!("command {command}"),
+            command_exists(command),
+            &mut failures,
+        )?;
+    }
+
+    if failures > 0 {
+        output.error(
+            "doctor.failed",
+            &format!("doctor {} failed: {failures} check(s)", ws.id),
+            json!({"workspace": ws.id, "failed": failures}),
+        )?;
+        bail!("doctor found {failures} failed check(s)");
+    }
+    output.success(
+        "doctor.complete",
+        &format!("doctor {} complete: all checks passed", ws.id),
+        json!({"workspace": ws.id, "failed": 0}),
+    )?;
     Ok(())
 }
 
+fn check_action(action: &agentboard_core::model::ActionConfig) -> Result<()> {
+    crate::config::validate_action(action)?;
+    match action.uses.as_str() {
+        "agentboard/run-cmd" => command_exists("sh"),
+        "agentboard/create-worktree" => command_exists("git"),
+        _ => Ok(()),
+    }
+}
+
+fn source_reachable_message(source_id: &str, inspection: &SourceInspection) -> String {
+    match inspection.available {
+        Some(available) => format!(
+            "ok source {source_id} reachable ({available} available; {} fetched; limit {})",
+            inspection.items.len(),
+            inspection.limit
+        ),
+        None => format!(
+            "ok source {source_id} reachable ({} fetched; limit {}; available unknown)",
+            inspection.items.len(),
+            inspection.limit
+        ),
+    }
+}
+
+fn report_check(
+    output: &Output,
+    ws: &Workspace,
+    check: &str,
+    result: Result<()>,
+    failures: &mut usize,
+) -> Result<()> {
+    match result {
+        Ok(()) => output.success(
+            "doctor.check",
+            &format!("ok {check}"),
+            json!({"workspace": ws.id, "check": check, "outcome": "pass"}),
+        ),
+        Err(err) => {
+            *failures += 1;
+            output.error(
+                "doctor.check",
+                &format!("fail {check}: {err:#}"),
+                json!({"workspace": ws.id, "check": check, "outcome": "fail", "error": format!("{err:#}")}),
+            )
+        }
+    }
+}
+
 fn command_exists(cmd: &str) -> Result<()> {
-    ProcessCommand::new(cmd)
+    let status = ProcessCommand::new(cmd)
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
-        .map(|_| ())
-        .with_context(|| format!("required command {cmd} not found"))
+        .with_context(|| format!("required command {cmd} not found"))?;
+    if !status.success() {
+        bail!("required command {cmd} returned {status}");
+    }
+    Ok(())
 }
 
 fn action_matches_item(action: &StoredAction, item: &StoredItem) -> bool {
@@ -314,6 +439,29 @@ mod tests {
     use agentboard_core::model::{SourceConfig, SourceKind, WorkspaceConfig};
     use serde_json::json;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn doctor_source_message_distinguishes_available_from_fetched() {
+        let known = SourceInspection {
+            items: vec![],
+            available: Some(237),
+            limit: 50,
+        };
+        assert_eq!(
+            source_reachable_message("github", &known),
+            "ok source github reachable (237 available; 0 fetched; limit 50)"
+        );
+
+        let unknown = SourceInspection {
+            items: vec![],
+            available: None,
+            limit: 50,
+        };
+        assert_eq!(
+            source_reachable_message("qmd", &unknown),
+            "ok source qmd reachable (0 fetched; limit 50; available unknown)"
+        );
+    }
 
     #[test]
     fn same_jira_site_shares_latest_item_observations() {

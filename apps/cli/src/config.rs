@@ -31,11 +31,40 @@ pub fn list_workspaces() -> Result<Vec<String>> {
     Ok(names)
 }
 
+/// Create an empty named Workspace without overwriting an existing config.
+pub fn init_workspace(name: &str) -> Result<PathBuf> {
+    if name.is_empty()
+        || !name
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+    {
+        bail!("workspace name must contain only letters, numbers, '-' or '_'");
+    }
+    let path = config_home()
+        .join("agentboard")
+        .join(format!("{name}.toml"));
+    if path.exists() {
+        bail!("workspace already exists: {}", path.display());
+    }
+    fs::create_dir_all(path.parent().unwrap())?;
+    fs::write(&path, "sources = []\n")?;
+    Ok(path)
+}
+
 /// Load a workspace by name or explicit TOML path, then validate it.
 ///
 /// Named workspaces resolve under the user config directory. Explicit paths get
 /// a stable workspace id from the file stem plus canonical path hash.
 pub fn load_workspace(input: &str) -> Result<Workspace> {
+    load_workspace_inner(input, true)
+}
+
+/// Load a Workspace for `doctor`, leaving semantic validation to its checks.
+pub fn load_workspace_for_doctor(input: &str) -> Result<Workspace> {
+    load_workspace_inner(input, false)
+}
+
+fn load_workspace_inner(input: &str, validate: bool) -> Result<Workspace> {
     let path = if input.ends_with(".toml") || input.contains('/') {
         expand_path(input)
     } else {
@@ -46,7 +75,9 @@ pub fn load_workspace(input: &str) -> Result<Workspace> {
     let text =
         fs::read_to_string(&path).with_context(|| format!("read workspace {}", path.display()))?;
     let config: WorkspaceConfig = toml::from_str(&text)?;
-    validate_config(&config)?;
+    if validate {
+        validate_config(&config)?;
+    }
     let id = if input.ends_with(".toml") || input.contains('/') {
         let canon = fs::canonicalize(&path)?;
         let stem = path
@@ -149,17 +180,20 @@ pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
             }
         }
         for action in &src.actions {
-            match action.uses.as_str() {
-                "agentboard/create-worktree" => require_inputs(action, &["repo", "root", "branch"]),
-                "agentboard/run-cmd" => require_inputs(action, &["cmd"]),
-                other if other.starts_with("agentboard/") => {
-                    bail!("unknown built-in action {other}")
-                }
-                other => bail!("unknown action {other}"),
-            }?;
+            validate_action(action)?;
         }
     }
     Ok(())
+}
+
+/// Validate one configured Action without rendering or executing it.
+pub fn validate_action(action: &ActionConfig) -> Result<()> {
+    match action.uses.as_str() {
+        "agentboard/create-worktree" => require_inputs(action, &["repo", "root", "branch"]),
+        "agentboard/run-cmd" => require_inputs(action, &["cmd"]),
+        other if other.starts_with("agentboard/") => bail!("unknown built-in action {other}"),
+        other => bail!("unknown action {other}"),
+    }
 }
 
 fn require_inputs(action: &ActionConfig, keys: &[&str]) -> Result<()> {
