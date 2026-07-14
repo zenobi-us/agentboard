@@ -1,21 +1,21 @@
 {
-  "generatedAt": "2026-07-09T07:19:04.548Z",
+  "generatedAt": "2026-07-14T11:47:49.301Z",
   "repository": "zenobi-us/agentboard",
   "ref": "refs/heads/main",
-  "sha": "f7255d787ea549172fe82e2fbc758eab71ad8141",
+  "sha": "6d9b9da0f058d03e4ac5d01b11a331da18b3c4d5",
   "channel": "next",
   "packages": [
+    {
+      "path": "apps/cli",
+      "name": "agentboard",
+      "version": "0.0.1",
+      "sha": "6d9b9da0f058d03e4ac5d01b11a331da18b3c4d5"
+    },
     {
       "path": "apps/docs",
       "name": "@agentboard/docs",
       "version": "0.0.1",
-      "sha": "e5b2bd22aeb2791d78b3213113fd9422e29832f4"
-    },
-    {
-      "path": "pkgs/crates/agentboard",
-      "name": "pkgs/crates/agentboard",
-      "version": "0.0.1",
-      "sha": "597958a2fa568c311189edfd6c2fc524bd031bce"
+      "sha": "6d9b9da0f058d03e4ac5d01b11a331da18b3c4d5"
     }
   ]
 }

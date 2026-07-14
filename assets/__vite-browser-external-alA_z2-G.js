@@ -1,1 +1,0 @@
-import{t as e}from"./flexsearch-static-Bmnn_oxv.js";export default e();

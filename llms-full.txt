@@ -117,6 +117,16 @@ Workspace configs are trusted local code, like a `Makefile`. AgentBoard does not
 
 # Commands [#commands]
 
+## `workspaces` [#workspaces]
+
+List named workspaces from `~/.config/agentboard` (or the platform config directory):
+
+```bash
+agentboard workspaces
+```
+
+Output contains one workspace name per line, sorted alphabetically.
+
 ## `run` [#run]
 
 Execute one Workspace Run: load config, read Sources, append item observations, render pending Actions, and execute Actions.
@@ -792,7 +802,7 @@ url = "links.issue"
 
 
 
-# Run command action [#run-command-action]
+# Run Command Action [#run-command-action]
 
 Use `agentboard/run-cmd` to run a shell command for each collected item.
 

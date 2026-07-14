@@ -4,6 +4,16 @@
 
 # Commands [#commands]
 
+## `workspaces` [#workspaces]
+
+List named workspaces from `~/.config/agentboard` (or the platform config directory):
+
+```bash
+agentboard workspaces
+```
+
+Output contains one workspace name per line, sorted alphabetically.
+
 ## `run` [#run]
 
 Execute one Workspace Run: load config, read Sources, append item observations, render pending Actions, and execute Actions.
