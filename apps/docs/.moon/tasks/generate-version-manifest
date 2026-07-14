@@ -15,7 +15,7 @@ node -e '
   const out = process.argv[2];
   const manifestPath = path.join(repoRoot, ".release-please-manifest.json");
   const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
-  const fallbackSha = process.env.GITHUB_SHA || childProcess.execFileSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+  const fallbackSha = process.env.PUBLISH_REF || process.env.GITHUB_SHA || childProcess.execFileSync("git", ["-C", repoRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
 
   const packageSha = (packagePath) => {
     try {
@@ -45,7 +45,7 @@ node -e '
     repository: process.env.GITHUB_REPOSITORY || "zenobi-us/agentboard",
     ref: process.env.GITHUB_REF || childProcess.execFileSync("git", ["-C", repoRoot, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim(),
     sha: fallbackSha,
-    channel: process.env.PUBLISH_TAG || null,
+    channel: process.env.PUBLISH_CHANNEL || null,
     packages: Object.entries(manifest).map(([packagePath, version]) => ({
       path: packagePath,
       name: packageName(packagePath),

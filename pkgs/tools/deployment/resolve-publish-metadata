@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+target="${1:-}"
+channel="${2:-}"
+source_branch="${3:-}"
+run_attempt="${4:-}"
+
+[[ -n "${target}" ]] || { echo "ERROR: target is required" >&2; exit 1; }
+case "${channel}" in
+  latest|next) ;;
+  *) echo "ERROR: channel must be latest or next" >&2; exit 1 ;;
+esac
+case "${source_branch}" in
+  main|release/*) ;;
+  *) echo "ERROR: unsupported source branch '${source_branch}'" >&2; exit 1 ;;
+esac
+[[ "${run_attempt}" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: run attempt must be a positive integer" >&2; exit 1; }
+
+projects_json="$(moon query projects)"
+project_json="$(jq -ce --arg target "${target}" '
+  first(.projects[]? | select(.id == $target)) // error("unknown Moon target: " + $target)
+' <<<"${projects_json}")" || exit 1
+
+jq -e '(.tasks // {}) | has("publish")' >/dev/null <<<"${project_json}" || {
+  echo "ERROR: Moon target '${target}' has no publish task" >&2
+  exit 1
+}
+
+source="$(jq -er '.source | select(type == "string" and length > 0)' <<<"${project_json}")" || {
+  echo "ERROR: Moon target '${target}' has no source" >&2
+  exit 1
+}
+
+if [[ -f "${source}/package.json" ]]; then
+  current_version="$(jq -er '.version | select(type == "string" and length > 0)' "${source}/package.json")" || {
+    echo "ERROR: package version missing in '${source}/package.json'" >&2
+    exit 1
+  }
+elif [[ -f "${source}/Cargo.toml" ]]; then
+  manifest_path="$(cd "${source}" && pwd -P)/Cargo.toml"
+  current_version="$(cargo metadata --manifest-path "${source}/Cargo.toml" --no-deps --format-version 1 | jq -er --arg manifest "${manifest_path}" '
+    first(.packages[]? | select(.manifest_path == $manifest) | .version) // error("package not found")
+  ')" || {
+    echo "ERROR: package version missing for '${source}/Cargo.toml'" >&2
+    exit 1
+  }
+else
+  echo "ERROR: unsupported version source for publishable target '${target}' at '${source}'" >&2
+  exit 1
+fi
+
+[[ "${current_version}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || {
+  echo "ERROR: malformed semantic version '${current_version}' for '${target}'" >&2
+  exit 1
+}
+major="${BASH_REMATCH[1]}"
+minor="${BASH_REMATCH[2]}"
+patch="${BASH_REMATCH[3]}"
+
+find_stable_tag() {
+  local prefix="${1}"
+  git tag --merged HEAD --list "${prefix}-v*" \
+    | awk -v prefix="${prefix}-v" 'index($0, prefix) == 1 { version = substr($0, length(prefix) + 1); if (version ~ /^[0-9]+\.[0-9]+\.[0-9]+$/) print }' \
+    | sort -t v -k 2,2V \
+    | tail -n 1
+}
+
+stable_tag="$(find_stable_tag "${target}")"
+if [[ -z "${stable_tag}" && "${source}" != "${target}" ]]; then
+  # ponytail: legacy source-path fallback; remove after every component has a Moon-ID stable tag.
+  stable_tag="$(find_stable_tag "${source}")"
+fi
+
+if [[ -n "${stable_tag}" ]]; then
+  commit_distance="$(git rev-list --first-parent --count "${stable_tag}..HEAD")"
+else
+  commit_distance="$(git rev-list --first-parent --count HEAD)"
+fi
+
+version="${current_version}"
+if [[ "${channel}" == "next" ]]; then
+  if [[ "${source_branch}" == "main" ]]; then
+    version="${major}.$((minor + 1)).0-next.${commit_distance}.${run_attempt}"
+  else
+    version="${major}.${minor}.$((patch + 1))-next.${commit_distance}.${run_attempt}"
+  fi
+fi
+release_tag="${target}-v${version}"
+
+jq -nc \
+  --arg target "${target}" \
+  --arg source "${source}" \
+  --arg component "${target}" \
+  --arg current_version "${current_version}" \
+  --arg stable_tag "${stable_tag}" \
+  --argjson commit_distance "${commit_distance}" \
+  --arg version "${version}" \
+  --arg release_tag "${release_tag}" \
+  '{
+    target: $target,
+    source: $source,
+    component: $component,
+    current_version: $current_version,
+    stable_tag: (if $stable_tag == "" then null else $stable_tag end),
+    commit_distance: $commit_distance,
+    version: $version,
+    release_tag: $release_tag
+  }'

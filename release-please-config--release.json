@@ -5,10 +5,12 @@
   "bump-patch-for-minor-pre-major": true,
   "packages": {
     "apps/cli": {
+      "component": "agentboard",
       "group": "application",
       "release-type": "rust"
     },
     "apps/docs": {
+      "component": "docs",
       "group": "application",
       "release-type": "node"
     }

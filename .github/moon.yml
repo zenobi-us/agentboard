@@ -6,7 +6,9 @@ layer: tool
 
 tasks:
   test:
-    command: "bats tasks/*.bats"
+    script: |
+      bats tasks/*.bats
+      actionlint workflows/release.yml workflows/publish.yml
     inputs:
       - "actions/**/*"
       - "tasks/**/*"

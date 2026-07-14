@@ -4,10 +4,12 @@
   "versioning": "always-bump-patch",
   "packages": {
     "apps/cli": {
+      "component": "agentboard",
       "group": "application",
       "release-type": "rust"
     },
     "apps/docs": {
+      "component": "docs",
       "group": "application",
       "release-type": "node"
     }

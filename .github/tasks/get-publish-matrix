@@ -1,111 +1,17 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
-payload_arg="${1:-}"
-base="${2:-}"
-head="${3:-}"
-selection="${4:-changed}"
-requested_ids="${5:-}"
-run_number="${6:-}"
-release_mode="${7:-normal}"
+base="${1:-}"
+head="${2:-}"
 
-[[ -n "${payload_arg}" ]] || { echo "Missing JSON payload argument" >&2; exit 1; }
 [[ -n "${base}" ]] || { echo "Missing base argument" >&2; exit 1; }
 [[ -n "${head}" ]] || { echo "Missing head argument" >&2; exit 1; }
-[[ -n "${run_number}" ]] || { echo "Missing run number argument" >&2; exit 1; }
 
-if [[ "${payload_arg}" == @* ]]; then
-  payload_file="${payload_arg#@}"
-  [[ -f "${payload_file}" ]] || { echo "Missing payload file: ${payload_file}" >&2; exit 1; }
-  payload="$(cat "${payload_file}")"
-else
-  payload="${payload_arg}"
-fi
-jq -e . >/dev/null 2>&1 <<<"${payload}" || { echo "Invalid JSON payload passed as argv[0]" >&2; exit 1; }
-
-case "${selection}" in
-  changed)
-    projects="$(MOON_BASE="${base}" MOON_HEAD="${head}" moon query projects --affected)"
-    ;;
-  all|projects)
-    projects="$(moon query projects)"
-    ;;
-  *)
-    echo "Unsupported selection mode: ${selection}" >&2
-    exit 1
-    ;;
-esac
-
-releases_created="$(jq -r '(.releases_created // false) | tostring | ascii_downcase' <<<"${payload}")"
-if [[ "${releases_created}" == "true" ]]; then
-  publish_tag="latest"
-else
-  publish_tag="next"
-fi
-
-case "${release_mode}" in
-  normal) bump="minor" ;;
-  hotfix) bump="patch" ;;
-  *) echo "Unsupported release mode: ${release_mode}" >&2; exit 1 ;;
-esac
-
-selected_file="$(mktemp)"
-trap 'rm -f "${selected_file}"' EXIT
-
-if [[ "${selection}" == "projects" ]]; then
-  jq -Rn --arg ids "${requested_ids}" '
-    $ids | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(length > 0)) | unique
-  ' >"${selected_file}"
-else
-  jq '[.projects[] | .id] | unique' <<<"${projects}" >"${selected_file}"
-fi
-
-jq -cn \
-  --argjson payload "${payload}" \
-  --argjson projects "${projects}" \
-  --slurpfile selected "${selected_file}" \
-  --arg selection "${selection}" \
-  --arg publish_tag "${publish_tag}" \
-  --arg run_number "${run_number}" \
-  --arg bump "${bump}" \
-  --arg source_sha "${head}" \
-  --slurpfile manifest .release-please-manifest.json '
-    def next_version($version; $bump; $run):
-      ($version | capture("^(?<major>[0-9]+)\\.(?<minor>[0-9]+)\\.(?<patch>[0-9]+)$")) as $v
-      | if $bump == "minor"
-        then "\($v.major).\(($v.minor | tonumber) + 1).0-next.\($run)"
-        else "\($v.major).\($v.minor).\(($v.patch | tonumber) + 1)-next.\($run)"
-        end;
-
-    def project($id): (first($projects.projects[] | select(.id == $id)) // null);
-    def manifest_version($project): $manifest[0][$project.source] // $manifest[0][$project.id] // empty;
-    def stable_release_tag($project):
-      $payload[$project.source + "--tag_name"] // $payload[$project.id + "--tag_name"] // empty;
-
-    reduce $selected[0][] as $id (
-      {publish: [], skipped: []};
-      (project($id)) as $project
-      | if $project == null then
-          .skipped += [{project_id: $id, reason: "unknown Moon project"}]
-        elif (($project.tasks // {}) | has("publish") | not) then
-          .skipped += [{project_id: $id, reason: "project has no publish task"}]
-        elif (manifest_version($project) | length) == 0 then
-          .skipped += [{project_id: $id, reason: "project has no Release Please manifest version"}]
-        elif $publish_tag == "latest" and (stable_release_tag($project) | length) == 0 then
-          .skipped += [{project_id: $id, reason: "Release Please created no release tag for project"}]
-        else
-          (manifest_version($project)) as $stable
-          | (if $publish_tag == "latest" then $stable else next_version($stable; $bump; $run_number) end) as $version
-          | .publish += [{
-              project_id: $id,
-              version: $version,
-              publish_tag: $publish_tag,
-              release_tag: (if $publish_tag == "latest" then stable_release_tag($project) else $version end),
-              source_sha: $source_sha
-            }]
-        end
-    )
-    | .publish |= sort_by(.project_id)
-    | .skipped |= sort_by(.project_id)
-  '
+MOON_BASE="${base}" MOON_HEAD="${head}" moon query projects --affected \
+  | jq -ce '[
+      .projects[]?
+      | select((.tasks // {}) | has("publish"))
+      | {target: .id}
+    ]
+    | unique_by(.target)
+    | sort_by(.target)'

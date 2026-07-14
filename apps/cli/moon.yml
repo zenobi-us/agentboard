@@ -65,15 +65,12 @@ tasks:
     script: |
       set -euo pipefail
 
-      if [ -z "${PUBLISH_VERSION:-}" ]; then
-        echo "ERROR: PUBLISH_VERSION is required." >&2
-        exit 1
-      fi
-
-      if [ -z "${PUBLISH_RELEASE_TAG:-}" ]; then
-        echo "ERROR: PUBLISH_RELEASE_TAG is required." >&2
-        exit 1
-      fi
+      for name in PUBLISH_TARGET PUBLISH_CHANNEL PUBLISH_VERSION PUBLISH_RELEASE_TAG PUBLISH_REF; do
+        if [ -z "${!name:-}" ]; then
+          echo "ERROR: ${name} is required." >&2
+          exit 1
+        fi
+      done
 
       cd "${MOON_WORKSPACE_ROOT}"
 

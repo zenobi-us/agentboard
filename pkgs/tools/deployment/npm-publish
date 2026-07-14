@@ -1,30 +1,25 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-publish_tag="${PUBLISH_TAG:-}"
-if [ -z "${publish_tag}" ]; then
-  echo "ERROR: PUBLISH_TAG is required (expected: latest or next)." >&2
+channel="${PUBLISH_CHANNEL:-}"
+version="${PUBLISH_VERSION:-}"
+
+case "${channel}" in
+  latest|next) ;;
+  *) echo "ERROR: PUBLISH_CHANNEL is required (expected: latest or next)." >&2; exit 1 ;;
+esac
+[[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-next\.[0-9]+\.[0-9]+)?$ ]] || {
+  echo "ERROR: PUBLISH_VERSION is missing or invalid." >&2
   exit 1
-fi
+}
 
-eval "$("${MOON_WORKSPACE_ROOT}/pkgs/tools/deployment/generate-publish-git-tag" "${publish_tag}" ".")"
-
-if [ "${publish_tag}" = "next" ]; then
-  echo "Preparing next prerelease: ${PUBLISH_CURRENT_VERSION} -> ${PUBLISH_VERSION}"
+if [[ "${channel}" == "next" ]]; then
   node -e '
     const fs = require("node:fs");
-    const pkgPath = "package.json";
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
+    const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
     pkg.version = process.argv[1];
-    fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
-  ' "${PUBLISH_VERSION}"
+    fs.writeFileSync("package.json", `${JSON.stringify(pkg, null, 2)}\n`);
+  ' "${version}"
 fi
 
-args=(--access public --tag "${publish_tag}")
-# if [ -n "${GITHUB_ACTIONS:-}" ]; then
-# args+=(--provenance)
-# fi
-#
-echo "> npm publish ${args[*]}"
-
-npm publish "${args[@]}"
+npm publish --access public --tag "${channel}"

@@ -1,18 +1,14 @@
 name: Publish
-run-name: Publish ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.project_id || inputs.project_id }}-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.publish_tag || inputs.publish_tag }}
+run-name: Publish ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.target || inputs.target }}-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.channel || inputs.channel }}
 
 on:
   workflow_dispatch:
     inputs:
-      project_id:
+      target:
         description: Moon project ID to publish
         required: true
         type: string
-      version:
-        description: Exact artifact version
-        required: true
-        type: string
-      publish_tag:
+      channel:
         description: Distribution channel
         required: true
         default: next
@@ -20,15 +16,6 @@ on:
         options:
           - next
           - latest
-      release_tag:
-        description: GitHub release tag that receives published assets
-        required: true
-        type: string
-      source_ref:
-        description: Git ref or SHA to publish
-        required: true
-        default: main
-        type: string
   repository_dispatch:
     types: [publish-package]
 
@@ -39,7 +26,7 @@ permissions:
   packages: write
 
 concurrency:
-  group: publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.project_id || inputs.project_id }}-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || inputs.version }}
+  group: publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.target || inputs.target }}-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.channel || inputs.channel }}
   cancel-in-progress: false
 
 jobs:
@@ -47,18 +34,74 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment:
-      name: publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.project_id || inputs.project_id }}
+      name: publish-${{ github.event_name == 'repository_dispatch' && github.event.client_payload.target || inputs.target }}
     env:
-      PUBLISH_TARGET: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.project_id || inputs.project_id }}
-      PUBLISH_VERSION: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.version || inputs.version }}
-      PUBLISH_TAG: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.publish_tag || inputs.publish_tag }}
-      PUBLISH_RELEASE_TAG: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.release_tag || inputs.release_tag }}
-      PUBLISH_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_sha || inputs.source_ref }}
+      PUBLISH_TARGET: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.target || inputs.target }}
+      PUBLISH_CHANNEL: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.channel || inputs.channel }}
+      PUBLISH_REF: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_sha || github.sha }}
+      PUBLISH_SOURCE_BRANCH: ${{ github.event_name == 'repository_dispatch' && github.event.client_payload.source_branch || github.ref_name }}
+      LEGACY_TAG: ${{ github.event.client_payload.tag }}
+      LEGACY_PUBLISH_TAG: ${{ github.event.client_payload.publish_tag }}
+      CALLER_VERSION: ${{ github.event.client_payload.version }}
+      CALLER_RELEASE_TAG: ${{ github.event.client_payload.release_tag }}
     steps:
-      - name: Checkout
+      - name: ValidateSourceIdentity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          for name in PUBLISH_TARGET PUBLISH_CHANNEL PUBLISH_REF PUBLISH_SOURCE_BRANCH; do
+            [[ -n "${!name}" ]] || { echo "ERROR: ${name} is empty" >&2; exit 1; }
+          done
+          case "${PUBLISH_CHANNEL}" in
+            next|latest) ;;
+            *) echo "ERROR: PUBLISH_CHANNEL must be next or latest" >&2; exit 1 ;;
+          esac
+          case "${PUBLISH_SOURCE_BRANCH}" in
+            main|release/*) ;;
+            *) echo "ERROR: source branch must be main or release/*" >&2; exit 1 ;;
+          esac
+          [[ "${PUBLISH_REF}" =~ ^[0-9a-f]{40}$ ]] || { echo "ERROR: source SHA must be a full commit SHA" >&2; exit 1; }
+
+          if [[ "${GITHUB_EVENT_NAME}" == "repository_dispatch" ]]; then
+            [[ "${GITHUB_ACTOR}" == "github-actions[bot]" ]] || {
+              echo "ERROR: repository dispatch actor '${GITHUB_ACTOR}' is not trusted" >&2
+              exit 1
+            }
+            [[ -z "${LEGACY_TAG}${LEGACY_PUBLISH_TAG}${CALLER_VERSION}${CALLER_RELEASE_TAG}" ]] || {
+              echo "ERROR: caller-computed tag/version fields are forbidden" >&2
+              exit 1
+            }
+          fi
+
+          validation_repo="${RUNNER_TEMP}/publish-source-validation"
+          rm -rf "${validation_repo}"
+          git init --bare --quiet "${validation_repo}"
+          git -C "${validation_repo}" remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "${validation_repo}" fetch --quiet --no-tags origin \
+            '+refs/heads/main:refs/remotes/origin/main' \
+            '+refs/heads/release/*:refs/remotes/origin/release/*'
+
+          branch_ref="refs/remotes/origin/${PUBLISH_SOURCE_BRANCH}"
+          git -C "${validation_repo}" show-ref --verify --quiet "${branch_ref}" || {
+            echo "ERROR: source branch '${PUBLISH_SOURCE_BRANCH}' does not exist" >&2
+            exit 1
+          }
+          git -C "${validation_repo}" cat-file -e "${PUBLISH_REF}^{commit}" 2>/dev/null || {
+            echo "ERROR: source SHA '${PUBLISH_REF}' does not exist" >&2
+            exit 1
+          }
+          git -C "${validation_repo}" merge-base --is-ancestor "${PUBLISH_REF}" "${branch_ref}" || {
+            echo "ERROR: source SHA is not reachable from '${PUBLISH_SOURCE_BRANCH}'" >&2
+            exit 1
+          }
+
+      - name: CheckoutImmutableSource
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
           ref: ${{ env.PUBLISH_REF }}
 
       - name: SetupToolchain
@@ -76,45 +119,45 @@ jobs:
           key-prefix: moon-publish
           cache-version: v1
 
-      - name: ValidatePayload
+      - name: ResolvePublishMetadata
+        id: metadata
+        env:
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
+          metadata="$(pkgs/tools/deployment/resolve-publish-metadata \
+            "${PUBLISH_TARGET}" "${PUBLISH_CHANNEL}" "${PUBLISH_SOURCE_BRANCH}" "${RUN_ATTEMPT}")"
+          jq -e '
+            (.target | type == "string" and length > 0) and
+            (.source | type == "string" and length > 0) and
+            (.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+(-next\\.[0-9]+\\.[0-9]+)?$")) and
+            (.release_tag | type == "string" and length > 0)
+          ' >/dev/null <<<"${metadata}"
+          {
+            echo "PUBLISH_VERSION=$(jq -r .version <<<"${metadata}")"
+            echo "PUBLISH_RELEASE_TAG=$(jq -r .release_tag <<<"${metadata}")"
+            echo "PUBLISH_PROJECT_SOURCE=$(jq -r .source <<<"${metadata}")"
+          } >>"${GITHUB_ENV}"
+          echo "metadata=${metadata}" >>"${GITHUB_OUTPUT}"
 
-          for name in PUBLISH_TARGET PUBLISH_VERSION PUBLISH_TAG PUBLISH_RELEASE_TAG PUBLISH_REF; do
-            [ -n "${!name}" ] || { echo "ERROR: ${name} is empty" >&2; exit 1; }
-          done
-
-          case "${PUBLISH_TAG}" in
-            latest|next) ;;
-            *) echo "ERROR: PUBLISH_TAG must be latest or next" >&2; exit 1 ;;
-          esac
-
-          [[ "${PUBLISH_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-next\.[0-9]+)?$ ]] || {
-            echo "ERROR: Invalid PUBLISH_VERSION '${PUBLISH_VERSION}'" >&2
-            exit 1
-          }
-
-          projects_json="$(moon query projects)"
-          jq -e --arg target "${PUBLISH_TARGET}" '
-            .projects[] | select(.id == $target and ((.tasks // {}) | has("publish")))
-          ' >/dev/null <<<"${projects_json}" || {
-            echo "ERROR: '${PUBLISH_TARGET}' is not a publishable Moon project" >&2
-            exit 1
-          }
-
-      - name: EnsurePrereleaseExists
-        if: env.PUBLISH_TAG == 'next'
+      - name: EnsureGitHubRelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-
-          if ! gh release view "${PUBLISH_RELEASE_TAG}" >/dev/null 2>&1; then
-            gh release create "${PUBLISH_RELEASE_TAG}" \
+          if [[ "${PUBLISH_CHANNEL}" == "latest" ]]; then
+            gh release view "${PUBLISH_RELEASE_TAG}" >/dev/null || {
+              echo "ERROR: Release Please stable release '${PUBLISH_RELEASE_TAG}' does not exist" >&2
+              exit 1
+            }
+          elif ! gh release view "${PUBLISH_RELEASE_TAG}" >/dev/null 2>&1; then
+            if ! gh release create "${PUBLISH_RELEASE_TAG}" \
               --target "${PUBLISH_REF}" \
               --title "${PUBLISH_RELEASE_TAG}" \
               --prerelease \
-              --generate-notes
+              --generate-notes; then
+              gh release view "${PUBLISH_RELEASE_TAG}" >/dev/null || exit 1
+            fi
           fi
 
       - name: InstallAgentboardCrossCompiler
@@ -134,18 +177,18 @@ jobs:
         if: always()
         run: |
           {
-            echo "## Publish Summary"
-            echo
-            echo "| Field | Value |"
-            echo "|---|---|"
-            echo "| project | \`${PUBLISH_TARGET}\` |"
-            echo "| version | \`${PUBLISH_VERSION}\` |"
-            echo "| tag | \`${PUBLISH_TAG}\` |"
-            echo "| release tag | \`${PUBLISH_RELEASE_TAG}\` |"
-            echo "| source | \`${PUBLISH_REF}\` |"
-            echo "| trigger | \`${{ github.event_name }}\` |"
+            echo '## Publish Summary'
+            echo '| Field | Value |'
+            echo '|---|---|'
+            echo "| target | \`${PUBLISH_TARGET}\` |"
+            echo "| channel | \`${PUBLISH_CHANNEL}\` |"
+            echo "| version | \`${PUBLISH_VERSION:-unresolved}\` |"
+            echo "| release tag | \`${PUBLISH_RELEASE_TAG:-unresolved}\` |"
+            echo "| source branch | \`${PUBLISH_SOURCE_BRANCH}\` |"
+            echo "| source SHA | \`${PUBLISH_REF}\` |"
+            echo "| trigger | \`${GITHUB_EVENT_NAME}\` |"
             echo "| result | \`${{ job.status }}\` |"
-          } >> "${GITHUB_STEP_SUMMARY}"
+          } >>"${GITHUB_STEP_SUMMARY}"
 
       - name: MoonRunReportSummary
         if: always()
