@@ -39,13 +39,14 @@ tasks:
   bats:
     deps:
       - "~:build"
-    command: "bats test/*.bats"
+    command: "bats --formatter pretty test/*.bats"
     inputs:
       - "Cargo.toml"
       - "src/**/*.rs"
       - "/pkgs/crates/agentboard-*/Cargo.toml"
       - "/pkgs/crates/agentboard-*/src/**/*.rs"
       - "test/*.bats"
+      - "test/*.bash"
 
   lint:
     deps:
