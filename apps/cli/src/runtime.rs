@@ -1,4 +1,5 @@
 use std::{
+    future::Future,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -21,6 +22,12 @@ struct RunSummary {
     skipped: usize,
     succeeded: usize,
     failed: usize,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum WaitOutcome {
+    Elapsed,
+    Interrupted,
 }
 
 /// Execute one Workspace Run.
@@ -57,23 +64,72 @@ pub async fn watch(ws: Workspace, delay: Duration, output: &Output) -> Result<()
                 json!({"workspace": ws.id, "cycle": cycle, "outcome": "fail", "error": format!("{err:#}")}),
             )?,
         }
-        output.info(
-            "watch.wait",
-            &format!("watch {} next Run in {}s", ws.id, delay.as_secs()),
-            json!({"workspace": ws.id, "cycle": cycle, "delay_seconds": delay.as_secs()}),
-        )?;
-        tokio::select! {
-            _ = tokio::time::sleep(delay) => cycle += 1,
-            _ = tokio::signal::ctrl_c() => {
+        match wait_for_next_cycle(&ws.id, cycle, delay, output, async {
+            let _ = tokio::signal::ctrl_c().await;
+        })
+        .await?
+        {
+            WaitOutcome::Elapsed => cycle += 1,
+            WaitOutcome::Interrupted => {
                 output.success(
                     "watch.stop",
                     &format!("watch {} stopped", ws.id),
                     json!({"workspace": ws.id, "cycle": cycle}),
                 )?;
                 return Ok(());
-            },
+            }
         }
     }
+}
+
+async fn wait_for_next_cycle<F>(
+    workspace: &str,
+    cycle: u64,
+    delay: Duration,
+    output: &Output,
+    stop: F,
+) -> Result<WaitOutcome>
+where
+    F: Future<Output = ()>,
+{
+    let started = tokio::time::Instant::now();
+    let deadline = started + delay;
+    output.transient_info(
+        "watch.wait",
+        &format!("watch {workspace} next Run in {}s", delay.as_secs()),
+        json!({"workspace": workspace, "cycle": cycle, "delay_seconds": delay.as_secs()}),
+    )?;
+
+    tokio::pin!(stop);
+    let outcome = if output.transient_enabled() {
+        let mut next_tick = started + Duration::from_secs(1);
+        loop {
+            let wake = next_tick.min(deadline);
+            tokio::select! {
+                _ = tokio::time::sleep_until(wake) => {
+                    let now = tokio::time::Instant::now();
+                    if now >= deadline {
+                        break WaitOutcome::Elapsed;
+                    }
+                    let remaining = deadline.saturating_duration_since(now);
+                    let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
+                    output.update_transient(&format!("watch {workspace} next Run in {seconds}s"))?;
+                    next_tick += Duration::from_secs(1);
+                    while next_tick <= now {
+                        next_tick += Duration::from_secs(1);
+                    }
+                }
+                _ = &mut stop => break WaitOutcome::Interrupted,
+            }
+        }
+    } else {
+        tokio::select! {
+            _ = tokio::time::sleep_until(deadline) => WaitOutcome::Elapsed,
+            _ = &mut stop => WaitOutcome::Interrupted,
+        }
+    };
+    output.finish_transient()?;
+    Ok(outcome)
 }
 
 // Run Source pipelines concurrently, but report a failed process if any Source fails.
@@ -260,4 +316,81 @@ async fn run_source(
 pub fn parse_duration(s: &str) -> Result<Duration> {
     let secs = s.strip_suffix('s').unwrap_or(s).parse()?;
     Ok(Duration::from_secs(secs))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::output::{ColorChoice, Verbosity};
+    use std::{fs, future};
+
+    #[tokio::test(start_paused = true)]
+    async fn watch_wait_counts_down_against_one_absolute_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let human = dir.path().join("human.txt");
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Normal,
+            ColorChoice::Never,
+            true,
+            &human,
+            None,
+        )
+        .unwrap();
+        let task_output = output.clone();
+        let task = tokio::spawn(async move {
+            wait_for_next_cycle(
+                "work",
+                1,
+                Duration::from_secs(3),
+                &task_output,
+                future::pending(),
+            )
+            .await
+            .unwrap()
+        });
+
+        tokio::task::yield_now().await;
+        assert!(fs::read_to_string(&human).unwrap().ends_with("3s"));
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert!(fs::read_to_string(&human).unwrap().ends_with("2s"));
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert!(fs::read_to_string(&human).unwrap().ends_with("1s"));
+
+        tokio::time::advance(Duration::from_secs(1)).await;
+        assert_eq!(task.await.unwrap(), WaitOutcome::Elapsed);
+        let text = fs::read_to_string(human).unwrap();
+        assert!(!text.contains("0s"));
+        assert!(text.ends_with("\r\x1b[2K"));
+    }
+
+    #[tokio::test]
+    async fn interrupted_watch_wait_clears_the_transient_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let human = dir.path().join("human.txt");
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Normal,
+            ColorChoice::Never,
+            true,
+            &human,
+            None,
+        )
+        .unwrap();
+
+        let outcome = wait_for_next_cycle(
+            "work",
+            4,
+            Duration::from_secs(60),
+            &output,
+            future::ready(()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, WaitOutcome::Interrupted);
+        assert!(fs::read_to_string(human).unwrap().ends_with("\r\x1b[2K"));
+    }
 }

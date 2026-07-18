@@ -25,6 +25,9 @@ teardown() { teardown_agentboard_test; }
   [ "$?" -eq 0 ]
   WATCH_PID=""
   grep -q 'watch .* stopped' "$TMP/watch.err"
+  [ "$(grep -c 'next Run in 60s' "$TMP/watch.err")" -eq 1 ]
+  ! grep -q $'\r' "$TMP/watch.err"
+  [ "$(grep -c '"stage":"watch.wait"' "$TMP/watch.jsonl")" -eq 1 ]
   grep -q '"stage":"watch.stop"' "$TMP/watch.jsonl"
 }
 
