@@ -12,6 +12,14 @@ _Avoid_: Tracker, integration
 A normalized local copy of one task-like record from a source.
 _Avoid_: Ticket, issue, task when referring to the normalized AgentBoard record
 
+**Item identity**:
+The adapter-owned, collision-resistant identity for an Item. It is exposed as `item.id`, is not configurable through field mapping, and is used by the Store and Action attempt identity.
+_Avoid_: Display id, provider reference
+
+**Item reference ID**:
+The provider-native, human-facing identifier for an Item. It is exposed as `item.reference_id`, may be selected through `field_map.id`, and may require Source context to be globally unique, such as GitHub `10` or Jira `ABC-123`.
+_Avoid_: Source id, Item identity
+
 **Action**:
 A source-owned side effect that runs for a matching item when that item/action has no previous success record.
 _Avoid_: Job, hook, plugin
