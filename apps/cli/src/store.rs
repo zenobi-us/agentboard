@@ -9,7 +9,7 @@ use std::{
 use agentboard_core::model::{ActionAttempt, Item, SourceConfig, SourceKind, Workspace};
 use anyhow::{anyhow, bail, Context, Result};
 use fs4::{FileExt, TryLockError};
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::{
     adapters::{inspect_source, SourceInspection},
@@ -96,8 +96,29 @@ fn latest_item_records(ws: &Workspace) -> Result<HashMap<String, StoredItem>> {
             continue;
         }
         let slug = source_slug(source);
-        for line in BufReader::new(File::open(path)?).lines() {
-            let item: Item = serde_json::from_str(&line?)?;
+        let file =
+            File::open(&path).with_context(|| format!("open item Store {}", path.display()))?;
+        for (index, line) in BufReader::new(file).lines().enumerate() {
+            let line_number = index + 1;
+            let line = line.with_context(|| {
+                format!("read item Store {} line {line_number}", path.display())
+            })?;
+            let value: Value = serde_json::from_str(&line).with_context(|| {
+                format!("parse item Store {} line {line_number}", path.display())
+            })?;
+            if let Some(record) = value.as_object() {
+                if !record.contains_key("reference_id") {
+                    bail!(
+                        "load item Store {} line {line_number}; item records now require reference_id. Remove {} and run `agentboard run {}` to rebuild the affected Store",
+                        path.display(),
+                        path.display(),
+                        ws.path.display()
+                    );
+                }
+            }
+            let item: Item = serde_json::from_value(value).with_context(|| {
+                format!("load item Store {} line {line_number}", path.display())
+            })?;
             map.insert(
                 item_key(&slug, &item.id),
                 StoredItem {
@@ -499,6 +520,53 @@ mod tests {
     }
 
     #[test]
+    fn legacy_item_store_error_explains_how_to_rebuild() {
+        let ws = workspace(vec![jira_source(
+            "jira",
+            "https://team-a.atlassian.net",
+            "project = AB",
+        )]);
+        let _cleanup = StoreCleanup::new(&ws);
+        let path = items_path(&ws, &ws.config.sources[0]);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            r#"{"id":"10001","title":"Legacy","status":"open","url":"https://example.test","source_id":"jira","source_kind":"jira","raw":{}}
+"#,
+        )
+        .unwrap();
+
+        let error = latest_items(&ws).unwrap_err();
+        let message = format!("{error:#}");
+
+        assert!(message.contains(&path.display().to_string()));
+        assert!(message.contains("line 1"));
+        assert!(message.contains("reference_id"));
+        assert!(message.contains("rebuild"));
+    }
+
+    #[test]
+    fn malformed_item_store_keeps_parse_error_without_rebuild_advice() {
+        let ws = workspace(vec![jira_source(
+            "jira",
+            "https://team-a.atlassian.net",
+            "project = AB",
+        )]);
+        let _cleanup = StoreCleanup::new(&ws);
+        let path = items_path(&ws, &ws.config.sources[0]);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "not json\n").unwrap();
+
+        let error = latest_items(&ws).unwrap_err();
+        let message = format!("{error:#}");
+
+        assert!(message.contains(&path.display().to_string()));
+        assert!(message.contains("line 1"));
+        assert!(!message.contains("reference_id"));
+        assert!(!message.contains("rebuild"));
+    }
+
+    #[test]
     fn successful_actions_are_scoped_to_source_hash() {
         let old_source = jira_source("jira", "https://team-a.atlassian.net", "project = AB");
         let new_source = jira_source(
@@ -601,6 +669,7 @@ mod tests {
     fn item(title: &str, id: &str) -> Item {
         Item {
             id: id.into(),
+            reference_id: id.into(),
             title: title.into(),
             status: "open".into(),
             url: "https://example.test".into(),

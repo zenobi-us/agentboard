@@ -44,12 +44,12 @@ query = "ready"
 [[sources.actions]]
 uses = "agentboard/run-cmd"
 [sources.actions.with]
-cmd = '''echo "first-\$AGENTBOARD_ITEM_ID" >> "$TMP/order"; if [ "\$AGENTBOARD_ITEM_ID" = "AB-1" ]; then exit 1; fi'''
+cmd = '''echo "first-{{ item.reference_id }}" >> "$TMP/order"; if [ "{{ item.reference_id }}" = "AB-1" ]; then exit 1; fi'''
 
 [[sources.actions]]
 uses = "agentboard/run-cmd"
 [sources.actions.with]
-cmd = '''echo "second-\$AGENTBOARD_ITEM_ID" >> "$TMP/order"'''
+cmd = '''echo "second-{{ item.reference_id }}" >> "$TMP/order"'''
 EOF
 
   run "$AB" --color never run "$TMP/workspace.toml"

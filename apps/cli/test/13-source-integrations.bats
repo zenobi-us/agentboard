@@ -24,7 +24,7 @@ EOF
   [ "$status" -eq 0 ]
   run "$AB" list "$TMP/workspace.toml" --json
   [ "$status" -eq 0 ]
-  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; rows=json.load(sys.stdin); assert rows; assert all(row["item"]["source_kind"] == "qmd" for row in rows)'
+  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; rows=json.load(sys.stdin); assert rows; assert all(row["item"]["source_kind"] == "qmd" and row["item"]["id"] and row["item"]["reference_id"] for row in rows)'
 }
 
 @test "live GitHub source collects issue identities and respects limit" {
@@ -54,7 +54,7 @@ EOF
   [ "$status" -eq 0 ]
   run "$AB" list "$TMP/workspace.toml" --json
   [ "$status" -eq 0 ]
-  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; rows=json.load(sys.stdin); assert 0 < len(rows) <= 1; item=rows[0]["item"]; assert item["source_kind"] == "github"; assert "#" in item["id"]'
+  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; rows=json.load(sys.stdin); assert 0 < len(rows) <= 1; item=rows[0]["item"]; assert item["source_kind"] == "github"; assert "#" in item["id"]; assert item["reference_id"].isdigit()'
 }
 
 @test "live Jira source collects normalized issues and respects limit" {
@@ -79,7 +79,7 @@ EOF
   [ "$status" -eq 0 ]
   run "$AB" list "$TMP/workspace.toml" --json
   [ "$status" -eq 0 ]
-  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; rows=json.load(sys.stdin); assert 0 < len(rows) <= 1; item=rows[0]["item"]; assert item["source_kind"] == "jira"; assert item["id"]; assert item["url"]'
+  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; rows=json.load(sys.stdin); assert 0 < len(rows) <= 1; item=rows[0]["item"]; assert item["source_kind"] == "jira"; assert item["id"]; assert item["reference_id"]; assert item["url"]'
 }
 
 @test "live GitHub source rejects invalid credentials" {

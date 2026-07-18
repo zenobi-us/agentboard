@@ -8,7 +8,7 @@ Action inputs are MiniJinja templates.
 
 ```toml
 [sources.actions.with]
-cmd = "echo {{ item.id }}: {{ item.title }}"
+cmd = "echo {{ item.reference_id }}: {{ item.title }}"
 ```
 
 ## Context
@@ -26,13 +26,22 @@ Example values:
 {{ workspace.id }}
 {{ workspace.path }}
 {{ source.id }}
+{{ source.source.kind }}
+{{ source.actions[0].uses }}
 {{ item.id }}
+{{ item.reference_id }}
 {{ item.title }}
 {{ item.status }}
 {{ item.url }}
 {{ action.uses }}
 {{ action.index }}
 ```
+
+`source` is the complete configured Source. Adapter settings stay nested under
+`source.source`, and configured Actions stay under `source.actions`.
+
+Use `item.reference_id` for provider-facing names and messages. `item.id` is the
+stable identity used by the Store and Action retry checks.
 
 `item.raw` contains the original Source payload:
 

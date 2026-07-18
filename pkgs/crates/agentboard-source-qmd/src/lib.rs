@@ -33,34 +33,47 @@ fn collect_qmd(
         let doc = qmd_get(&doc_ref)?;
         let (frontmatter, body) =
             parse_frontmatter(&doc).with_context(|| format!("parse qmd document {doc_ref}"))?;
-        let id = mapped_field(&frontmatter, map.id.as_deref().unwrap_or("id"), "id")?;
-        if !ids.insert(id.clone()) {
-            bail!("duplicate item id {id} in source {source_id}");
+        let item = normalize_document(source_id, result, doc_ref, frontmatter, body, map)?;
+        if !ids.insert(item.id.clone()) {
+            bail!("duplicate item id {} in source {source_id}", item.id);
         }
-        let title = mapped_field(
-            &frontmatter,
-            map.title.as_deref().unwrap_or("title"),
-            "title",
-        )?;
-        let status = mapped_field(
-            &frontmatter,
-            map.status.as_deref().unwrap_or("status"),
-            "status",
-        )?;
-        let url = optional_mapped_field(&frontmatter, map.url.as_deref().unwrap_or("url"))
-            .unwrap_or_else(|| doc_ref.clone());
-
-        out.push(Item {
-            id,
-            title,
-            status,
-            url,
-            source_id: source_id.to_string(),
-            source_kind: "qmd".to_string(),
-            raw: json!({ "qmd": result, "frontmatter": frontmatter, "body": body }),
-        });
+        out.push(item);
     }
     Ok(out)
+}
+
+fn normalize_document(
+    source_id: &str,
+    result: Value,
+    doc_ref: String,
+    frontmatter: Value,
+    body: String,
+    map: &FieldMap,
+) -> Result<Item> {
+    let reference_id = mapped_field(&frontmatter, map.id.as_deref().unwrap_or("id"), "id")?;
+    let title = mapped_field(
+        &frontmatter,
+        map.title.as_deref().unwrap_or("title"),
+        "title",
+    )?;
+    let status = mapped_field(
+        &frontmatter,
+        map.status.as_deref().unwrap_or("status"),
+        "status",
+    )?;
+    let url = optional_mapped_field(&frontmatter, map.url.as_deref().unwrap_or("url"))
+        .unwrap_or_else(|| doc_ref.clone());
+
+    Ok(Item {
+        id: doc_ref,
+        reference_id,
+        title,
+        status,
+        url,
+        source_id: source_id.to_string(),
+        source_kind: "qmd".to_string(),
+        raw: json!({ "qmd": result, "frontmatter": frontmatter, "body": body }),
+    })
 }
 
 fn qmd_query(collections: &[String], query: &str, limit: usize) -> Result<Vec<Value>> {
@@ -173,5 +186,52 @@ mod tests {
     fn supports_nested_field_mapping() {
         let fm = json!({"agentboard":{"id":"AB-1"}});
         assert_eq!(optional_mapped_field(&fm, "agentboard.id").unwrap(), "AB-1");
+    }
+
+    #[test]
+    fn normalizes_qmd_document_identity_and_reference() {
+        let result = json!({"path": "/notes/AB-1.md"});
+        let frontmatter = json!({"id": "AB-1", "title": "Do it", "status": "ready"});
+
+        let item = normalize_document(
+            "qmd",
+            result,
+            "/notes/AB-1.md".into(),
+            frontmatter,
+            "Body".into(),
+            &Default::default(),
+        )
+        .unwrap();
+
+        assert_eq!(item.id, "/notes/AB-1.md");
+        assert_eq!(item.reference_id, "AB-1");
+    }
+
+    #[test]
+    fn qmd_map_id_changes_reference_not_identity() {
+        let result = json!({"path": "/notes/AB-1.md"});
+        let frontmatter = json!({
+            "id": "AB-1",
+            "agentboard": {"reference": "customer-42"},
+            "title": "Do it",
+            "status": "ready"
+        });
+        let map = FieldMap {
+            id: Some("agentboard.reference".into()),
+            ..Default::default()
+        };
+
+        let item = normalize_document(
+            "qmd",
+            result,
+            "/notes/AB-1.md".into(),
+            frontmatter,
+            "Body".into(),
+            &map,
+        )
+        .unwrap();
+
+        assert_eq!(item.id, "/notes/AB-1.md");
+        assert_eq!(item.reference_id, "customer-42");
     }
 }

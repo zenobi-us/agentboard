@@ -4,6 +4,20 @@ title: Troubleshooting
 
 # Troubleshooting
 
+## Item Store requires `reference_id`
+
+The Item Store was written by an older AgentBoard version and cannot be loaded
+by the current schema.
+
+Fix: remove the affected `items-<source.slug>.jsonl` path named in the error,
+then run the Workspace again. AgentBoard rebuilds Item observations from the
+Source.
+
+For Jira, QMD, and GitHub Sources with `field_map.id`, Item identities changed
+with this schema. Existing successful Action records will not suppress Actions
+for rebuilt Items. Review or temporarily disable configured Actions before
+rebuilding if repeating them could cause duplicate side effects.
+
 ## `workspace lock is held`
 
 Another `run` or `watch` is active for the same Workspace.

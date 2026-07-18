@@ -22,6 +22,10 @@ matched note must have YAML frontmatter with string fields for `id`, `title`,
 and `status`. `url` is optional; when absent AgentBoard uses the QMD document
 reference.
 
+The QMD document reference is `item.id`. The mapped frontmatter `id` is
+`item.reference_id`, so moving reference mapping does not change Store or Action
+identity.
+
 ## Field mapping
 
 Use `map` when your frontmatter uses different names or nested fields.
@@ -33,3 +37,5 @@ title = "title"
 status = "workflow.status"
 url = "links.issue"
 ```
+
+`map.id` changes `item.reference_id`; it does not change `item.id`.

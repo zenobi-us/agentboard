@@ -78,41 +78,54 @@ async fn collect_jira(source_id: &str, query: JiraQuery<'_>) -> Result<Vec<Item>
     let mut ids = HashSet::new();
     let mut out = Vec::new();
     for issue in issues {
-        let id = mapped_field(issue, query.field_map.id.as_deref().unwrap_or("key"), "id")?;
-        if !ids.insert(id.clone()) {
-            bail!("duplicate item id {id} in source {source_id}");
+        let item = normalize_issue(site, source_id, issue, query.field_map, query.status_map)?;
+        if !ids.insert(item.id.clone()) {
+            bail!("duplicate item id {} in source {source_id}", item.id);
         }
-        let title = mapped_field(
-            issue,
-            query.field_map.title.as_deref().unwrap_or("fields.summary"),
-            "title",
-        )?;
-        let status = mapped_field(
-            issue,
-            query
-                .field_map
-                .status
-                .as_deref()
-                .unwrap_or("fields.status.name"),
-            "status",
-        )?;
-        let status = mapped_status(&status, query.status_map);
-        let url = match query.field_map.url.as_deref() {
-            Some(path) => mapped_field(issue, path, "url")?,
-            None => format!("{site}/browse/{id}"),
-        };
-
-        out.push(Item {
-            id,
-            title,
-            status,
-            url,
-            source_id: source_id.to_string(),
-            source_kind: "jira".to_string(),
-            raw: json!({ "jira": issue }),
-        });
+        out.push(item);
     }
     Ok(out)
+}
+
+fn normalize_issue(
+    site: &str,
+    source_id: &str,
+    issue: &Value,
+    field_map: &FieldMap,
+    status_map: &std::collections::BTreeMap<String, String>,
+) -> Result<Item> {
+    let id = mapped_field(issue, "id", "identity")?;
+    let key = mapped_field(issue, "key", "reference id")?;
+    let reference_id = match field_map.id.as_deref() {
+        Some(path) => mapped_field(issue, path, "id")?,
+        None => key.clone(),
+    };
+    let title = mapped_field(
+        issue,
+        field_map.title.as_deref().unwrap_or("fields.summary"),
+        "title",
+    )?;
+    let status = mapped_field(
+        issue,
+        field_map.status.as_deref().unwrap_or("fields.status.name"),
+        "status",
+    )?;
+    let status = mapped_status(&status, status_map);
+    let url = match field_map.url.as_deref() {
+        Some(path) => mapped_field(issue, path, "url")?,
+        None => format!("{site}/browse/{key}"),
+    };
+
+    Ok(Item {
+        id,
+        reference_id,
+        title,
+        status,
+        url,
+        source_id: source_id.to_string(),
+        source_kind: "jira".to_string(),
+        raw: json!({ "jira": issue }),
+    })
 }
 
 async fn jira_search(
@@ -327,6 +340,57 @@ mod tests {
             mapped_field(&issue, "fields.status.name", "status").unwrap(),
             "Ready"
         );
+    }
+
+    #[test]
+    fn normalizes_jira_identity_and_reference() {
+        let issue = json!({
+            "id": "10001",
+            "key": "AB-1",
+            "fields": {"summary": "Do it", "status": {"name": "Ready"}}
+        });
+
+        let item = normalize_issue(
+            "https://example.atlassian.net",
+            "jira",
+            &issue,
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
+
+        assert_eq!(item.id, "10001");
+        assert_eq!(item.reference_id, "AB-1");
+        assert_eq!(item.url, "https://example.atlassian.net/browse/AB-1");
+    }
+
+    #[test]
+    fn jira_field_map_id_changes_reference_not_identity() {
+        let issue = json!({
+            "id": "10001",
+            "key": "AB-1",
+            "fields": {
+                "summary": "Do it",
+                "status": {"name": "Ready"},
+                "customfield_10010": "customer-42"
+            }
+        });
+        let field_map = FieldMap {
+            id: Some("fields.customfield_10010".into()),
+            ..Default::default()
+        };
+
+        let item = normalize_issue(
+            "https://example.atlassian.net",
+            "jira",
+            &issue,
+            &field_map,
+            &Default::default(),
+        )
+        .unwrap();
+
+        assert_eq!(item.id, "10001");
+        assert_eq!(item.reference_id, "customer-42");
     }
 
     #[test]

@@ -5,7 +5,7 @@ load test_helper
 setup() { setup_agentboard_test; }
 teardown() { teardown_agentboard_test; }
 
-@test "templates expose workspace source item action raw data slugify and action environment" {
+@test "templates expose reference identity complete source raw data and action environment" {
   cat > "$QMD_ITEMS/AB-1.md" <<'EOF'
 ---
 id: "AB-1"
@@ -29,7 +29,7 @@ query = "ready"
 [[sources.actions]]
 uses = "agentboard/run-cmd"
 [sources.actions.with]
-cmd = '''printf '%s' "{{ workspace.id }}|{{ source.id }}|{{ item.id }}|{{ item.title | slugify }}|{{ action.uses }}|{{ action.index }}|{{ item.raw.frontmatter.meta.owner }}|$AGENTBOARD_SOURCE_ID|$AGENTBOARD_ITEM_ID" > "$OUTPUT_FILE"'''
+cmd = '''printf '%s' "{{ workspace.id }}|{{ source.id }}|{{ source.source.kind }}|{{ source.source.collections[0] }}|{{ source.actions[0].uses }}|{{ item.id }}|{{ item.reference_id }}|{{ item.title | slugify }}|{{ action.uses }}|{{ action.index }}|{{ item.raw.frontmatter.meta.owner }}|$AGENTBOARD_SOURCE_ID|$AGENTBOARD_ITEM_ID" > "$OUTPUT_FILE"'''
 EOF
 
   run "$AB" run "$TMP/workspace.toml"
@@ -37,7 +37,8 @@ EOF
   [ "$status" -eq 0 ]
   local rendered
   rendered="$(cat "$OUTPUT_FILE")"
-  [[ "$rendered" =~ ^workspace-[0-9a-f]{12}\|md\|AB-1\|fix-login\|agentboard/run-cmd\|0\|kin\|md\|AB-1$ ]]
+  local prefix="workspace-"
+  [[ "$rendered" == "$prefix"*"|md|qmd|test|agentboard/run-cmd|$QMD_ITEMS/AB-1.md|AB-1|fix-login|agentboard/run-cmd|0|kin|md|$QMD_ITEMS/AB-1.md" ]]
 }
 
 @test "template inputs expand home and environment paths after MiniJinja rendering" {

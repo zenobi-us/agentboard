@@ -11,7 +11,7 @@ teardown() { teardown_agentboard_test; }
 
   "$AB" --color never run "$TMP/workspace.toml" --dry-run >"$TMP/stdout" 2>"$TMP/stderr"
 
-  grep -q 'md AB-1 action#0 agentboard/run-cmd' "$TMP/stdout"
+  grep -q "md $QMD_ITEMS/AB-1.md action#0 agentboard/run-cmd" "$TMP/stdout"
   grep -q '"cmd":"echo bad' "$TMP/stdout"
   grep -q 'run .* complete' "$TMP/stderr"
   [ ! -e "$TMP/ran" ]

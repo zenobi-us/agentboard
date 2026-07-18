@@ -22,17 +22,24 @@ helper = "gh auth token"
 
 Issue mode injects `is:issue` when it is missing so GitHub pull requests do not become AgentBoard Items.
 
-## Identity and status
+## Identity, reference, and status
 
-Issue mode item ids default to `owner/repo#number`. Status comes from the first matching `status_map` entry on the issue labels. If no label matches, status falls back to the GitHub issue state.
+Issue mode uses `owner/repo#number` as `item.id` and the issue number as
+`item.reference_id`. This keeps equal issue numbers from different repositories
+distinct while templates can use the normal GitHub issue number.
+
+Status comes from the first matching `status_map` entry on the issue labels. If no label matches, status falls back to the GitHub issue state.
 
 Use `field_map` only when the default normalized fields are wrong for a workspace.
 
 ```toml
 [sources.source.field_map]
+id = "custom.reference"
 title = "title"
 url = "html_url"
 ```
+
+`field_map.id` changes `item.reference_id`; it does not change `item.id`.
 
 Use `status_map` to normalize GitHub issue labels to workspace status values.
 

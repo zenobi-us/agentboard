@@ -45,11 +45,16 @@ EOF
 
   run "$AB" list "$TMP/workspace.toml"
   [ "$status" -eq 0 ]
-  [ "$output" = $'FAIL-1\tready\tfailed\tFailing Item\nPASS-1\tready\tsucceeded\tPassing Item\nPEND-1\tready\tpending\tPending Item' ]
+  local expected
+  expected="$(printf '%s\tready\tfailed\tFailing Item\n%s\tready\tpending\tPending Item\n%s\tready\tsucceeded\tPassing Item' \
+    "$QMD_ITEMS/failed/FAIL-1.md" \
+    "$QMD_ITEMS/pending/PEND-1.md" \
+    "$QMD_ITEMS/success/PASS-1.md")"
+  [ "$output" = "$expected" ]
 
   run "$AB" list "$TMP/workspace.toml" --json
   [ "$status" -eq 0 ]
-  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; rows=json.load(sys.stdin); assert [row["item"]["id"] for row in rows] == ["FAIL-1", "PASS-1", "PEND-1"]; assert {row["action_state"] for row in rows} == {"failed", "succeeded", "pending"}; assert all(row["source_slug"] for row in rows)'
+  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; rows=json.load(sys.stdin); assert [row["item"]["reference_id"] for row in rows] == ["FAIL-1", "PEND-1", "PASS-1"]; assert len({row["item"]["id"] for row in rows}) == 3; assert {row["action_state"] for row in rows} == {"failed", "succeeded", "pending"}; assert all(row["source_slug"] for row in rows)'
 }
 
 @test "show returns plain and JSON item details with attempts" {
@@ -58,21 +63,22 @@ EOF
   run "$AB" run "$TMP/workspace.toml"
   [ "$status" -eq 0 ]
 
-  run "$AB" show "$TMP/workspace.toml" AB-1
+  local item_id="$QMD_ITEMS/AB-1.md"
+  run "$AB" show "$TMP/workspace.toml" "$item_id"
   [ "$status" -eq 0 ]
-  [[ "$output" == *$'AB-1\nShown Item\nready'* ]]
+  [[ "$output" == *"$item_id"$'\nShown Item\nready'* ]]
   [[ "$output" == *"action#0 agentboard/run-cmd success=true"* ]]
 
-  run "$AB" show "$TMP/workspace.toml" AB-1 --json
+  run "$AB" show "$TMP/workspace.toml" "$item_id" --json
   [ "$status" -eq 0 ]
-  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["item"]["id"] == "AB-1"; assert value["actions"][0]["success"] is True; assert value["source_slug"]'
+  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["item"]["id"].endswith("/AB-1.md"); assert value["item"]["reference_id"] == "AB-1"; assert value["actions"][0]["success"] is True; assert value["source_slug"]'
 
   run "$AB" show "$TMP/workspace.toml" MISSING
   [ "$status" -ne 0 ]
   [[ "$output" == *"item MISSING not found"* ]]
 }
 
-@test "qualified item references resolve ambiguity across source buckets" {
+@test "duplicate reference IDs remain distinct by QMD document identity" {
   write_collection_item one SAME-1 "First Bucket"
   write_collection_item two SAME-1 "Second Bucket"
   cat > "$TMP/workspace.toml" <<'EOF'
@@ -93,19 +99,19 @@ EOF
 
   run "$AB" run "$TMP/workspace.toml"
   [ "$status" -eq 0 ]
-  run "$AB" show "$TMP/workspace.toml" SAME-1
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"ambiguous across Store item buckets"* ]]
 
   "$AB" list "$TMP/workspace.toml" --json > "$TMP/list.json"
-  local slug
-  slug="$(/usr/bin/python3 - "$TMP/list.json" <<'PY'
+  local item_id
+  item_id="$(/usr/bin/python3 - "$TMP/list.json" <<'PY'
 import json, sys
 rows = json.load(open(sys.argv[1]))
-print(next(row["source_slug"] for row in rows if row["item"]["source_id"] == "one"))
+assert len(rows) == 2
+assert {row["item"]["reference_id"] for row in rows} == {"SAME-1"}
+assert len({row["item"]["id"] for row in rows}) == 2
+print(next(row["item"]["id"] for row in rows if row["item"]["source_id"] == "one"))
 PY
 )"
-  run "$AB" show "$TMP/workspace.toml" "$slug:SAME-1"
+  run "$AB" show "$TMP/workspace.toml" "$item_id"
   [ "$status" -eq 0 ]
   [[ "$output" == *"First Bucket"* ]]
 }
@@ -128,8 +134,34 @@ EOF
   [ "$status" -eq 0 ]
 
   run "$AB" list "$TMP/workspace.toml"
-  [ "$output" = $'AB-1\tdoing\tpending\tNew Title' ]
-  run "$AB" show "$TMP/workspace.toml" AB-1
-  [[ "$output" == *$'AB-1\nNew Title\ndoing'* ]]
+  [ "$output" = "$QMD_ITEMS/AB-1.md"$'\tdoing\tpending\tNew Title' ]
+  run "$AB" show "$TMP/workspace.toml" "$QMD_ITEMS/AB-1.md"
+  [[ "$output" == *"$QMD_ITEMS/AB-1.md"$'\nNew Title\ndoing'* ]]
   [ "$(wc -l < "$(items_store_file)")" -eq 2 ]
+}
+
+@test "legacy item Store errors explain how to rebuild" {
+  write_item AB-1
+  write_workspace "true"
+  run "$AB" run "$TMP/workspace.toml"
+  [ "$status" -eq 0 ]
+
+  local items
+  items="$(items_store_file)"
+  /usr/bin/python3 - "$items" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+records = [json.loads(line) for line in path.read_text().splitlines()]
+for record in records:
+    record.pop("reference_id")
+path.write_text("".join(json.dumps(record) + "\n" for record in records))
+PY
+
+  run "$AB" list "$TMP/workspace.toml"
+
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"$items"* ]]
+  [[ "$output" == *"line 1"* ]]
+  [[ "$output" == *"reference_id"* ]]
+  [[ "$output" == *"rebuild"* ]]
 }

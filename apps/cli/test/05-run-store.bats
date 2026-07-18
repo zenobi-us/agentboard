@@ -17,22 +17,24 @@ teardown() { teardown_agentboard_test; }
   actions="$(actions_store_file)"
   [ -f "$items" ]
   [ -f "$actions" ]
-  /usr/bin/python3 - "$items" "$actions" <<'PY'
+  /usr/bin/python3 - "$items" "$actions" "$QMD_ITEMS/AB-1.md" <<'PY'
 import json, pathlib, sys
 item_lines = pathlib.Path(sys.argv[1]).read_text().splitlines()
 action_lines = pathlib.Path(sys.argv[2]).read_text().splitlines()
+item_id = sys.argv[3]
 assert len(item_lines) == 1
 assert len(action_lines) == 1
 item = json.loads(item_lines[0])
 action = json.loads(action_lines[0])
-assert item["id"] == "AB-1"
+assert item["id"] == item_id
+assert item["reference_id"] == "AB-1"
 assert item["title"] == "Stored Item"
-assert action["item_id"] == "AB-1"
+assert action["item_id"] == item_id
 assert action["source_id"] == "md"
 assert action["uses"] == "agentboard/run-cmd"
 assert action["success"] is True
 assert action["rendered_action_hash"]
-assert "|md|AB-1" in action["stdout"]
+assert f"|md|{item_id}" in action["stdout"]
 assert action["ts"]
 PY
 }
@@ -50,14 +52,20 @@ PY
   [ "$(wc -l < "$(actions_store_file)")" -eq 1 ]
 }
 
-@test "duplicate source item IDs fail before Store records are appended" {
+@test "duplicate QMD reference IDs keep distinct document identities" {
   write_item AB-1
   cp "$QMD_ITEMS/AB-1.md" "$QMD_ITEMS/duplicate.md"
   write_workspace "true"
 
   run "$AB" --color never run "$TMP/workspace.toml"
 
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"duplicate item id AB-1"* ]]
-  [ -z "$(find "$XDG_DATA_HOME/agentboard" -type f -name '*.jsonl' 2>/dev/null)" ]
+  [ "$status" -eq 0 ]
+  [ "$(wc -l < "$(items_store_file)")" -eq 2 ]
+  [ "$(wc -l < "$(actions_store_file)")" -eq 2 ]
+  /usr/bin/python3 - "$(items_store_file)" <<'PY'
+import json, pathlib, sys
+items = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert len({item["id"] for item in items}) == 2
+assert {item["reference_id"] for item in items} == {"AB-1"}
+PY
 }

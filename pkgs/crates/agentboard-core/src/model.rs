@@ -110,6 +110,7 @@ pub struct ActionConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Item {
     pub id: String,
+    pub reference_id: String,
     pub title: String,
     pub status: String,
     pub url: String,

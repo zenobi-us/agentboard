@@ -147,9 +147,10 @@ fn normalize_issue(
         .get("number")
         .and_then(Value::as_i64)
         .ok_or_else(|| anyhow!("github issue number must be an integer"))?;
-    let id = match field_map.id.as_deref() {
+    let id = format!("{repo}#{number}");
+    let reference_id = match field_map.id.as_deref() {
         Some(path) => mapped_field(issue, path, "id")?,
-        None => format!("{repo}#{number}"),
+        None => number.to_string(),
     };
     let title = mapped_field(
         issue,
@@ -167,6 +168,7 @@ fn normalize_issue(
 
     Ok(Item {
         id,
+        reference_id,
         title,
         status,
         url,
@@ -288,6 +290,7 @@ mod tests {
 
         let item = normalize_issue("gh", &issue, &Default::default(), &statuses).unwrap();
         assert_eq!(item.id, "zenobi-us/agentboard#42");
+        assert_eq!(item.reference_id, "42");
         assert_eq!(item.status, "ready-for-agent");
         assert_eq!(item.source_kind, "github");
         assert_eq!(item.raw["github"]["issue"]["number"], 42);
@@ -302,15 +305,50 @@ mod tests {
             "state": "open",
             "html_url": "https://github.com/zenobi-us/agentboard/issues/8",
             "labels": [],
-            "custom": {"title": "Mapped"}
+            "custom": {"reference": "GH-8", "title": "Mapped"}
         });
         let field_map = agentboard_core::model::FieldMap {
+            id: Some("custom.reference".into()),
             title: Some("custom.title".into()),
             ..Default::default()
         };
 
         let item = normalize_issue("gh", &issue, &field_map, &BTreeMap::new()).unwrap();
+        assert_eq!(item.id, "zenobi-us/agentboard#8");
+        assert_eq!(item.reference_id, "GH-8");
         assert_eq!(item.title, "Mapped");
+    }
+
+    #[test]
+    fn same_issue_number_in_different_repositories_has_distinct_identity() {
+        let issue = |repo: &str| {
+            json!({
+                "repository_url": format!("https://api.github.com/repos/{repo}"),
+                "number": 8,
+                "title": "Same number",
+                "state": "open",
+                "html_url": format!("https://github.com/{repo}/issues/8"),
+                "labels": []
+            })
+        };
+
+        let first = normalize_issue(
+            "gh",
+            &issue("zenobi-us/agentboard"),
+            &Default::default(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let second = normalize_issue(
+            "gh",
+            &issue("zenobi-us/other"),
+            &Default::default(),
+            &BTreeMap::new(),
+        )
+        .unwrap();
+
+        assert_ne!(first.id, second.id);
+        assert_eq!(first.reference_id, second.reference_id);
     }
 
     #[test]
