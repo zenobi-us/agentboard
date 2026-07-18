@@ -55,6 +55,7 @@ async fn collect_github_issues(
     let token = github_token(query.credentials)?;
     let client = Client::new();
     let search_query = issue_only_query(query.query);
+    eprintln!("github source {source_id} query: {search_query}");
     let mut page = 1usize;
     let mut out = Vec::new();
     let mut ids = HashSet::new();
