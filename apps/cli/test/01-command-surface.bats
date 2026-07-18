@@ -26,6 +26,8 @@ teardown() { teardown_agentboard_test; }
   [ "$status" -eq 0 ]
   run "$AB" workspace list --help
   [ "$status" -eq 0 ]
+  run "$AB" workspace edit --help
+  [ "$status" -eq 0 ]
 }
 
 @test "global flags work before and after subcommands" {

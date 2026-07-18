@@ -31,8 +31,15 @@ pub fn list_workspaces() -> Result<Vec<String>> {
     Ok(names)
 }
 
-/// Create an empty named Workspace without overwriting an existing config.
-pub fn init_workspace(name: &str) -> Result<PathBuf> {
+/// Return the config path for a named Workspace.
+pub fn named_workspace_path(name: &str) -> PathBuf {
+    config_home()
+        .join("agentboard")
+        .join(format!("{name}.toml"))
+}
+
+/// Validate a named Workspace identifier.
+pub fn validate_workspace_name(name: &str) -> Result<()> {
     if name.is_empty()
         || !name
             .chars()
@@ -40,9 +47,13 @@ pub fn init_workspace(name: &str) -> Result<PathBuf> {
     {
         bail!("workspace name must contain only letters, numbers, '-' or '_'");
     }
-    let path = config_home()
-        .join("agentboard")
-        .join(format!("{name}.toml"));
+    Ok(())
+}
+
+/// Create an empty named Workspace without overwriting an existing config.
+pub fn init_workspace(name: &str) -> Result<PathBuf> {
+    validate_workspace_name(name)?;
+    let path = named_workspace_path(name);
     if path.exists() {
         bail!("workspace already exists: {}", path.display());
     }
@@ -68,9 +79,7 @@ fn load_workspace_inner(input: &str, validate: bool) -> Result<Workspace> {
     let path = if input.ends_with(".toml") || input.contains('/') {
         expand_path(input)
     } else {
-        config_home()
-            .join("agentboard")
-            .join(format!("{input}.toml"))
+        named_workspace_path(input)
     };
     let text =
         fs::read_to_string(&path).with_context(|| format!("read workspace {}", path.display()))?;

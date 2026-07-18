@@ -38,7 +38,10 @@ agentboard list ./work.toml
 ## Commands
 
 ```text
-agentboard workspaces
+agentboard workspace list
+agentboard workspace init <name>
+agentboard workspace edit <name> # requires $EDITOR
+agentboard workspaces             # compatibility alias
 agentboard run <workspace> [--dry-run]
 agentboard watch <workspace> [--interval 60s]
 agentboard list <workspace> [--json]

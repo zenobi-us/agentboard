@@ -1,11 +1,14 @@
 use agentboard_core::model::WorkspaceConfig;
-use std::path::PathBuf;
+use std::{env, path::PathBuf, process::Command as ProcessCommand};
 
-use anyhow::Result;
+use anyhow::{bail, Context, Result};
 use clap::{ArgAction, Parser, Subcommand};
 
 use crate::{
-    config::{init_workspace, list_workspaces, load_workspace, load_workspace_for_doctor},
+    config::{
+        init_workspace, list_workspaces, load_workspace, load_workspace_for_doctor,
+        named_workspace_path, validate_workspace_name,
+    },
     output::{ColorChoice, Output, Verbosity},
     runtime::{parse_duration, run_once, watch},
     store::{doctor, list_items, show_item},
@@ -79,6 +82,37 @@ enum WorkspaceCommand {
     List,
     /// Create an empty named Workspace.
     Init { name: String },
+    /// Open an existing named Workspace in $EDITOR.
+    Edit { name: String },
+}
+
+fn edit_workspace(name: &str) -> Result<()> {
+    validate_workspace_name(name)?;
+    let path = named_workspace_path(name);
+    if !path.is_file() {
+        bail!("workspace does not exist: {}", path.display());
+    }
+
+    let editor = env::var("EDITOR").context("EDITOR is not set; set it to an editor command")?;
+    if editor.trim().is_empty() {
+        bail!("EDITOR is empty; set it to an editor command");
+    }
+    let mut arguments = shlex::split(&editor)
+        .context("parse EDITOR as a command")?
+        .into_iter();
+    let program = arguments
+        .next()
+        .filter(|program| !program.is_empty())
+        .context("EDITOR does not contain an editor command")?;
+    let status = ProcessCommand::new(&program)
+        .args(arguments)
+        .arg(&path)
+        .status()
+        .with_context(|| format!("start editor {program:?}"))?;
+    if !status.success() {
+        bail!("editor exited unsuccessfully: {status}");
+    }
+    Ok(())
 }
 
 fn print_workspaces() -> Result<()> {
@@ -106,6 +140,7 @@ pub async fn run() -> Result<()> {
                 println!("{}", init_workspace(&name)?.display());
                 Ok(())
             }
+            WorkspaceCommand::Edit { name } => edit_workspace(&name),
         },
         Command::Workspaces => print_workspaces(),
         Command::Run { workspace, dry_run } => {

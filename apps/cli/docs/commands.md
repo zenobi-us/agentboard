@@ -4,15 +4,29 @@ title: Commands
 
 # Commands
 
-## `workspaces`
+## `workspace`
 
-List named workspaces from `~/.config/agentboard` (or the platform config directory):
+List named Workspaces from `~/.config/agentboard` (or the platform config directory):
 
 ```bash
-agentboard workspaces
+agentboard workspace list
 ```
 
-Output contains one workspace name per line, sorted alphabetically.
+Output contains one Workspace name per line, sorted alphabetically. `agentboard workspaces` remains available as a compatibility alias.
+
+Create an empty named Workspace without overwriting an existing config:
+
+```bash
+agentboard workspace init work
+```
+
+Open an existing named Workspace in the command configured by `$EDITOR`:
+
+```bash
+EDITOR="code --wait" agentboard workspace edit work
+```
+
+AgentBoard appends the Workspace path as the final editor argument and waits for the editor to exit. `$EDITOR` must be set and non-empty. `workspace edit` accepts a Workspace name, not an explicit file path, and does not create missing Workspaces.
 
 ## `run`
 

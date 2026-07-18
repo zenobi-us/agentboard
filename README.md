@@ -50,9 +50,10 @@ Authenticate GitHub CLI first. AgentBoard uses it as a credential helper:
 ```bash
 gh auth login
 agentboard workspace init work
+agentboard workspace edit work # opens $EDITOR
 ```
 
-Edit `~/.config/agentboard/work.toml`:
+Configure the Workspace:
 
 ```toml
 [[sources]]
