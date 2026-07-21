@@ -30,9 +30,9 @@ _Avoid_: Cache shard, config hash
 
 ## Boundaries
 
-- The CLI owns config loading, validation, store paths, locking, runtime orchestration, and user commands.
-- The CLI does not know source-specific query semantics beyond dispatch by source kind.
-- The CLI does not implement action side effects; it dispatches configured actions to action crates.
+- The CLI owns config loading, explicit built-in registration, validation orchestration, store paths, locking, runtime orchestration, and user commands.
+- The CLI does not know source-specific query semantics or branch on Source kinds; it invokes registered Source behavior.
+- The CLI does not implement action side effects or branch on Action identifiers; it invokes registered Action behavior.
 - The CLI persists raw source payloads with normalized items so source schemas can evolve without bloating the core item model.
 
 ## Pipeline

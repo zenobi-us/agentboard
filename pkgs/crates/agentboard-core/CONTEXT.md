@@ -1,6 +1,6 @@
 # AgentBoard Core Context
 
-`agentboard-core` contains shared data structures used by the CLI, source crates, and action crates.
+`agentboard-core` contains shared data structures and internal registration contracts used by the CLI, source crates, and action crates.
 
 ## Language
 
@@ -30,10 +30,11 @@ _Avoid_: Build result, task result
 
 ## Boundaries
 
-- Core owns shared types and tiny cross-crate helpers only.
+- Core owns shared types, Source and Action registration contracts, the internal Registry, and tiny cross-crate helpers.
 - Core must not depend on CLI orchestration, source crates, or action crates.
+- Registration is explicit and statically linked; Core does not define a runtime plugin ABI or community extension contract.
 - Keep normalized `Item` small and store source-specific payloads in `raw`.
-- Keep config enums boring and explicit; add variants only for implemented source kinds.
+- Keep Workspace config envelopes boring and explicit while registered Source and Action crates own their typed configuration.
 
 ## ADRs
 

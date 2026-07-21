@@ -6,8 +6,8 @@ This repo uses a multi-context domain-doc layout. Read this file first, then rea
 
 | Path | Context doc | ADR scope | Scope |
 | --- | --- | --- | --- |
-| `apps/cli` | `apps/cli/CONTEXT.md` | `.memory/docs/adr/apps/cli/` | CLI commands, config loading, runtime orchestration, local store, dispatch. |
-| `pkgs/crates/agentboard-core` | `pkgs/crates/agentboard-core/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/agentboard-core/` | Shared model, config types, action/result structs, cross-crate helpers. |
+| `apps/cli` | `apps/cli/CONTEXT.md` | `.memory/docs/adr/apps/cli/` | CLI commands, config loading, built-in registration, runtime orchestration, and local store. |
+| `pkgs/crates/agentboard-core` | `pkgs/crates/agentboard-core/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/agentboard-core/` | Shared model, config envelopes, registration contracts, action/result structs, and cross-crate helpers. |
 | `pkgs/crates/agentboard-source-qmd` | `pkgs/crates/agentboard-source-qmd/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/agentboard-source-qmd/` | QMD collection/query source adapter. |
 | `pkgs/crates/agentboard-source-jira` | `pkgs/crates/agentboard-source-jira/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/agentboard-source-jira/` | Jira JQL/API source adapter. |
 | `pkgs/crates/agentboard-action-run-cmd` | `pkgs/crates/agentboard-action-run-cmd/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/agentboard-action-run-cmd/` | Shell command action executor. |
@@ -33,8 +33,8 @@ source crate -> normalized item -> apps/cli store -> rendered action -> action c
 
 ## Boundaries
 
-- `apps/cli` owns user commands, workspace loading, validation, store paths, locking, runtime orchestration, template rendering, and dispatch.
-- `agentboard-core` owns shared model/config/result types and tiny helpers only.
+- `apps/cli` owns user commands, workspace loading, built-in registration, validation orchestration, store paths, locking, runtime orchestration, and template rendering.
+- `agentboard-core` owns shared model/config/result types, Source and Action registration contracts, the internal Registry, and tiny helpers.
 - `agentboard-source-*` crates own source-specific query semantics, collection, raw payload capture, and normalization into Items.
 - `agentboard-action-*` crates own one side effect each and consume already-rendered inputs.
 - Docs describe config and supported behavior; they must not document planned adapters/actions as complete.
