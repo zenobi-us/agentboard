@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
 pub mod model;
+pub mod registry;
 
 pub const STDOUT_LIMIT: usize = 64 * 1024;
 
