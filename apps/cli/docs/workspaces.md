@@ -8,6 +8,14 @@ A Workspace is a TOML file that names Sources and the Actions to run for each So
 
 ## Location
 
+When the Workspace argument is omitted, AgentBoard reads `.agentboard.toml` from the current directory:
+
+```bash
+agentboard run
+```
+
+AgentBoard checks only the current directory. It does not search parent directories.
+
 Named workspaces live under the user config directory:
 
 ```text
@@ -25,6 +33,8 @@ Or pass a path:
 ```bash
 agentboard run ./work.toml
 ```
+
+An explicit name or path always takes precedence over `.agentboard.toml`.
 
 ## Workspace ids
 

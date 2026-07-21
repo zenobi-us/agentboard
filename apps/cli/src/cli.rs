@@ -47,31 +47,32 @@ enum Command {
     Workspaces,
     /// Execute one workspace run.
     Run {
-        workspace: String,
+        workspace: Option<String>,
         #[arg(long)]
         dry_run: bool,
     },
     /// Repeatedly run one workspace.
     Watch {
-        workspace: String,
+        workspace: Option<String>,
         #[arg(long, default_value = "60s")]
         interval: String,
     },
     /// List latest stored items.
     List {
-        workspace: String,
+        workspace: Option<String>,
         #[arg(long)]
         json: bool,
     },
     /// Show one latest stored item and action attempts.
     Show {
-        workspace: String,
-        item_id: String,
+        /// Pass ITEM_ID alone, or WORKSPACE followed by ITEM_ID.
+        #[arg(value_name = "ITEM_OR_WORKSPACE", num_args = 1..=2, required = true)]
+        workspace_and_item: Vec<String>,
         #[arg(long)]
         json: bool,
     },
     /// Validate workspace and local environment.
-    Doctor { workspace: String },
+    Doctor { workspace: Option<String> },
     /// Print workspace JSON Schema.
     Schema,
 }
@@ -122,6 +123,17 @@ fn print_workspaces() -> Result<()> {
     Ok(())
 }
 
+fn split_show_args(mut args: Vec<String>) -> (Option<String>, String) {
+    match args.len() {
+        1 => (None, args.remove(0)),
+        2 => {
+            let item_id = args.remove(1);
+            (Some(args.remove(0)), item_id)
+        }
+        _ => unreachable!("clap requires one or two show arguments"),
+    }
+}
+
 /// Parse CLI arguments and dispatch the requested user command.
 pub async fn run() -> Result<()> {
     let cli = Cli::parse();
@@ -144,27 +156,31 @@ pub async fn run() -> Result<()> {
         },
         Command::Workspaces => print_workspaces(),
         Command::Run { workspace, dry_run } => {
-            run_once(&load_workspace(&workspace)?, dry_run, &output).await
+            run_once(&load_workspace(workspace.as_deref())?, dry_run, &output).await
         }
         Command::Watch {
             workspace,
             interval,
         } => {
             watch(
-                load_workspace(&workspace)?,
+                load_workspace(workspace.as_deref())?,
                 parse_duration(&interval)?,
                 &output,
             )
             .await
         }
-        Command::List { workspace, json } => list_items(&load_workspace(&workspace)?, json),
+        Command::List { workspace, json } => {
+            list_items(&load_workspace(workspace.as_deref())?, json)
+        }
         Command::Show {
-            workspace,
-            item_id,
+            workspace_and_item,
             json,
-        } => show_item(&load_workspace(&workspace)?, &item_id, json),
+        } => {
+            let (workspace, item_id) = split_show_args(workspace_and_item);
+            show_item(&load_workspace(workspace.as_deref())?, &item_id, json)
+        }
         Command::Doctor { workspace } => {
-            doctor(&load_workspace_for_doctor(&workspace)?, &output).await
+            doctor(&load_workspace_for_doctor(workspace.as_deref())?, &output).await
         }
         Command::Schema => {
             println!(
@@ -173,5 +189,57 @@ pub async fn run() -> Result<()> {
             );
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn operational_commands_allow_omitting_workspace() {
+        assert!(matches!(
+            Cli::try_parse_from(["agentboard", "run"]).unwrap().command,
+            Command::Run {
+                workspace: None,
+                dry_run: false
+            }
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["agentboard", "doctor"])
+                .unwrap()
+                .command,
+            Command::Doctor { workspace: None }
+        ));
+    }
+
+    #[test]
+    fn show_distinguishes_optional_workspace_from_required_item_id() {
+        assert!(Cli::try_parse_from(["agentboard", "show"]).is_err());
+
+        let Command::Show {
+            workspace_and_item,
+            json: false,
+        } = Cli::try_parse_from(["agentboard", "show", "AB-001"])
+            .unwrap()
+            .command
+        else {
+            panic!("expected show command");
+        };
+        assert_eq!(split_show_args(workspace_and_item), (None, "AB-001".into()));
+
+        let Command::Show {
+            workspace_and_item,
+            json: false,
+        } = Cli::try_parse_from(["agentboard", "show", "work", "AB-001"])
+            .unwrap()
+            .command
+        else {
+            panic!("expected show command");
+        };
+        assert_eq!(
+            split_show_args(workspace_and_item),
+            (Some("work".into()), "AB-001".into())
+        );
     }
 }

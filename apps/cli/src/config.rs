@@ -64,40 +64,48 @@ pub fn init_workspace(name: &str) -> Result<PathBuf> {
 
 /// Load a workspace by name or explicit TOML path, then validate it.
 ///
-/// Named workspaces resolve under the user config directory. Explicit paths get
-/// a stable workspace id from the file stem plus canonical path hash.
-pub fn load_workspace(input: &str) -> Result<Workspace> {
+/// When no input is supplied, load `.agentboard.toml` from the current
+/// directory. Named workspaces resolve under the user config directory.
+/// Explicit paths get a stable workspace id from the file stem plus canonical
+/// path hash.
+pub fn load_workspace(input: Option<&str>) -> Result<Workspace> {
     load_workspace_inner(input, true)
 }
 
 /// Load a Workspace for `doctor`, leaving semantic validation to its checks.
-pub fn load_workspace_for_doctor(input: &str) -> Result<Workspace> {
+pub fn load_workspace_for_doctor(input: Option<&str>) -> Result<Workspace> {
     load_workspace_inner(input, false)
 }
 
-fn load_workspace_inner(input: &str, validate: bool) -> Result<Workspace> {
-    let path = if input.ends_with(".toml") || input.contains('/') {
-        expand_path(input)
-    } else {
-        named_workspace_path(input)
-    };
+fn load_workspace_inner(input: Option<&str>, validate: bool) -> Result<Workspace> {
+    let (path, named_id) = resolve_workspace_input(input);
     let text =
         fs::read_to_string(&path).with_context(|| format!("read workspace {}", path.display()))?;
     let config: WorkspaceConfig = toml::from_str(&text)?;
     if validate {
         validate_config(&config)?;
     }
-    let id = if input.ends_with(".toml") || input.contains('/') {
+    let id = if let Some(id) = named_id {
+        id
+    } else {
         let canon = fs::canonicalize(&path)?;
         let stem = path
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap_or("workspace");
         format!("{stem}-{}", short_hash(&canon.display().to_string()))
-    } else {
-        input.to_string()
     };
     Ok(Workspace { id, path, config })
+}
+
+fn resolve_workspace_input(input: Option<&str>) -> (PathBuf, Option<String>) {
+    match input {
+        None => (PathBuf::from(".agentboard.toml"), None),
+        Some(input) if input.ends_with(".toml") || input.contains('/') => {
+            (expand_path(input), None)
+        }
+        Some(input) => (named_workspace_path(input), Some(input.to_string())),
+    }
 }
 
 /// Validate workspace config invariants before a run touches sources or actions.
@@ -338,6 +346,26 @@ mod tests {
         GithubCredentialConfig, GithubSourceMode, SourceConfig, SourceKind,
     };
     use std::collections::BTreeMap;
+
+    #[test]
+    fn omitted_workspace_uses_cwd_agentboard_file() {
+        assert_eq!(
+            resolve_workspace_input(None),
+            (PathBuf::from(".agentboard.toml"), None)
+        );
+    }
+
+    #[test]
+    fn supplied_workspace_keeps_existing_resolution_rules() {
+        assert_eq!(
+            resolve_workspace_input(Some("./work.toml")),
+            (PathBuf::from("./work.toml"), None)
+        );
+        assert_eq!(
+            resolve_workspace_input(Some("work")).1,
+            Some("work".to_string())
+        );
+    }
 
     #[test]
     fn qmd_source_requires_collections_and_query() {

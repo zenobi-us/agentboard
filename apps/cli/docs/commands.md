@@ -33,9 +33,12 @@ AgentBoard appends the Workspace path as the final editor argument and waits for
 Execute one Workspace Run: load config, read Sources, append item observations, render pending Actions, and execute Actions.
 
 ```bash
+agentboard run
 agentboard run work
 agentboard run ./work.toml
 ```
+
+With no Workspace argument, AgentBoard loads `.agentboard.toml` from the current directory. It does not search parent directories. A supplied name or path keeps the existing explicit selection behavior.
 
 Dry run collects and renders pending Actions without writing Store files or executing Actions:
 
@@ -48,6 +51,7 @@ agentboard run ./work.toml --dry-run
 Repeatedly run one Workspace until Ctrl-C.
 
 ```bash
+agentboard watch
 agentboard watch work
 agentboard watch work --interval 30s
 ```
@@ -61,6 +65,7 @@ Intervals are seconds with or without a trailing `s`.
 List latest stored items and derived Action state.
 
 ```bash
+agentboard list
 agentboard list work
 ```
 
@@ -81,6 +86,7 @@ agentboard list work --json
 Show one latest stored item and its Action attempts.
 
 ```bash
+agentboard show AB-001
 agentboard show work AB-001
 agentboard show work AB-001 --json
 ```
@@ -96,6 +102,7 @@ agentboard show work jira-team-a-atlassian-net-abc123:AB-001
 Validate a Workspace and local environment.
 
 ```bash
+agentboard doctor
 agentboard doctor work
 ```
 
