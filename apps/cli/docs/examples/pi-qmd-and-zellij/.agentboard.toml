@@ -1,0 +1,32 @@
+[[sources]]
+id = "ready-qmd-tasks"
+
+[sources.source]
+kind = "qmd"
+collections = ["agentboard-tasks"]
+query = """
+intent: Find the single task explicitly queued for AgentBoard execution.
+lex: agentboard-ready
+"""
+limit = 1
+
+[sources.source.map]
+id = "id"
+title = "title"
+status = "status"
+url = "url"
+
+[[sources.actions]]
+uses = "agentboard/create-worktree"
+
+[sources.actions.with]
+repo = "$PWD/demo-repo"
+root = "$PWD/.worktrees/{{ item.reference_id | slugify }}"
+branch = "task/{{ item.reference_id | slugify }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+cwd = "$PWD/.worktrees/{{ item.reference_id | slugify }}"
+cmd = "$PWD/launch-pi-task.sh '{{ item.reference_id }}' '{{ item.title }}'"
