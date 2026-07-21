@@ -9,3 +9,9 @@ repository = "https://github.com/zenobi-us/agentboard"
 [dependencies]
 agentboard-core = { path = "../agentboard-core" }
 anyhow = "1"
+schemars = { version = "0.8", features = ["preserve_order"] }
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"
+tempfile = "3"

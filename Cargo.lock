@@ -34,6 +34,10 @@ version = "0.0.1"
 dependencies = [
  "agentboard-core",
  "anyhow",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -42,6 +46,10 @@ version = "0.0.1"
 dependencies = [
  "agentboard-core",
  "anyhow",
+ "schemars",
+ "serde",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
