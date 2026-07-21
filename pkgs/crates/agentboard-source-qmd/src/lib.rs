@@ -30,9 +30,12 @@ fn collect_qmd(
 
     for result in results {
         let doc_ref = doc_ref(&result)?;
-        let doc = qmd_get(&doc_ref)?;
+        let doc = result
+            .get("body")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("qmd result {doc_ref} missing string body"))?;
         let (frontmatter, body) =
-            parse_frontmatter(&doc).with_context(|| format!("parse qmd document {doc_ref}"))?;
+            parse_frontmatter(doc).with_context(|| format!("parse qmd document {doc_ref}"))?;
         let item = normalize_document(source_id, result, doc_ref, frontmatter, body, map)?;
         if !ids.insert(item.id.clone()) {
             bail!("duplicate item id {} in source {source_id}", item.id);
@@ -82,6 +85,7 @@ fn qmd_query(collections: &[String], query: &str, limit: usize) -> Result<Vec<Va
         .arg(query)
         .arg("--format")
         .arg("json")
+        .arg("--full")
         .arg("-n")
         .arg(limit.to_string());
     for collection in collections {
@@ -98,20 +102,6 @@ fn qmd_query(collections: &[String], query: &str, limit: usize) -> Result<Vec<Va
         bail!("qmd query failed: {}", String::from_utf8_lossy(&out.stderr));
     }
     parse_qmd_results(&String::from_utf8_lossy(&out.stdout))
-}
-
-fn qmd_get(doc_ref: &str) -> Result<String> {
-    let out = ProcessCommand::new("qmd")
-        .args(["get", doc_ref, "--full"])
-        .output()
-        .with_context(|| format!("qmd get {doc_ref}"))?;
-    if !out.status.success() {
-        bail!(
-            "qmd get {doc_ref} failed: {}",
-            String::from_utf8_lossy(&out.stderr)
-        );
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }
 
 fn parse_qmd_results(text: &str) -> Result<Vec<Value>> {

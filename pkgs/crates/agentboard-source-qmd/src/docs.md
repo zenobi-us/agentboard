@@ -17,10 +17,10 @@ query = "intent: Find ready work items\nlex: status ready"
 limit = 50
 ```
 
-AgentBoard runs `qmd query`, then `qmd get --full` for each result. Each
-matched note must have YAML frontmatter with string fields for `id`, `title`,
-and `status`. `url` is optional; when absent AgentBoard uses the QMD document
-reference.
+AgentBoard runs `qmd query --full --format json` and reads each result's raw
+document body. Each matched note must have YAML frontmatter with string fields
+for `id`, `title`, and `status`. `url` is optional; when absent AgentBoard uses
+the QMD document reference.
 
 The QMD document reference is `item.id`. The mapped frontmatter `id` is
 `item.reference_id`, so moving reference mapping does not change Store or Action

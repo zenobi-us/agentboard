@@ -36,6 +36,10 @@ case "${1:-}" in
     if [ -n "${QMD_QUERY_SLEEP:-}" ]; then
       /bin/sleep "$QMD_QUERY_SLEEP"
     fi
+    case " $* " in
+      *" --full "*) ;;
+      *) echo "qmd query fixture requires --full" >&2; exit 2 ;;
+    esac
     collection=""
     previous=""
     for argument in "$@"; do
@@ -52,15 +56,11 @@ case "${1:-}" in
     /usr/bin/python3 - "$root" <<'PY'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
-print(json.dumps([{"path": str(path)} for path in sorted(root.glob("*.md"))]))
+print(json.dumps([
+    {"path": str(path), "body": path.read_text()}
+    for path in sorted(root.glob("*.md"))
+]))
 PY
-    ;;
-  get)
-    if [ "${QMD_GET_EXIT:-0}" != 0 ]; then
-      echo "qmd get fixture failure" >&2
-      exit "$QMD_GET_EXIT"
-    fi
-    /bin/cat "$2"
     ;;
   --version)
     echo qmd-test

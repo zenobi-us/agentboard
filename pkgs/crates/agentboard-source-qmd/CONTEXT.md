@@ -9,7 +9,7 @@ A Source whose query is passed to `qmd query` for one or more QMD collections.
 _Avoid_: Markdown source; QMD is the integration boundary
 
 **Document reference**:
-The identifier returned by `qmd query` and passed to `qmd get`.
+The identifier returned by `qmd query` and used as the normalized Item identity.
 _Avoid_: File path unless the returned value is actually a path
 
 **Frontmatter mapping**:
