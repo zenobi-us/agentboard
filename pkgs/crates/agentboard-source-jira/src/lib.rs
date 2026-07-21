@@ -7,12 +7,174 @@ use std::{
 
 use anyhow::{anyhow, bail, Context, Result};
 use reqwest::Client;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use agentboard_core::model::{FieldMap, Item, JiraCredentialConfig, SourceConfig, SourceKind};
+use agentboard_core::{
+    model::{FieldMap, Item, SourceConfig, SourceKind},
+    registry::{
+        RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition, SourceFuture,
+    },
+};
 
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct JiraSourceConfig {
+    pub site: String,
+    #[serde(default = "default_jira_email_env")]
+    pub email_env: String,
+    #[serde(default = "default_jira_token_env")]
+    pub token_env: String,
+    #[serde(default)]
+    pub credentials: Option<JiraCredentialConfig>,
+    pub jql: String,
+    #[serde(default = "default_source_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub fields: Vec<String>,
+    #[serde(default)]
+    pub field_map: FieldMap,
+    #[serde(default)]
+    pub status_map: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct JiraCredentialConfig {
+    pub helper: String,
+}
+
+pub struct JiraSourceDefinition;
+
+pub struct JiraSource {
+    config: JiraSourceConfig,
+}
+
+impl SourceDefinition for JiraSourceDefinition {
+    const ID: &'static str = "jira";
+    type Config = JiraSourceConfig;
+    type Runtime = JiraSource;
+
+    fn build(mut config: Self::Config) -> RuntimeResult<Self::Runtime> {
+        if config.site.trim().is_empty() {
+            bail!("requires site");
+        }
+        let site = reqwest::Url::parse(config.site.trim()).context("site must be a valid URL")?;
+        if !matches!(site.scheme(), "http" | "https") {
+            bail!("site URL scheme must be http or https");
+        }
+        if let Some(credentials) = &config.credentials {
+            if credentials.helper.trim().is_empty() {
+                bail!("credential helper cannot be empty");
+            }
+        } else {
+            if config.email_env.trim().is_empty() {
+                bail!("requires email_env");
+            }
+            if config.token_env.trim().is_empty() {
+                bail!("requires token_env");
+            }
+        }
+        if config.jql.trim().is_empty() {
+            bail!("requires jql");
+        }
+        if config.limit == 0 {
+            bail!("limit must be greater than zero");
+        }
+        config.site = site.as_str().trim_end_matches('/').to_string();
+        Ok(JiraSource { config })
+    }
+}
+
+impl JiraSource {
+    async fn collect_jira(&self, source_id: &str) -> Result<SourceCollection> {
+        let site = self.config.site.as_str();
+        let query = JiraQuery {
+            email_env: &self.config.email_env,
+            token_env: &self.config.token_env,
+            credentials: self.config.credentials.as_ref(),
+            jql: &self.config.jql,
+            limit: self.config.limit,
+            fields: &self.config.fields,
+            field_map: &self.config.field_map,
+        };
+        let credential = jira_credential(&query, site)?;
+        let search = jira_search(
+            &format!("{site}/rest/api/3/search/jql"),
+            &credential.username,
+            &credential.password,
+            query.jql,
+            query.limit,
+            query.fields,
+            query.field_map,
+        )
+        .await?;
+        self.collection_from_search(source_id, search)
+    }
+
+    fn collection_from_search(&self, source_id: &str, search: Value) -> Result<SourceCollection> {
+        let issues = search
+            .get("issues")
+            .and_then(Value::as_array)
+            .ok_or_else(|| anyhow!("jira search response missing issues array"))?;
+        let site = self.config.site.as_str();
+        let mut ids = HashSet::new();
+        let mut items = Vec::new();
+        for issue in issues {
+            let item = normalize_issue(
+                site,
+                source_id,
+                issue,
+                &self.config.field_map,
+                &self.config.status_map,
+            )?;
+            if !ids.insert(item.id.clone()) {
+                bail!("duplicate item id {} in source {source_id}", item.id);
+            }
+            items.push(item);
+        }
+        Ok(SourceCollection {
+            items,
+            available: None,
+            limit: self.config.limit,
+        })
+    }
+}
+
+impl Source for JiraSource {
+    fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
+        Box::pin(async move { self.collect_jira(context.source_id).await })
+    }
+
+    fn item_bucket_identity(&self) -> String {
+        normalize_site(&self.config.site)
+    }
+}
+
+fn default_source_limit() -> usize {
+    50
+}
+
+fn default_jira_email_env() -> String {
+    "JIRA_EMAIL".into()
+}
+
+fn default_jira_token_env() -> String {
+    "JIRA_API_TOKEN".into()
+}
+
+fn normalize_site(site: &str) -> String {
+    site.trim()
+        .trim_end_matches('/')
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .to_ascii_lowercase()
+}
+
+/// Temporary legacy bridge for the CLI cutover in issue #24.
 pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
-    match &source.source {
+    let config = match &source.source {
         SourceKind::Jira {
             site,
             email_env,
@@ -23,29 +185,30 @@ pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
             fields,
             field_map,
             status_map,
-        } => {
-            collect_jira(
-                &source.id,
-                JiraQuery {
-                    site,
-                    email_env,
-                    token_env,
-                    credentials: credentials.as_ref(),
-                    jql,
-                    limit: *limit,
-                    fields,
-                    field_map,
-                    status_map,
-                },
-            )
-            .await
-        }
+        } => JiraSourceConfig {
+            site: site.clone(),
+            email_env: email_env.clone(),
+            token_env: token_env.clone(),
+            credentials: credentials
+                .as_ref()
+                .map(|credentials| JiraCredentialConfig {
+                    helper: credentials.helper.clone(),
+                }),
+            jql: jql.clone(),
+            limit: *limit,
+            fields: fields.clone(),
+            field_map: field_map.clone(),
+            status_map: status_map.clone(),
+        },
         _ => bail!("source {} is not jira", source.id),
-    }
+    };
+    Ok(JiraSourceDefinition::build(config)?
+        .collect_jira(&source.id)
+        .await?
+        .items)
 }
 
 struct JiraQuery<'a> {
-    site: &'a str,
     email_env: &'a str,
     token_env: &'a str,
     credentials: Option<&'a JiraCredentialConfig>,
@@ -53,38 +216,6 @@ struct JiraQuery<'a> {
     limit: usize,
     fields: &'a [String],
     field_map: &'a FieldMap,
-    status_map: &'a std::collections::BTreeMap<String, String>,
-}
-
-async fn collect_jira(source_id: &str, query: JiraQuery<'_>) -> Result<Vec<Item>> {
-    let site = query.site.trim_end_matches('/');
-    let credential = jira_credential(&query, site)?;
-    let url = format!("{site}/rest/api/3/search/jql");
-    let search = jira_search(
-        &url,
-        &credential.username,
-        &credential.password,
-        query.jql,
-        query.limit,
-        query.fields,
-        query.field_map,
-    )
-    .await?;
-    let issues = search
-        .get("issues")
-        .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("jira search response missing issues array"))?;
-
-    let mut ids = HashSet::new();
-    let mut out = Vec::new();
-    for issue in issues {
-        let item = normalize_issue(site, source_id, issue, query.field_map, query.status_map)?;
-        if !ids.insert(item.id.clone()) {
-            bail!("duplicate item id {} in source {source_id}", item.id);
-        }
-        out.push(item);
-    }
-    Ok(out)
 }
 
 fn normalize_issue(
@@ -316,6 +447,180 @@ fn optional_mapped_field(issue: &Value, path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentboard_core::registry::{RawConfig, Registry, Source, SourceContext, SourceDefinition};
+    use std::{
+        future::Future,
+        task::{Context as TaskContext, Poll, Waker},
+    };
+
+    fn poll_ready<T>(future: impl Future<Output = T>) -> T {
+        let mut context = TaskContext::from_waker(Waker::noop());
+        let mut future = Box::pin(future);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("future unexpectedly pending"),
+        }
+    }
+
+    fn config(site: &str) -> JiraSourceConfig {
+        serde_json::from_value(json!({
+            "site": site,
+            "jql": "project = AB"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn registers_jira_config_schema() {
+        let mut registry = Registry::new();
+        registry.add_source::<JiraSourceDefinition>().unwrap();
+
+        let registration = registry.sources().next().unwrap();
+        let schema = serde_json::to_value(registration.schema()).unwrap();
+        let config = config("https://example.atlassian.net");
+
+        assert_eq!(registration.id(), "jira");
+        assert!(schema["properties"]["site"].is_object());
+        assert!(schema["properties"]["jql"].is_object());
+        assert_eq!(schema["properties"]["email_env"]["default"], "JIRA_EMAIL");
+        assert_eq!(
+            schema["properties"]["token_env"]["default"],
+            "JIRA_API_TOKEN"
+        );
+        assert_eq!(schema["properties"]["limit"]["default"], 50);
+        assert_eq!(schema["additionalProperties"], false);
+        let required = schema["required"].as_array().unwrap();
+        for field in ["site", "jql"] {
+            assert!(required.iter().any(|value| value == field));
+        }
+        assert_eq!(config.email_env, "JIRA_EMAIL");
+        assert_eq!(config.token_env, "JIRA_API_TOKEN");
+        assert_eq!(config.limit, 50);
+
+        let source = registry
+            .build_source(
+                "jira",
+                serde_json::from_value::<RawConfig>(json!({
+                    "site": "https://example.atlassian.net",
+                    "jql": "project = AB"
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(source.item_bucket_identity(), "example.atlassian.net");
+        assert!(registry
+            .build_source(
+                "jira",
+                serde_json::from_value::<RawConfig>(json!({
+                    "site": "https://example.atlassian.net",
+                    "jql": "project = AB",
+                    "extra": true
+                }))
+                .unwrap(),
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn deserializes_existing_jira_toml_fields() {
+        let config: JiraSourceConfig = toml::from_str(
+            r#"
+                site = "https://example.atlassian.net"
+                jql = "project = AB ORDER BY updated DESC"
+                credentials = { helper = "agentboard-jira-credentials" }
+                fields = ["assignee"]
+                field_map = { id = "key", status = "fields.status.name" }
+                status_map = { "To Do" = "ready" }
+            "#,
+        )
+        .unwrap();
+
+        assert!(JiraSourceDefinition::build(config).is_ok());
+    }
+
+    #[test]
+    fn validates_jira_config_without_credential_lookup() {
+        assert!(JiraSourceDefinition::build(config("https://example.atlassian.net")).is_ok());
+        assert!(JiraSourceDefinition::build(config(" ")).is_err());
+
+        let mut missing_jql = config("https://example.atlassian.net");
+        missing_jql.jql.clear();
+        assert!(JiraSourceDefinition::build(missing_jql).is_err());
+
+        let mut zero_limit = config("https://example.atlassian.net");
+        zero_limit.limit = 0;
+        assert!(JiraSourceDefinition::build(zero_limit).is_err());
+
+        let mut empty_helper = config("https://example.atlassian.net");
+        empty_helper.credentials = Some(JiraCredentialConfig { helper: " ".into() });
+        assert!(JiraSourceDefinition::build(empty_helper).is_err());
+    }
+
+    #[test]
+    fn reports_jira_collection_metadata_and_normalized_site_bucket() {
+        let source =
+            JiraSourceDefinition::build(config(" HTTPS://Example.Atlassian.NET/ ")).unwrap();
+        let same_site =
+            JiraSourceDefinition::build(config("https://example.atlassian.net")).unwrap();
+        let collection = source
+            .collection_from_search(
+                "jira",
+                json!({
+                    "issues": [{
+                        "id": "10001",
+                        "key": "AB-1",
+                        "fields": {"summary": "Do it", "status": {"name": "Ready"}}
+                    }]
+                }),
+            )
+            .unwrap();
+
+        assert_eq!(source.item_bucket_identity(), "example.atlassian.net");
+        assert_eq!(
+            source.item_bucket_identity(),
+            same_site.item_bucket_identity()
+        );
+        assert_eq!(collection.items.len(), 1);
+        assert_eq!(collection.available, None);
+        assert_eq!(collection.limit, 50);
+        assert_eq!(
+            collection.items[0].url,
+            "https://example.atlassian.net/browse/AB-1"
+        );
+        assert_eq!(collection.items[0].raw["jira"]["id"], "10001");
+
+        assert!(source
+            .collection_from_search(
+                "jira",
+                json!({
+                    "issues": [
+                        {
+                            "id": "10001",
+                            "key": "AB-1",
+                            "fields": {"summary": "One", "status": {"name": "Ready"}}
+                        },
+                        {
+                            "id": "10001",
+                            "key": "AB-2",
+                            "fields": {"summary": "Two", "status": {"name": "Ready"}}
+                        }
+                    ]
+                }),
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn jira_health_check_defers_credential_helper_until_runtime() {
+        let mut config = config("https://example.atlassian.net");
+        config.credentials = Some(JiraCredentialConfig {
+            helper: "exit 7".into(),
+        });
+        let source = JiraSourceDefinition::build(config).unwrap();
+        let context = SourceContext { source_id: "jira" };
+
+        assert!(poll_ready(source.health_check(&context)).is_err());
+    }
 
     #[test]
     fn parses_jira_credential_helper_output() {

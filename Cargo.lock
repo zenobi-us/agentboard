@@ -62,7 +62,10 @@ dependencies = [
  "agentboard-core",
  "anyhow",
  "reqwest",
+ "schemars",
+ "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -72,7 +75,10 @@ dependencies = [
  "agentboard-core",
  "anyhow",
  "reqwest",
+ "schemars",
+ "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]
@@ -81,7 +87,10 @@ version = "0.0.1"
 dependencies = [
  "agentboard-core",
  "anyhow",
+ "schemars",
+ "serde",
  "serde_json",
+ "toml",
  "yaml_serde",
 ]
 

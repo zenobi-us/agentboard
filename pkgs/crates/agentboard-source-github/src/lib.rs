@@ -1,97 +1,194 @@
 use std::{collections::HashSet, process::Command};
 
-use agentboard_core::model::{
-    GithubCredentialConfig, GithubSourceMode, Item, SourceConfig, SourceKind,
+use agentboard_core::{
+    model::{GithubSourceMode as LegacyGithubSourceMode, Item, SourceConfig, SourceKind},
+    registry::{
+        RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition, SourceFuture,
+    },
 };
 use anyhow::{anyhow, bail, Context, Result};
 use reqwest::{header, Client};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 const GITHUB_SEARCH_URL: &str = "https://api.github.com/search/issues";
 
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GithubSourceConfig {
+    pub mode: GithubSourceMode,
+    pub query: String,
+    pub credentials: GithubCredentialConfig,
+    #[serde(default = "default_source_limit")]
+    pub limit: usize,
+    #[serde(default)]
+    pub field_map: agentboard_core::model::FieldMap,
+    pub status_map: std::collections::BTreeMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum GithubSourceMode {
+    Issue,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GithubCredentialConfig {
+    pub helper: String,
+}
+
+pub struct GithubSourceDefinition;
+
+pub struct GithubSource {
+    config: GithubSourceConfig,
+}
+
+impl SourceDefinition for GithubSourceDefinition {
+    const ID: &'static str = "github";
+    type Config = GithubSourceConfig;
+    type Runtime = GithubSource;
+
+    fn build(config: Self::Config) -> RuntimeResult<Self::Runtime> {
+        if config.query.trim().is_empty() {
+            bail!("requires query");
+        }
+        if config.credentials.helper.trim().is_empty() {
+            bail!("credential helper cannot be empty");
+        }
+        if config.status_map.is_empty() {
+            bail!("requires status_map");
+        }
+        if config
+            .status_map
+            .iter()
+            .any(|(label, status)| label.trim().is_empty() || status.trim().is_empty())
+        {
+            bail!("status_map cannot contain empty labels or statuses");
+        }
+        if config.limit == 0 {
+            bail!("limit must be greater than zero");
+        }
+        Ok(GithubSource { config })
+    }
+}
+
+impl GithubSource {
+    async fn collect_github_issues(&self, source_id: &str) -> Result<SourceCollection> {
+        let token = github_token(&self.config.credentials)?;
+        let client = Client::new();
+        let search_query = issue_only_query(&self.config.query);
+        eprintln!("github source {source_id} query: {search_query}");
+        let mut page = 1usize;
+        let mut items = Vec::new();
+        let mut available = None;
+
+        while items.len() < self.config.limit {
+            let page_size = (self.config.limit - items.len()).min(100);
+            let response =
+                github_issue_search(&client, &token, &search_query, page_size, page).await?;
+            let total = response
+                .get("total_count")
+                .and_then(Value::as_u64)
+                .ok_or_else(|| anyhow!("github issue search response missing total_count"))?
+                as usize;
+            available.get_or_insert(total);
+            let issues = response
+                .get("items")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("github issue search response missing items array"))?;
+            if issues.is_empty() {
+                break;
+            }
+
+            for issue in issues {
+                let item = normalize_issue(
+                    source_id,
+                    issue,
+                    &self.config.field_map,
+                    &self.config.status_map,
+                )?;
+                items.push(item);
+                if items.len() >= self.config.limit {
+                    break;
+                }
+            }
+            page += 1;
+        }
+
+        self.collection_from_items(source_id, items, available.unwrap_or(0))
+    }
+
+    fn collection_from_items(
+        &self,
+        source_id: &str,
+        items: Vec<Item>,
+        available: usize,
+    ) -> Result<SourceCollection> {
+        let mut ids = HashSet::new();
+        for item in &items {
+            if !ids.insert(&item.id) {
+                bail!("duplicate item id {} in source {source_id}", item.id);
+            }
+        }
+        Ok(SourceCollection {
+            items,
+            available: Some(available),
+            limit: self.config.limit,
+        })
+    }
+}
+
+impl Source for GithubSource {
+    fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
+        Box::pin(async move {
+            match self.config.mode {
+                GithubSourceMode::Issue => self.collect_github_issues(context.source_id).await,
+            }
+        })
+    }
+
+    fn item_bucket_identity(&self) -> String {
+        "github.com".into()
+    }
+}
+
+fn default_source_limit() -> usize {
+    50
+}
+
+/// Temporary legacy bridge for the CLI cutover in issue #24.
 pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
     Ok(inspect_items(source).await?.0)
 }
 
 /// Collect configured Items and return GitHub's total matching issue count.
 pub async fn inspect_items(source: &SourceConfig) -> Result<(Vec<Item>, usize)> {
-    match &source.source {
+    let config = match &source.source {
         SourceKind::Github {
-            mode: GithubSourceMode::Issue,
+            mode: LegacyGithubSourceMode::Issue,
             query,
             credentials,
             limit,
             field_map,
             status_map,
-        } => {
-            collect_github_issues(
-                &source.id,
-                IssueQuery {
-                    query,
-                    credentials,
-                    limit: *limit,
-                    field_map,
-                    status_map,
-                },
-            )
-            .await
-        }
+        } => GithubSourceConfig {
+            mode: GithubSourceMode::Issue,
+            query: query.clone(),
+            credentials: GithubCredentialConfig {
+                helper: credentials.helper.clone(),
+            },
+            limit: *limit,
+            field_map: field_map.clone(),
+            status_map: status_map.clone(),
+        },
         _ => bail!("source {} is not github", source.id),
-    }
-}
-
-struct IssueQuery<'a> {
-    query: &'a str,
-    credentials: &'a GithubCredentialConfig,
-    limit: usize,
-    field_map: &'a agentboard_core::model::FieldMap,
-    status_map: &'a std::collections::BTreeMap<String, String>,
-}
-
-async fn collect_github_issues(
-    source_id: &str,
-    query: IssueQuery<'_>,
-) -> Result<(Vec<Item>, usize)> {
-    let token = github_token(query.credentials)?;
-    let client = Client::new();
-    let search_query = issue_only_query(query.query);
-    eprintln!("github source {source_id} query: {search_query}");
-    let mut page = 1usize;
-    let mut out = Vec::new();
-    let mut ids = HashSet::new();
-    let mut available = None;
-
-    while out.len() < query.limit {
-        let page_size = (query.limit - out.len()).min(100);
-        let response = github_issue_search(&client, &token, &search_query, page_size, page).await?;
-        let total = response
-            .get("total_count")
-            .and_then(Value::as_u64)
-            .ok_or_else(|| anyhow!("github issue search response missing total_count"))?
-            as usize;
-        available.get_or_insert(total);
-        let issues = response
-            .get("items")
-            .and_then(Value::as_array)
-            .ok_or_else(|| anyhow!("github issue search response missing items array"))?;
-        if issues.is_empty() {
-            break;
-        }
-
-        for issue in issues {
-            let item = normalize_issue(source_id, issue, query.field_map, query.status_map)?;
-            if !ids.insert(item.id.clone()) {
-                bail!("duplicate item id {} in source {source_id}", item.id);
-            }
-            out.push(item);
-            if out.len() >= query.limit {
-                break;
-            }
-        }
-        page += 1;
-    }
-
-    Ok((out, available.unwrap_or(0)))
+    };
+    let collection = GithubSourceDefinition::build(config)?
+        .collect_github_issues(&source.id)
+        .await?;
+    Ok((collection.items, collection.available.unwrap_or(0)))
 }
 
 async fn github_issue_search(
@@ -261,7 +358,158 @@ fn shell_command(command: &str) -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use agentboard_core::registry::{RawConfig, Registry, Source, SourceContext, SourceDefinition};
     use std::collections::BTreeMap;
+    use std::{
+        future::Future,
+        task::{Context as TaskContext, Poll, Waker},
+    };
+
+    fn poll_ready<T>(future: impl Future<Output = T>) -> T {
+        let mut context = TaskContext::from_waker(Waker::noop());
+        let mut future = Box::pin(future);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("future unexpectedly pending"),
+        }
+    }
+
+    fn config() -> GithubSourceConfig {
+        serde_json::from_value(json!({
+            "mode": "issue",
+            "query": "repo:zenobi-us/agentboard is:open",
+            "credentials": {"helper": "exit 7"},
+            "status_map": {"ready": "ready"}
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn registers_github_config_schema() {
+        let mut registry = Registry::new();
+        registry.add_source::<GithubSourceDefinition>().unwrap();
+
+        let registration = registry.sources().next().unwrap();
+        let schema = serde_json::to_value(registration.schema()).unwrap();
+
+        assert_eq!(registration.id(), "github");
+        assert!(schema["properties"]["mode"].is_object());
+        assert!(schema["properties"]["query"].is_object());
+        assert_eq!(
+            schema["properties"]["mode"]["$ref"],
+            "#/definitions/GithubSourceMode"
+        );
+        assert_eq!(schema["properties"]["limit"]["default"], 50);
+        assert_eq!(schema["additionalProperties"], false);
+        let required = schema["required"].as_array().unwrap();
+        for field in ["mode", "query", "credentials", "status_map"] {
+            assert!(required.iter().any(|value| value == field));
+        }
+        assert_eq!(
+            schema["definitions"]["GithubSourceMode"]["enum"],
+            json!(["issue"])
+        );
+        assert_eq!(config().limit, 50);
+
+        let source = registry
+            .build_source(
+                "github",
+                serde_json::from_value::<RawConfig>(json!({
+                    "mode": "issue",
+                    "query": "repo:zenobi-us/agentboard is:open",
+                    "credentials": {"helper": "exit 7"},
+                    "status_map": {"ready": "ready"}
+                }))
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(source.item_bucket_identity(), "github.com");
+        assert!(registry
+            .build_source(
+                "github",
+                serde_json::from_value::<RawConfig>(json!({
+                    "mode": "issue",
+                    "query": "repo:zenobi-us/agentboard is:open",
+                    "credentials": {"helper": "exit 7"},
+                    "status_map": {"ready": "ready"},
+                    "extra": true
+                }))
+                .unwrap(),
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn deserializes_existing_github_toml_fields() {
+        let config: GithubSourceConfig = toml::from_str(
+            r#"
+                mode = "issue"
+                query = "repo:zenobi-us/agentboard is:open label:ready"
+                credentials = { helper = "gh auth token" }
+                status_map = { ready = "ready" }
+            "#,
+        )
+        .unwrap();
+
+        assert!(GithubSourceDefinition::build(config).is_ok());
+    }
+
+    #[test]
+    fn validates_github_config_without_running_credential_helper() {
+        assert!(GithubSourceDefinition::build(config()).is_ok());
+
+        let mut missing_query = config();
+        missing_query.query.clear();
+        assert!(GithubSourceDefinition::build(missing_query).is_err());
+
+        let mut missing_statuses = config();
+        missing_statuses.status_map.clear();
+        assert!(GithubSourceDefinition::build(missing_statuses).is_err());
+
+        let mut empty_status = config();
+        empty_status.status_map = BTreeMap::from([("ready".into(), " ".into())]);
+        assert!(GithubSourceDefinition::build(empty_status).is_err());
+
+        let mut zero_limit = config();
+        zero_limit.limit = 0;
+        assert!(GithubSourceDefinition::build(zero_limit).is_err());
+    }
+
+    #[test]
+    fn reports_github_collection_metadata_and_host_bucket() {
+        let source = GithubSourceDefinition::build(config()).unwrap();
+        let collection = source
+            .collection_from_items("github", Vec::new(), 123)
+            .unwrap();
+
+        assert_eq!(source.item_bucket_identity(), "github.com");
+        assert_eq!(collection.available, Some(123));
+        assert_eq!(collection.limit, 50);
+
+        let issue = json!({
+            "repository_url": "https://api.github.com/repos/zenobi-us/agentboard",
+            "number": 42,
+            "title": "Duplicate",
+            "state": "open",
+            "html_url": "https://github.com/zenobi-us/agentboard/issues/42",
+            "labels": []
+        });
+        let item =
+            normalize_issue("github", &issue, &Default::default(), &BTreeMap::new()).unwrap();
+        assert!(source
+            .collection_from_items("github", vec![item.clone(), item], 2)
+            .is_err());
+    }
+
+    #[test]
+    fn github_health_check_defers_credential_helper_until_runtime() {
+        let source = GithubSourceDefinition::build(config()).unwrap();
+        let context = SourceContext {
+            source_id: "github",
+        };
+
+        assert!(poll_ready(source.health_check(&context)).is_err());
+    }
 
     #[test]
     fn injects_issue_search_guard() {
