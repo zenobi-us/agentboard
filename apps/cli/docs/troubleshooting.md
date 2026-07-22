@@ -83,7 +83,7 @@ Accepted password keys: `password`, `token`.
 
 ## Bad TOML or unknown field
 
-Workspace config denies unknown fields except under `[sources.actions.with]`.
+Workspace config denies unknown fields, including inputs under `[sources.actions.with]` that the selected Action does not declare.
 
 Use the schema:
 

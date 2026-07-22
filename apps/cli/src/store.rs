@@ -1,3 +1,8 @@
+//! Append-only Workspace Store operations and current diagnostic checks.
+//!
+//! Store layout still consumes the legacy configured view in issue #23; Registry
+//! plumbing is present so issue #24 can replace dispatch without another startup path.
+
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
@@ -6,7 +11,10 @@ use std::{
     process::{Command as ProcessCommand, Stdio},
 };
 
-use agentboard_core::model::{ActionAttempt, Item, SourceConfig, SourceKind, Workspace};
+use agentboard_core::{
+    model::{ActionAttempt, Item, SourceConfig, SourceKind, Workspace},
+    registry::Registry,
+};
 use anyhow::{anyhow, bail, Context, Result};
 use fs4::{FileExt, TryLockError};
 use serde_json::{json, Value};
@@ -281,7 +289,10 @@ fn resolve_item(ws: &Workspace, item_ref: &str) -> Result<StoredItem> {
 }
 
 /// Validate config, Store writability, Source reachability, and required commands.
-pub async fn doctor(ws: &Workspace, output: &Output) -> Result<()> {
+///
+/// The Registry is threaded now so issue #24 can replace legacy dispatch without
+/// changing command composition or accidentally creating a second Registry.
+pub async fn doctor(ws: &Workspace, _registry: &Registry, output: &Output) -> Result<()> {
     output.info(
         "doctor.start",
         &format!("doctor {} starting", ws.id),
@@ -645,6 +656,7 @@ mod tests {
             ),
             path: "work.toml".into(),
             config: WorkspaceConfig { sources },
+            built_sources: vec![],
         }
     }
 

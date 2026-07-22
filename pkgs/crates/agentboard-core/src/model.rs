@@ -1,8 +1,15 @@
+//! Shared serializable domain records used across CLI, Source, and Action crates.
+//!
+//! Registry contracts stay in `registry`; this module holds stable data exchanged
+//! between those contracts and current orchestration during the staged cutover.
+
 use std::{collections::BTreeMap, path::PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::registry::BuiltSource;
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -133,9 +140,14 @@ pub struct ActionAttempt {
     pub message: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+/// Holds both the current serializable Workspace view and Sources built during loading.
+///
+/// The legacy `config` field keeps issue #23 compatible with current runtime callers.
+/// `built_sources` is the single-construction handoff consumed by the issue #24 cutover.
+#[derive(Clone)]
 pub struct Workspace {
     pub id: String,
     pub path: PathBuf,
     pub config: WorkspaceConfig,
+    pub built_sources: Vec<BuiltSource>,
 }

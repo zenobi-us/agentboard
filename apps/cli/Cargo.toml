@@ -28,5 +28,6 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "tim
 toml = "0.8"
 
 [dev-dependencies]
+serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }

@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, error::Error, fmt, future::Future, pin::Pin};
+//! Internal static registration seam for Source and Action implementations.
+//!
+//! The CLI owns explicit composition. Core owns type erasure, typed config
+//! validation, deterministic lookup, and categorized failures without an ABI.
+
+use std::{collections::BTreeMap, error::Error, fmt, future::Future, pin::Pin, sync::Arc};
 
 use schemars::{schema::RootSchema, JsonSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -54,6 +59,7 @@ pub struct ActionContext<'a> {
     pub item: &'a Item,
 }
 
+/// Runtime behavior every registered Source exposes to CLI orchestration.
 pub trait Source: Send + Sync {
     /// Collect Items. Errors belong to this Source; callers keep sibling Sources running.
     fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a>;
@@ -67,20 +73,23 @@ pub trait Source: Send + Sync {
     fn item_bucket_identity(&self) -> String;
 }
 
+/// Runtime behavior every registered Action exposes after Item template rendering.
 pub trait Action: Send + Sync {
     /// Execute for one Item. Callers convert errors into failed, Item-scoped attempts.
     fn execute(&self, context: &ActionContext<'_>) -> RuntimeResult<ActionRun>;
 }
 
+/// Connects one Source ID to its typed config, schema, and side-effect-free factory.
 pub trait SourceDefinition: Sized + 'static {
     const ID: &'static str;
-    type Config: DeserializeOwned + JsonSchema + 'static;
+    type Config: DeserializeOwned + Serialize + JsonSchema + 'static;
     type Runtime: Source + 'static;
 
     /// Parse semantic invariants and construct runtime state without I/O or side effects.
     fn build(config: Self::Config) -> RuntimeResult<Self::Runtime>;
 }
 
+/// Connects one Action ID to typed rendered inputs, schema, and runtime factory.
 pub trait ActionDefinition: Sized + 'static {
     const ID: &'static str;
     type Config: DeserializeOwned + JsonSchema + 'static;
@@ -192,7 +201,7 @@ enum BuildError {
     Factory(anyhow::Error),
 }
 
-type SourceFactory = fn(RawConfig) -> Result<Box<dyn Source>, BuildError>;
+type SourceFactory = fn(RawConfig) -> Result<BuiltSource, BuildError>;
 type ActionValidator = fn(&ActionInputs) -> Result<(), serde_json::Error>;
 type ActionFactory = fn(ActionInputs) -> Result<Box<dyn Action>, BuildError>;
 type ActionHealthCheck = fn() -> RuntimeResult<()>;
@@ -201,6 +210,35 @@ pub struct SourceRegistration {
     id: &'static str,
     schema: RootSchema,
     factory: SourceFactory,
+}
+
+/// Couples one constructed Source with the normalized config used to construct it.
+///
+/// Workspace loading needs both values from one deserialization pass: the runtime
+/// must not be built twice, while templates and Store identity need defaults from
+/// the typed config rather than an incomplete raw TOML map.
+#[derive(Clone)]
+pub struct BuiltSource {
+    registration_id: &'static str,
+    config: RawConfig,
+    runtime: Arc<dyn Source>,
+}
+
+impl BuiltSource {
+    /// Identifies the registration that interpreted this configured Source.
+    pub fn registration_id(&self) -> &str {
+        self.registration_id
+    }
+
+    /// Exposes the serializable typed view, including deserialized defaults.
+    pub fn config(&self) -> &RawConfig {
+        &self.config
+    }
+
+    /// Returns the already-constructed runtime for orchestration in the CLI.
+    pub fn runtime(&self) -> &dyn Source {
+        self.runtime.as_ref()
+    }
 }
 
 impl SourceRegistration {
@@ -292,7 +330,17 @@ impl Registry {
         &self,
         id: &str,
         config: RawConfig,
-    ) -> Result<Box<dyn Source>, RegistryError> {
+    ) -> Result<Arc<dyn Source>, RegistryError> {
+        self.build_configured_source(id, config)
+            .map(|source| source.runtime)
+    }
+
+    /// Builds a Source once and retains the exact typed config view from that build.
+    pub fn build_configured_source(
+        &self,
+        id: &str,
+        config: RawConfig,
+    ) -> Result<BuiltSource, RegistryError> {
         let registration = self.sources.get(id).ok_or_else(|| RegistryError::Unknown {
             category: RegistryCategory::Source,
             id: id.to_string(),
@@ -356,11 +404,17 @@ fn registry_build_error(category: RegistryCategory, id: &str, error: BuildError)
 
 fn build_source_definition<D: SourceDefinition>(
     config: RawConfig,
-) -> Result<Box<dyn Source>, BuildError> {
+) -> Result<BuiltSource, BuildError> {
     let config = deserialize_raw(config).map_err(BuildError::InvalidConfig)?;
-    D::build(config)
-        .map(|runtime| Box::new(runtime) as Box<dyn Source>)
-        .map_err(BuildError::Factory)
+    // Serialize before handing ownership to the factory. This preserves the same
+    // defaulted typed values used for construction without cloning arbitrary configs.
+    let configured = serialize_raw(&config).map_err(BuildError::InvalidConfig)?;
+    let runtime = D::build(config).map_err(BuildError::Factory)?;
+    Ok(BuiltSource {
+        registration_id: D::ID,
+        config: configured,
+        runtime: Arc::new(runtime),
+    })
 }
 
 fn validate_action_definition<D: ActionDefinition>(
@@ -382,6 +436,14 @@ fn deserialize_raw<T: DeserializeOwned>(config: RawConfig) -> Result<T, serde_js
     serde_json::from_value(Value::Object(config.into_iter().collect()))
 }
 
+/// Converts typed Source config back to the map shape embedded under `source` in TOML.
+fn serialize_raw<T: Serialize>(config: &T) -> Result<RawConfig, serde_json::Error> {
+    match serde_json::to_value(config)? {
+        Value::Object(config) => Ok(config.into_iter().collect()),
+        value => serde_json::from_value(value),
+    }
+}
+
 fn deserialize_action<T: DeserializeOwned>(inputs: ActionInputs) -> Result<T, serde_json::Error> {
     serde_json::from_value(Value::Object(
         inputs
@@ -397,7 +459,7 @@ mod tests {
 
     use anyhow::bail;
     use schemars::JsonSchema;
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
 
     use super::*;
@@ -405,7 +467,7 @@ mod tests {
     static SOURCE_BUILDS: AtomicUsize = AtomicUsize::new(0);
     static ACTION_BUILDS: AtomicUsize = AtomicUsize::new(0);
 
-    #[derive(Deserialize, JsonSchema)]
+    #[derive(Deserialize, Serialize, JsonSchema)]
     #[serde(deny_unknown_fields)]
     struct TestSourceConfig {
         bucket: String,

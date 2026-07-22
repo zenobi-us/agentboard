@@ -15,10 +15,10 @@ setup() {
 
 teardown() { teardown_agentboard_test; }
 
+# Emits only registered worktree inputs so strict typed validation stays meaningful.
 write_worktree_workspace() {
   local root="$1"
   local branch="$2"
-  local nonce="${3:-}"
   cat > "$TMP/workspace.toml" <<EOF
 [[sources]]
 id = "md"
@@ -33,7 +33,6 @@ uses = "agentboard/create-worktree"
 repo = "$TMP/repo"
 root = "$root"
 branch = "$branch"
-nonce = "$nonce"
 EOF
 }
 
@@ -59,18 +58,19 @@ EOF
   [ "$(git -C "$TMP/worktrees/existing" branch --show-current)" = "existing" ]
 }
 
-@test "create-worktree reuses the intended existing worktree when rendered inputs change" {
+# Deleting the attempt log forces a retry without inventing an unregistered nonce input.
+@test "create-worktree reuses the intended existing worktree on a retried action" {
   write_item AB-1 "Item AB-1" ready
-  write_worktree_workspace "$TMP/worktrees/ab-1" "ab-1" '{{ item.status }}'
+  write_worktree_workspace "$TMP/worktrees/ab-1" "ab-1"
 
   run "$AB" run "$TMP/workspace.toml"
   [ "$status" -eq 0 ]
-  write_item AB-1 "Item AB-1" doing
+  rm "$(actions_store_file)"
   run "$AB" -v --color never run "$TMP/workspace.toml"
 
   [ "$status" -eq 0 ]
   [[ "$output" == *"reused $TMP/worktrees/ab-1"* ]]
-  [ "$(wc -l < "$(actions_store_file)")" -eq 2 ]
+  [ "$(wc -l < "$(actions_store_file)")" -eq 1 ]
 }
 
 @test "create-worktree rejects an existing path for the wrong branch" {

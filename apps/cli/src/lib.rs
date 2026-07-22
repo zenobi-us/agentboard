@@ -8,5 +8,6 @@ pub mod cli;
 pub mod config;
 pub mod output;
 pub mod runtime;
+pub mod schema;
 pub mod store;
 pub mod template;

@@ -1,7 +1,13 @@
+//! Workspace discovery, Registry-driven loading, and stable Store identities.
+//!
+//! Filesystem selection stays separate from text parsing so config behavior can
+//! be tested without user directories and reused by every command consistently.
+
 use std::{collections::HashSet, env, fs, path::PathBuf};
 
-use agentboard_core::model::{
-    ActionConfig, GithubSourceMode, SourceConfig, SourceKind, Workspace, WorkspaceConfig,
+use agentboard_core::{
+    model::{ActionConfig, GithubSourceMode, SourceConfig, SourceKind, Workspace, WorkspaceConfig},
+    registry::{BuiltSource, Registry, SourceEnvelope, WorkspaceEnvelope},
 };
 use anyhow::{bail, Context, Result};
 use directories::BaseDirs;
@@ -62,29 +68,85 @@ pub fn init_workspace(name: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Load a workspace by name or explicit TOML path, then validate it.
+/// Carries Registry-loaded Sources before filesystem identity is attached.
+///
+/// Keeping this seam text-only makes loader behavior testable without XDG paths,
+/// and lets schema and loading share the same caller-supplied Registry.
+pub struct ParsedWorkspace {
+    pub configured: WorkspaceEnvelope,
+    pub sources: Vec<BuiltSource>,
+}
+
+/// Parses the stable Workspace envelope, then delegates typed config to registrations.
+///
+/// Source runtimes are built exactly once here. Actions are only validated because
+/// their final typed inputs do not exist until templates render for an Item.
+pub fn parse_workspace(text: &str, registry: &Registry) -> Result<ParsedWorkspace> {
+    let envelope: WorkspaceEnvelope = toml::from_str(text).context("parse workspace TOML")?;
+    let mut ids = HashSet::new();
+    let mut configured_sources = Vec::with_capacity(envelope.sources.len());
+    let mut built_sources = Vec::with_capacity(envelope.sources.len());
+
+    for source in envelope.sources {
+        if source.id.trim().is_empty() {
+            bail!("source id cannot be empty");
+        }
+        if !ids.insert(source.id.clone()) {
+            bail!("duplicate source id {}", source.id);
+        }
+
+        let kind = source.source.kind.clone();
+        let built = registry
+            .build_configured_source(&kind, source.source.config)
+            .with_context(|| format!("source {} registration {kind}", source.id))?;
+
+        for (index, action) in source.actions.iter().enumerate() {
+            registry
+                .validate_action(&action.uses, &action.inputs)
+                .with_context(|| {
+                    format!(
+                        "source {} action {index} registration {}",
+                        source.id, action.uses
+                    )
+                })?;
+        }
+
+        // Rebuild the serializable envelope from typed config so defaults and field
+        // names exactly match the values that produced the runtime.
+        configured_sources.push(agentboard_core::registry::ConfiguredSourceEnvelope {
+            id: source.id,
+            source: SourceEnvelope {
+                kind,
+                config: built.config().clone(),
+            },
+            actions: source.actions,
+        });
+        built_sources.push(built);
+    }
+
+    Ok(ParsedWorkspace {
+        configured: WorkspaceEnvelope {
+            sources: configured_sources,
+        },
+        sources: built_sources,
+    })
+}
+
+/// Load a workspace by name or explicit TOML path through the process Registry.
 ///
 /// When no input is supplied, load `.agentboard.toml` from the current
 /// directory. Named workspaces resolve under the user config directory.
 /// Explicit paths get a stable workspace id from the file stem plus canonical
 /// path hash.
-pub fn load_workspace(input: Option<&str>) -> Result<Workspace> {
-    load_workspace_inner(input, true)
-}
-
-/// Load a Workspace for `doctor`, leaving semantic validation to its checks.
-pub fn load_workspace_for_doctor(input: Option<&str>) -> Result<Workspace> {
-    load_workspace_inner(input, false)
-}
-
-fn load_workspace_inner(input: Option<&str>, validate: bool) -> Result<Workspace> {
+pub fn load_workspace(input: Option<&str>, registry: &Registry) -> Result<Workspace> {
     let (path, named_id) = resolve_workspace_input(input);
     let text =
         fs::read_to_string(&path).with_context(|| format!("read workspace {}", path.display()))?;
-    let config: WorkspaceConfig = toml::from_str(&text)?;
-    if validate {
-        validate_config(&config)?;
-    }
+    let parsed = parse_workspace(&text, registry)?;
+    // Issue #24 removes this compatibility conversion when runtime callers consume
+    // `built_sources` and the registered configured view directly.
+    let config: WorkspaceConfig = serde_json::from_value(serde_json::to_value(&parsed.configured)?)
+        .context("convert registered Workspace to current runtime view")?;
     let id = if let Some(id) = named_id {
         id
     } else {
@@ -95,7 +157,17 @@ fn load_workspace_inner(input: Option<&str>, validate: bool) -> Result<Workspace
             .unwrap_or("workspace");
         format!("{stem}-{}", short_hash(&canon.display().to_string()))
     };
-    Ok(Workspace { id, path, config })
+    Ok(Workspace {
+        id,
+        path,
+        config,
+        built_sources: parsed.sources,
+    })
+}
+
+/// Uses the same strict Registry loader for `doctor` so invalid config never reaches checks.
+pub fn load_workspace_for_doctor(input: Option<&str>, registry: &Registry) -> Result<Workspace> {
+    load_workspace(input, registry)
 }
 
 fn resolve_workspace_input(input: Option<&str>) -> (PathBuf, Option<String>) {
@@ -345,7 +417,137 @@ mod tests {
     use agentboard_core::model::{
         GithubCredentialConfig, GithubSourceMode, SourceConfig, SourceKind,
     };
+    use agentboard_core::registry::{
+        RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition, SourceFuture,
+    };
+    use schemars::JsonSchema;
+    use serde::{Deserialize, Serialize};
     use std::collections::BTreeMap;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // Detects accidental double construction at the public Registry/config seam.
+    static SOURCE_BUILDS: AtomicUsize = AtomicUsize::new(0);
+
+    #[derive(Deserialize, Serialize, JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    struct CountingSourceConfig {
+        value: String,
+    }
+
+    struct CountingSource;
+
+    /// Counts construction so the loader cannot accidentally validate and build separately.
+    struct CountingSourceDefinition;
+
+    impl SourceDefinition for CountingSourceDefinition {
+        const ID: &'static str = "counting";
+        type Config = CountingSourceConfig;
+        type Runtime = CountingSource;
+
+        fn build(_config: Self::Config) -> RuntimeResult<Self::Runtime> {
+            SOURCE_BUILDS.fetch_add(1, Ordering::SeqCst);
+            Ok(CountingSource)
+        }
+    }
+
+    impl Source for CountingSource {
+        fn collect<'a>(&'a self, _context: &'a SourceContext<'a>) -> SourceFuture<'a> {
+            Box::pin(async {
+                Ok(SourceCollection {
+                    items: vec![],
+                    available: Some(0),
+                    limit: 0,
+                })
+            })
+        }
+
+        fn item_bucket_identity(&self) -> String {
+            "counting".into()
+        }
+    }
+
+    /// Protects the registry/config seam: current TOML shape builds one runtime and keeps its view.
+    #[test]
+    fn registry_parses_workspace_and_builds_each_source_once() {
+        SOURCE_BUILDS.store(0, Ordering::SeqCst);
+        let mut registry = agentboard_core::registry::Registry::new();
+        registry.add_source::<CountingSourceDefinition>().unwrap();
+
+        let loaded = parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+
+                [sources.source]
+                kind = "counting"
+                value = "configured"
+            "#,
+            &registry,
+        )
+        .unwrap();
+
+        assert_eq!(SOURCE_BUILDS.load(Ordering::SeqCst), 1);
+        assert_eq!(loaded.sources.len(), 1);
+        assert_eq!(loaded.sources[0].registration_id(), "counting");
+        assert_eq!(loaded.sources[0].config()["value"], "configured");
+        assert_eq!(loaded.configured.sources[0].id, "local");
+        assert_eq!(loaded.configured.sources[0].source.kind, "counting");
+    }
+
+    /// Keeps loader failures actionable across the generic Registry boundary.
+    #[test]
+    fn registry_load_errors_include_location_registration_and_underlying_error() {
+        let registry = crate::cli::register_builtins().unwrap();
+        let unknown_source = parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+                [sources.source]
+                kind = "missing"
+            "#,
+            &registry,
+        )
+        .err()
+        .expect("unknown Source should fail");
+        let invalid_source = parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+                [sources.source]
+                kind = "qmd"
+                collections = ["tasks"]
+                query = "ready"
+                extra = true
+            "#,
+            &registry,
+        )
+        .err()
+        .expect("invalid Source config should fail");
+        let invalid_action = parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+                [sources.source]
+                kind = "qmd"
+                collections = ["tasks"]
+                query = "ready"
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+            "#,
+            &registry,
+        )
+        .err()
+        .expect("invalid Action config should fail");
+
+        assert!(format!("{unknown_source:#}")
+            .contains("source local registration missing: unknown source registration missing"));
+        assert!(format!("{invalid_source:#}").contains(
+            "source local registration qmd: invalid config for source qmd: unknown field `extra`"
+        ));
+        assert!(format!("{invalid_action:#}").contains(
+            "source local action 0 registration agentboard/run-cmd: invalid config for action agentboard/run-cmd: missing field `cmd`"
+        ));
+    }
 
     #[test]
     fn omitted_workspace_uses_cwd_agentboard_file() {
@@ -433,6 +635,7 @@ mod tests {
             config: WorkspaceConfig {
                 sources: vec![source.clone()],
             },
+            built_sources: vec![],
         };
 
         let items = items_path(&ws, &source)

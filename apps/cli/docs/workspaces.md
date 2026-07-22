@@ -61,7 +61,7 @@ uses = "agentboard/run-cmd"
 cmd = "echo {{ item.id }}"
 ```
 
-Unknown fields are validation errors, except arbitrary keys under `[sources.actions.with]`.
+Unknown fields are validation errors. Keys under `[sources.actions.with]` must match the selected Action registration.
 
 ## Where specific config lives
 
@@ -79,9 +79,9 @@ Action-specific inputs are documented by action crates:
 
 - Source ids must be non-empty and unique.
 - Unknown Actions fail validation.
-- Unknown Workspace fields fail validation, except arbitrary keys under `[sources.actions.with]`.
+- Unknown Workspace, Source, and typed Action input fields fail validation.
 
-Generate the JSON Schema from the same typed model:
+Generate the JSON Schema from the same registered Source and Action schemas used by loading:
 
 ```bash
 agentboard schema > agentboard.schema.json

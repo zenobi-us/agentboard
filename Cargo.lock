@@ -20,6 +20,7 @@ dependencies = [
  "hex",
  "minijinja",
  "schemars",
+ "serde",
  "serde_json",
  "sha2",
  "shlex",

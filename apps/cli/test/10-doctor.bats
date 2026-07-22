@@ -46,7 +46,8 @@ EOF
   [[ "$output" == *"2 check(s)"* ]]
 }
 
-@test "doctor reports invalid config and Store paths without aborting early" {
+# Registry loading now owns config rejection, so doctor must never start its checks.
+@test "doctor rejects invalid Workspace config before diagnostics or side effects" {
   write_item AB-1
   cat > "$TMP/workspace.toml" <<'EOF'
 [[sources]]
@@ -69,9 +70,9 @@ EOF
   run "$AB" --color never doctor "$TMP/workspace.toml"
 
   [ "$status" -ne 0 ]
-  [[ "$output" == *"fail config: duplicate source id md"* ]]
-  [[ "$output" == *"fail store:"* ]]
-  [[ "$output" == *"source md reachable"* ]]
+  [[ "$output" == *"duplicate source id md"* ]]
+  [[ "$output" != *"doctor.start"* ]]
+  [[ "$output" != *"source md reachable"* ]]
 }
 
 @test "doctor reports missing qmd sh and git commands" {

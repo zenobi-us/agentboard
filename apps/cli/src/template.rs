@@ -1,3 +1,8 @@
+//! Renders per-Item Action templates against the complete configured Workspace view.
+//!
+//! Keeping rendering on serializable config prevents runtime trait objects from
+//! leaking into templates and preserves user-facing field names through cutovers.
+
 use std::collections::BTreeMap;
 
 use agentboard_core::{
@@ -87,6 +92,7 @@ mod tests {
             config: WorkspaceConfig {
                 sources: vec![source.clone()],
             },
+            built_sources: vec![],
         };
         let item = Item {
             id: "/notes/AB-1.md".into(),

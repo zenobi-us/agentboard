@@ -1,4 +1,14 @@
-use agentboard_core::model::WorkspaceConfig;
+//! CLI composition root and command dispatch.
+//!
+//! Built-ins are registered here once so command handlers cannot drift into
+//! separate registration sets for loading, diagnostics, and schema generation.
+
+use agentboard_action_run_cmd::RunCmdDefinition;
+use agentboard_action_worktree::CreateWorktreeDefinition;
+use agentboard_core::registry::Registry;
+use agentboard_source_github::GithubSourceDefinition;
+use agentboard_source_jira::JiraSourceDefinition;
+use agentboard_source_qmd::QmdSourceDefinition;
 use std::{env, path::PathBuf, process::Command as ProcessCommand};
 
 use anyhow::{bail, Context, Result};
@@ -11,6 +21,7 @@ use crate::{
     },
     output::{ColorChoice, Output, Verbosity},
     runtime::{parse_duration, run_once, watch},
+    schema::workspace_schema,
     store::{doctor, list_items, show_item},
 };
 
@@ -134,8 +145,23 @@ fn split_show_args(mut args: Vec<String>) -> (Option<String>, String) {
     }
 }
 
+/// Explicitly composes every statically linked built-in used by this CLI process.
+///
+/// Keeping registration here makes duplicate IDs fail before command dispatch and
+/// guarantees Workspace loading and schema generation see the same frozen set.
+pub fn register_builtins() -> Result<Registry> {
+    let mut registry = Registry::new();
+    registry.add_source::<QmdSourceDefinition>()?;
+    registry.add_source::<JiraSourceDefinition>()?;
+    registry.add_source::<GithubSourceDefinition>()?;
+    registry.add_action::<RunCmdDefinition>()?;
+    registry.add_action::<CreateWorktreeDefinition>()?;
+    Ok(registry)
+}
+
 /// Parse CLI arguments and dispatch the requested user command.
 pub async fn run() -> Result<()> {
+    let registry = register_builtins()?;
     let cli = Cli::parse();
     let verbosity = if cli.quiet {
         Verbosity::Quiet
@@ -144,7 +170,9 @@ pub async fn run() -> Result<()> {
     } else {
         Verbosity::Normal
     };
-    let output = Output::new(verbosity, cli.color, cli.log_file.as_deref())?;
+    // Delay output construction until after Workspace loading. Opening a diagnostic
+    // log is a side effect, so invalid config must fail before this closure is called.
+    let create_output = || Output::new(verbosity, cli.color, cli.log_file.as_deref());
     match cli.command {
         Command::Workspace { command } => match command {
             WorkspaceCommand::List => print_workspaces(),
@@ -156,36 +184,42 @@ pub async fn run() -> Result<()> {
         },
         Command::Workspaces => print_workspaces(),
         Command::Run { workspace, dry_run } => {
-            run_once(&load_workspace(workspace.as_deref())?, dry_run, &output).await
+            let workspace = load_workspace(workspace.as_deref(), &registry)?;
+            let output = create_output()?;
+            run_once(&workspace, dry_run, &output).await
         }
         Command::Watch {
             workspace,
             interval,
         } => {
-            watch(
-                load_workspace(workspace.as_deref())?,
-                parse_duration(&interval)?,
-                &output,
-            )
-            .await
+            let workspace = load_workspace(workspace.as_deref(), &registry)?;
+            let interval = parse_duration(&interval)?;
+            let output = create_output()?;
+            watch(workspace, interval, &output).await
         }
         Command::List { workspace, json } => {
-            list_items(&load_workspace(workspace.as_deref())?, json)
+            list_items(&load_workspace(workspace.as_deref(), &registry)?, json)
         }
         Command::Show {
             workspace_and_item,
             json,
         } => {
             let (workspace, item_id) = split_show_args(workspace_and_item);
-            show_item(&load_workspace(workspace.as_deref())?, &item_id, json)
+            show_item(
+                &load_workspace(workspace.as_deref(), &registry)?,
+                &item_id,
+                json,
+            )
         }
         Command::Doctor { workspace } => {
-            doctor(&load_workspace_for_doctor(workspace.as_deref())?, &output).await
+            let workspace = load_workspace_for_doctor(workspace.as_deref(), &registry)?;
+            let output = create_output()?;
+            doctor(&workspace, &registry, &output).await
         }
         Command::Schema => {
             println!(
                 "{}",
-                serde_json::to_string_pretty(&schemars::schema_for!(WorkspaceConfig))?
+                serde_json::to_string_pretty(&workspace_schema(&registry)?)?
             );
             Ok(())
         }
