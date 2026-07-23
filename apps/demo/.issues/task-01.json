@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-01: Connect the status card to its heading","body":"Target: `pages/task-01.html`\n\n## Acceptance criteria\n\n- Add `aria-labelledby=\"status-heading\"` to the status card section.\n- Keep the existing heading id and visible copy.\n- Run `./test.sh task-01`."}
+{"title":"AB-DEMO-01: Connect the status card to its heading","body":"Target: `pages/task-01.html`\n\n## Acceptance criteria\n\n- Add `aria-labelledby=\"status-heading\"` to the status card section.\n- Keep the existing heading id and visible copy."}

@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-09: Add machine-readable task progress","body":"Target: `pages/task-09.html`\n\n## Acceptance criteria\n\n- Add `<progress value=\"2\" max=\"12\">` to the progress block.\n- Keep the visible `2 of 12` text.\n- Run `./test.sh task-09`."}
+{"title":"AB-DEMO-09: Add machine-readable task progress","body":"Target: `pages/task-09.html`\n\n## Acceptance criteria\n\n- Add `<progress value=\"2\" max=\"12\">` to the progress block.\n- Keep the visible `2 of 12` text."}

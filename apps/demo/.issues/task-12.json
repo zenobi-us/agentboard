@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-12: Describe the demo dashboard","body":"Target: `pages/task-12.html`\n\n## Acceptance criteria\n\n- Add a description meta tag with `content=\"AgentBoard demo dashboard\"`.\n- Keep the title and document language.\n- Run `./test.sh task-12`."}
+{"title":"AB-DEMO-12: Describe the demo dashboard","body":"Target: `pages/task-12.html`\n\n## Acceptance criteria\n\n- Add a description meta tag with `content=\"AgentBoard demo dashboard\"`.\n- Keep the title and document language."}

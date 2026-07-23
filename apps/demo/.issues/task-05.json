@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-05: Announce review completion","body":"Target: `pages/task-05.html`\n\n## Acceptance criteria\n\n- Add `aria-live=\"polite\"` to the review banner.\n- Preserve the visible review message.\n- Run `./test.sh task-05`."}
+{"title":"AB-DEMO-05: Announce review completion","body":"Target: `pages/task-05.html`\n\n## Acceptance criteria\n\n- Add `aria-live=\"polite\"` to the review banner.\n- Preserve the visible review message."}

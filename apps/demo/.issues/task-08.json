@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-08: Name the active-agent list","body":"Target: `pages/task-08.html`\n\n## Acceptance criteria\n\n- Add `aria-label=\"Active agents\"` to the list.\n- Preserve both agent entries.\n- Run `./test.sh task-08`."}
+{"title":"AB-DEMO-08: Name the active-agent list","body":"Target: `pages/task-08.html`\n\n## Acceptance criteria\n\n- Add `aria-label=\"Active agents\"` to the list.\n- Preserve both agent entries."}

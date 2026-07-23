@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-10: Style the dashboard skip link","body":"Target: `pages/task-10.html`\n\n## Acceptance criteria\n\n- Add `class=\"skip-link\"` to the link targeting `#main`.\n- Preserve the main id and heading.\n- Run `./test.sh task-10`."}
+{"title":"AB-DEMO-10: Style the dashboard skip link","body":"Target: `pages/task-10.html`\n\n## Acceptance criteria\n\n- Add `class=\"skip-link\"` to the link targeting `#main`.\n- Preserve the main id and heading."}
