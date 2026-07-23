@@ -252,7 +252,30 @@ async fn run_source(
     };
     for item in items {
         for (idx, action) in source.configured.actions.iter().enumerate() {
-            let rendered = render_action(ws, source, &item, idx, action)?;
+            let rendered = match render_action(ws, source, &item, idx, action) {
+                Ok(rendered) => rendered,
+                Err(error) => {
+                    summary.attempted += 1;
+                    summary.failed += 1;
+                    let message = format!("render action inputs: {error:#}");
+                    if !dry_run {
+                        append_action(
+                            ws,
+                            source,
+                            &failed_action_attempt(source_id, &item, idx, action, message.clone()),
+                        )?;
+                    }
+                    output.error(
+                        "action.failed",
+                        &format!(
+                            "{source_id} {} action#{idx} {} failed: {message}",
+                            item.id, action.uses
+                        ),
+                        json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx, "uses": action.uses, "error": message}),
+                    )?;
+                    break;
+                }
+            };
             let key = action_key(source_id, &item.id, idx, &rendered.hash);
             if successes.contains(&key) {
                 summary.skipped += 1;
@@ -334,6 +357,27 @@ async fn run_source(
     Ok(summary)
 }
 
+fn failed_action_attempt(
+    source_id: &str,
+    item: &Item,
+    idx: usize,
+    action: &ActionConfig,
+    message: String,
+) -> ActionAttempt {
+    ActionAttempt {
+        ts: Utc::now().to_rfc3339(),
+        source_id: source_id.to_string(),
+        item_id: item.id.clone(),
+        source_action_index: idx,
+        uses: action.uses.clone(),
+        rendered_action_hash: String::new(),
+        success: false,
+        stdout: String::new(),
+        stderr: String::new(),
+        message: Some(message),
+    }
+}
+
 fn execute_action_attempt(
     registry: &Registry,
     workspace_id: &str,
@@ -386,50 +430,109 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::output::{ColorChoice, Verbosity};
+    use crate::{
+        config::{actions_path, parse_workspace, store_root},
+        output::{ColorChoice, Verbosity},
+    };
     use agentboard_core::{
-        registry::{Action, ActionDefinition, RuntimeResult},
+        registry::{
+            Action, ActionDefinition, RuntimeResult, Source, SourceCollection, SourceDefinition,
+            SourceFuture,
+        },
         ActionRun,
     };
     use schemars::JsonSchema;
-    use serde::Deserialize;
+    use serde::{Deserialize, Serialize};
     use serde_json::json;
-    use std::{collections::BTreeMap, fs, future};
+    use std::{
+        collections::BTreeMap,
+        fs, future,
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    #[derive(Deserialize, Serialize, JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    struct ItemSourceConfig {}
+
+    struct ItemSourceDefinition;
+
+    struct ItemSource;
+
+    impl SourceDefinition for ItemSourceDefinition {
+        const ID: &'static str = "test/items";
+        type Config = ItemSourceConfig;
+        type Runtime = ItemSource;
+
+        fn build(_config: Self::Config) -> RuntimeResult<Self::Runtime> {
+            Ok(ItemSource)
+        }
+    }
+
+    impl Source for ItemSource {
+        fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
+            Box::pin(async move {
+                Ok(SourceCollection {
+                    items: vec![
+                        test_item(context.source_id, "bad", json!({"value": {}})),
+                        test_item(context.source_id, "good", json!({"value": 1})),
+                    ],
+                    available: None,
+                    limit: 2,
+                })
+            })
+        }
+
+        fn item_bucket_identity(&self) -> String {
+            "items".into()
+        }
+    }
 
     #[derive(Deserialize, JsonSchema)]
     #[serde(deny_unknown_fields)]
-    struct FailingActionConfig {
+    struct TestActionConfig {
         message: String,
+        #[serde(default)]
+        outcome: String,
     }
 
-    struct FailingActionDefinition;
+    struct TestActionDefinition;
 
-    struct FailingAction {
+    struct TestAction {
         message: String,
+        outcome: String,
     }
 
-    impl ActionDefinition for FailingActionDefinition {
-        const ID: &'static str = "test/failing";
-        type Config = FailingActionConfig;
-        type Runtime = FailingAction;
+    impl ActionDefinition for TestActionDefinition {
+        const ID: &'static str = "test/action";
+        type Config = TestActionConfig;
+        type Runtime = TestAction;
 
         fn build(config: Self::Config) -> RuntimeResult<Self::Runtime> {
-            Ok(FailingAction {
+            Ok(TestAction {
                 message: config.message,
+                outcome: config.outcome,
             })
         }
     }
 
-    impl Action for FailingAction {
+    impl Action for TestAction {
         fn execute(&self, _context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
-            anyhow::bail!(self.message.clone())
+            if self.outcome == "fail" {
+                anyhow::bail!(self.message.clone());
+            }
+            Ok(ActionRun {
+                success: true,
+                stdout: self.message.clone(),
+                stderr: String::new(),
+                message: None,
+            })
         }
     }
 
     #[test]
     fn registered_action_errors_become_failed_item_attempts() {
         let mut registry = Registry::new();
-        registry.add_action::<FailingActionDefinition>().unwrap();
+        registry.add_action::<TestActionDefinition>().unwrap();
         let item = Item {
             id: "AB-1".into(),
             reference_id: "AB-1".into(),
@@ -441,8 +544,11 @@ mod tests {
             raw: json!({}),
         };
         let action = ActionConfig {
-            uses: FailingActionDefinition::ID.into(),
-            inputs: BTreeMap::from([("message".into(), "expected failure".into())]),
+            uses: TestActionDefinition::ID.into(),
+            inputs: BTreeMap::from([
+                ("message".into(), "expected failure".into()),
+                ("outcome".into(), "fail".into()),
+            ]),
         };
         let rendered = RenderedAction {
             inputs: action.inputs.clone(),
@@ -462,6 +568,105 @@ mod tests {
         assert!(!attempt.success);
         assert_eq!(attempt.rendered_action_hash, "rendered-hash");
         assert_eq!(attempt.message.as_deref(), Some("expected failure"));
+    }
+
+    #[tokio::test]
+    async fn render_errors_are_item_scoped_persisted_and_dry_run_safe() {
+        let mut registry = Registry::new();
+        registry.add_source::<ItemSourceDefinition>().unwrap();
+        registry.add_action::<TestActionDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/items"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "{{ item.raw.value + 1 }}"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "later"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: format!(
+                "runtime-render-error-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            None,
+        )
+        .unwrap();
+
+        let dry_summary = run_source(&ws, &ws.sources[0], &registry, true, "dry-run", &output)
+            .await
+            .unwrap();
+        assert_eq!(dry_summary.attempted, 3);
+        assert_eq!(dry_summary.succeeded, 2);
+        assert_eq!(dry_summary.failed, 1);
+        assert!(!store_root(&ws).exists());
+
+        let summary = run_source(&ws, &ws.sources[0], &registry, false, "run", &output)
+            .await
+            .unwrap();
+        assert_eq!(summary.attempted, 3);
+        assert_eq!(summary.succeeded, 2);
+        assert_eq!(summary.failed, 1);
+
+        let attempts = fs::read_to_string(actions_path(&ws, &ws.sources[0]))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ActionAttempt>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(attempts.len(), 3);
+        assert_eq!(attempts[0].item_id, "bad");
+        assert_eq!(attempts[0].source_action_index, 0);
+        assert!(attempts[0].rendered_action_hash.is_empty());
+        assert!(!attempts[0].success);
+        assert!(attempts[0]
+            .message
+            .as_deref()
+            .unwrap()
+            .contains("render action inputs"));
+        assert_eq!(attempts[1].item_id, "good");
+        assert_eq!(attempts[1].source_action_index, 0);
+        assert!(attempts[1].success);
+        assert_eq!(attempts[2].item_id, "good");
+        assert_eq!(attempts[2].source_action_index, 1);
+        assert!(attempts[2].success);
+
+        fs::remove_dir_all(store_root(&ws)).unwrap();
+    }
+
+    fn test_item(source_id: &str, id: &str, raw: serde_json::Value) -> Item {
+        Item {
+            id: id.into(),
+            reference_id: id.into(),
+            title: id.into(),
+            status: "ready".into(),
+            url: format!("https://example.test/{id}"),
+            source_id: source_id.into(),
+            source_kind: ItemSourceDefinition::ID.into(),
+            raw,
+        }
     }
 
     #[tokio::test(start_paused = true)]

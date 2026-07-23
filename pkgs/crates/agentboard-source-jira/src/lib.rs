@@ -49,6 +49,7 @@ pub struct JiraSourceDefinition;
 
 pub struct JiraSource {
     config: JiraSourceConfig,
+    request_site: String,
 }
 
 impl SourceDefinition for JiraSourceDefinition {
@@ -82,14 +83,17 @@ impl SourceDefinition for JiraSourceDefinition {
         if config.limit == 0 {
             bail!("limit must be greater than zero");
         }
-        config.site = site.as_str().trim_end_matches('/').to_string();
-        Ok(JiraSource { config })
+        config.site = config.site.trim_end_matches('/').to_string();
+        Ok(JiraSource {
+            config,
+            request_site: site.as_str().trim_end_matches('/').to_string(),
+        })
     }
 }
 
 impl JiraSource {
     async fn collect_jira(&self, source_id: &str) -> Result<SourceCollection> {
-        let site = self.config.site.as_str();
+        let site = self.request_site.as_str();
         let query = JiraQuery {
             email_env: &self.config.email_env,
             token_env: &self.config.token_env,
@@ -148,7 +152,7 @@ impl Source for JiraSource {
     }
 
     fn item_bucket_identity(&self) -> String {
-        normalize_site(&self.config.site)
+        normalize_site(&self.request_site)
     }
 }
 
@@ -521,9 +525,8 @@ mod tests {
     }
 
     #[test]
-    fn reports_jira_collection_metadata_and_normalized_site_bucket() {
-        let source =
-            JiraSourceDefinition::build(config(" HTTPS://Example.Atlassian.NET/ ")).unwrap();
+    fn reports_jira_metadata_with_normalized_bucket_and_original_url_spelling() {
+        let source = JiraSourceDefinition::build(config("HTTPS://Example.Atlassian.NET/")).unwrap();
         let same_site =
             JiraSourceDefinition::build(config("https://example.atlassian.net")).unwrap();
         let collection = source
@@ -549,7 +552,7 @@ mod tests {
         assert_eq!(collection.limit, 50);
         assert_eq!(
             collection.items[0].url,
-            "https://example.atlassian.net/browse/AB-1"
+            "HTTPS://Example.Atlassian.NET/browse/AB-1"
         );
         assert_eq!(collection.items[0].raw["jira"]["id"], "10001");
 
