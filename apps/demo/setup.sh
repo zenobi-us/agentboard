@@ -49,7 +49,7 @@ case "${1:-}" in
     ;;
 esac
 
-for command in curl git gh bun npm npx agentboard pi tar; do
+for command in curl git gh bun agentboard pi tar; do
   require_command "$command"
 done
 
@@ -99,58 +99,9 @@ cp -R "$source_root/apps/demo/." "$target/"
 sed "s|__GITHUB_REPOSITORY__|$REPO|g" "$target/.agentboard.toml" >"$tmp/agentboard.toml"
 mv "$tmp/agentboard.toml" "$target/.agentboard.toml"
 
-cat >"$target/package.json" <<'EOF'
-{
-  "name": "agentboard-demo",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "lint": "eslint .",
-    "prepare": "husky"
-  },
-  "lint-staged": {
-    "*.html": "eslint",
-    "*.css": "eslint"
-  }
-}
-EOF
-
-cat >"$target/eslint.config.js" <<'EOF'
-import { defineConfig } from "eslint/config";
-import css from "@eslint/css";
-import html from "@html-eslint/eslint-plugin";
-
-export default defineConfig([
-  {
-    files: ["**/*.html"],
-    plugins: { html },
-    language: "html/html",
-    rules: {
-      "html/no-duplicate-class": "error",
-      "html/require-img-alt": "error",
-    },
-  },
-  {
-    files: ["**/*.css"],
-    plugins: { css },
-    language: "css/css",
-    rules: {
-      "css/no-duplicate-imports": "error",
-      "css/no-empty-blocks": "error",
-      "css/no-invalid-at-rules": "error",
-      "css/no-invalid-properties": "error",
-    },
-  },
-]);
-EOF
-
 (
   cd "$target"
-  npm install --save-dev eslint @eslint/css @html-eslint/parser @html-eslint/eslint-plugin husky lint-staged
-  mkdir -p .husky
-  printf '%s\n' 'npx lint-staged' >.husky/pre-commit
-  chmod +x .husky/pre-commit
-  npx eslint '**/*.html' '**/*.css'
+  bun install
 )
 
 git -C "$target" add .
