@@ -160,17 +160,7 @@ fn normalize_document(
 }
 
 fn qmd_query(collections: &[String], query: &str, limit: usize) -> Result<Vec<Value>> {
-    let mut cmd = ProcessCommand::new("qmd");
-    cmd.arg("query")
-        .arg(query)
-        .arg("--format")
-        .arg("json")
-        .arg("--full")
-        .arg("-n")
-        .arg(limit.to_string());
-    for collection in collections {
-        cmd.arg("-c").arg(collection);
-    }
+    let mut cmd = qmd_query_command(collections, query, limit);
     let out = cmd.output().map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {
             anyhow!("qmd command not found; install QMD or remove qmd sources from this workspace")
@@ -182,6 +172,21 @@ fn qmd_query(collections: &[String], query: &str, limit: usize) -> Result<Vec<Va
         bail!("qmd query failed: {}", String::from_utf8_lossy(&out.stderr));
     }
     parse_qmd_results(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn qmd_query_command(collections: &[String], query: &str, limit: usize) -> ProcessCommand {
+    let mut cmd = ProcessCommand::new("qmd");
+    cmd.arg("query")
+        .arg(query)
+        .arg("--format")
+        .arg("json")
+        .arg("--full")
+        .arg("-n")
+        .arg(limit.to_string());
+    for collection in collections {
+        cmd.arg("-c").arg(collection);
+    }
+    cmd
 }
 
 fn check_qmd_command() -> Result<()> {
@@ -349,14 +354,12 @@ mod tests {
     fn reports_qmd_collection_metadata_and_stable_bucket_identity() {
         let source = QmdSourceDefinition::build(config(&["work", "tasks"])).unwrap();
         let reordered = QmdSourceDefinition::build(config(&["tasks", "work"])).unwrap();
+        let result = json!({
+            "path": "/notes/AB-1.md",
+            "body": "---\nid: AB-1\ntitle: Do it\nstatus: ready\n---\nBody"
+        });
         let collection = source
-            .collection_from_results(
-                "local",
-                vec![json!({
-                    "path": "/notes/AB-1.md",
-                    "body": "---\nid: AB-1\ntitle: Do it\nstatus: ready\n---\nBody"
-                })],
-            )
+            .collection_from_results("local", vec![result.clone()])
             .unwrap();
 
         assert_eq!(source.item_bucket_identity(), "tasks,work");
@@ -367,8 +370,19 @@ mod tests {
         assert_eq!(collection.items.len(), 1);
         assert_eq!(collection.available, None);
         assert_eq!(collection.limit, 50);
-        assert_eq!(collection.items[0].raw["qmd"]["path"], "/notes/AB-1.md");
+        assert_eq!(collection.items[0].raw["qmd"], result);
         assert_eq!(collection.items[0].raw["body"], "Body");
+
+        for result_without_inline_body in [
+            json!({"path": "/notes/missing.md"}),
+            json!({"path": "/notes/not-string.md", "body": 42}),
+        ] {
+            assert!(source
+                .collection_from_results("local", vec![result_without_inline_body])
+                .unwrap_err()
+                .to_string()
+                .contains("missing string body"));
+        }
 
         assert!(source
             .collection_from_results(
@@ -423,6 +437,33 @@ mod tests {
                 .unwrap()
                 .len(),
             1
+        );
+    }
+
+    #[test]
+    fn qmd_query_requests_full_inline_document_bodies() {
+        let collections = vec!["work".to_string(), "tasks".to_string()];
+        let command = qmd_query_command(&collections, "status:ready", 50);
+        let args = command
+            .get_args()
+            .map(|arg| arg.to_string_lossy().into_owned())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            args,
+            [
+                "query",
+                "status:ready",
+                "--format",
+                "json",
+                "--full",
+                "-n",
+                "50",
+                "-c",
+                "work",
+                "-c",
+                "tasks",
+            ]
         );
     }
 
