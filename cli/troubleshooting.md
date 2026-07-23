@@ -4,6 +4,20 @@
 
 # Troubleshooting [#troubleshooting]
 
+## Item Store requires `reference_id` [#item-store-requires-reference_id]
+
+The Item Store was written by an older AgentBoard version and cannot be loaded
+by the current schema.
+
+Fix: remove the affected `items-<source.slug>.jsonl` path named in the error,
+then run the Workspace again. AgentBoard rebuilds Item observations from the
+Source.
+
+For Jira, QMD, and GitHub Sources with `field_map.id`, Item identities changed
+with this schema. Existing successful Action records will not suppress Actions
+for rebuilt Items. Review or temporarily disable configured Actions before
+rebuilding if repeating them could cause duplicate side effects.
+
 ## `workspace lock is held` [#workspace-lock-is-held]
 
 Another `run` or `watch` is active for the same Workspace.
@@ -69,7 +83,7 @@ Accepted password keys: `password`, `token`.
 
 ## Bad TOML or unknown field [#bad-toml-or-unknown-field]
 
-Workspace config denies unknown fields except under `[sources.actions.with]`.
+Workspace config denies unknown fields, including inputs under `[sources.actions.with]` that the selected Action does not declare.
 
 Use the schema:
 

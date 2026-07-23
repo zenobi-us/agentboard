@@ -45,8 +45,11 @@ helper = "agentboard-jira-credentials"
 
 ## Field mapping [#field-mapping]
 
-Defaults map `id` from `key`, `title` from `fields.summary`, `status` from
-`fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
+AgentBoard uses Jira's internal issue `id` as stable `item.id` inside the Jira
+site's Item Store. The Jira issue key is the default `item.reference_id`.
+
+Defaults map `reference_id` from `key`, `title` from `fields.summary`, `status`
+from `fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
 when you need custom Jira fields. Use `status_map` to normalize Jira status names.
 
 AgentBoard automatically requests Jira fields referenced by mapping paths that
@@ -60,6 +63,8 @@ title = "fields.summary"
 status = "fields.status.name"
 url = "fields.customfield_10010"
 ```
+
+`field_map.id` changes `item.reference_id`; it does not change `item.id`.
 
 Use `status_map` when Jira's status names should normalize to AgentBoard statuses.
 

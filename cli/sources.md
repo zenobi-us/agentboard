@@ -24,7 +24,7 @@ kind = "qmd"
 uses = "agentboard/run-cmd"
 
 [sources.actions.with]
-cmd = "echo {{ item.id }}"
+cmd = "echo {{ item.reference_id }}"
 ```
 
 ## Execution Order [#execution-order]
@@ -42,6 +42,7 @@ They are stored in a common shape, so Actions can be written to work with any So
 Every Source produces normalized items:
 
 * `id`
+* `reference_id`
 * `title`
 * `status`
 * `url`
@@ -50,6 +51,13 @@ Every Source produces normalized items:
 * `raw`
 
 `raw` keeps the original Source payload so the normalized model can stay small.
+
+`id` is the adapter-owned, collision-resistant identity used by the Store and
+Action retry checks. `reference_id` is the provider-facing identifier intended
+for templates, such as GitHub `10` or Jira `ABC-123`.
+
+For Sources with field mapping, the existing `field_map.id` or `map.id` setting
+selects `reference_id`. It never changes `id`.
 
 ## Source Docs [#source-docs]
 

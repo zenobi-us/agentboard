@@ -37,6 +37,11 @@ Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl`
 
 Each line is one normalized item observation.
 
+Each Item contains both identities:
+
+* `id` — adapter-owned identity used for Store and Action matching.
+* `reference_id` — provider-facing reference available to templates.
+
 A new Run appends new observations. It does not rewrite older lines.
 
 `list` derives the latest item by item id inside each item universe. JSON output includes `source_slug` for disambiguation. `show` returns one latest matching item, and accepts `source.slug:item-id` when the same item id exists in multiple item universes.
@@ -78,3 +83,15 @@ The Store is plain JSONL. Use normal shell tools:
 tail -n 20 ~/.local/share/agentboard/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl
 jq . ~/.local/share/agentboard/work/items-jira-team-a-atlassian-net-abc123.jsonl
 ```
+
+## Store schema migration [#store-schema-migration]
+
+`reference_id` is required in Item records. Stores created before this field was
+added are intentionally not migrated automatically. Remove the affected
+`items-<source.slug>.jsonl` file and run the Workspace again to rebuild it.
+
+Keeping the Action Store preserves its records, but Jira, QMD, and GitHub
+Sources with `field_map.id` changed Item identities with this schema. Their old
+successful attempts do not suppress Actions for the rebuilt Items. Review or
+temporarily disable configured Actions before the rebuilding Run if repeating
+them could cause duplicate side effects.
