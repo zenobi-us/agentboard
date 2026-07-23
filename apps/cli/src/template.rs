@@ -9,11 +9,27 @@ use agentboard_core::{
     model::{ActionConfig, Item, Workspace, WorkspaceSource},
     RenderedAction,
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use minijinja::{context, Environment};
 use serde_json::json;
 
 use crate::config::{expand_vars, hash_json};
+
+fn environment() -> Environment<'static> {
+    let mut env = Environment::new();
+    env.add_filter("slugify", slugify);
+    env
+}
+
+/// Validate Action template syntax without requiring an Item render context.
+pub fn validate_action_templates(action: &ActionConfig) -> Result<()> {
+    let env = environment();
+    for (key, value) in &action.inputs {
+        env.template_from_str(value)
+            .with_context(|| format!("invalid template input {key}"))?;
+    }
+    Ok(())
+}
 
 /// Render an action's input templates and compute its retry identity hash.
 pub fn render_action(
@@ -23,8 +39,7 @@ pub fn render_action(
     idx: usize,
     action: &ActionConfig,
 ) -> Result<RenderedAction> {
-    let mut env = Environment::new();
-    env.add_filter("slugify", slugify);
+    let env = environment();
     let mut inputs = BTreeMap::new();
     for (key, value) in &action.inputs {
         let rendered = env.render_str(

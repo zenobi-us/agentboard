@@ -14,6 +14,8 @@ use directories::BaseDirs;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
+use crate::template::validate_action_templates;
+
 /// List named workspace config files from the user config directory.
 pub fn list_workspaces() -> Result<Vec<String>> {
     let dir = config_home().join("agentboard");
@@ -75,8 +77,8 @@ pub struct ParsedWorkspace {
 
 /// Parses the stable Workspace envelope, then delegates typed config to registrations.
 ///
-/// Source runtimes are built exactly once here. Actions are only validated because
-/// their final typed inputs do not exist until templates render for an Item.
+/// Source runtimes are built exactly once here. Action config and template syntax are
+/// validated here; final rendered values remain deferred until an Item exists.
 pub fn parse_workspace(text: &str, registry: &Registry) -> Result<ParsedWorkspace> {
     let envelope: WorkspaceEnvelope = toml::from_str(text).context("parse workspace TOML")?;
     let mut ids = HashSet::new();
@@ -96,14 +98,16 @@ pub fn parse_workspace(text: &str, registry: &Registry) -> Result<ParsedWorkspac
             .with_context(|| format!("source {} registration {kind}", source.id))?;
 
         for (index, action) in source.actions.iter().enumerate() {
+            let location = || {
+                format!(
+                    "source {} action {index} registration {}",
+                    source.id, action.uses
+                )
+            };
             registry
                 .validate_action(&action.uses, &action.inputs)
-                .with_context(|| {
-                    format!(
-                        "source {} action {index} registration {}",
-                        source.id, action.uses
-                    )
-                })?;
+                .with_context(location)?;
+            validate_action_templates(action).with_context(location)?;
         }
 
         sources.push(WorkspaceSource {
@@ -425,6 +429,49 @@ mod tests {
         assert!(format!("{invalid_action:#}").contains(
             "source local action 0 registration agentboard/run-cmd: invalid config for action agentboard/run-cmd: missing field `cmd`"
         ));
+    }
+
+    #[test]
+    fn workspace_load_validates_template_syntax_without_item_data() {
+        let registry = crate::cli::register_builtins().unwrap();
+        let malformed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+                [sources.source]
+                kind = "qmd"
+                collections = ["tasks"]
+                query = "ready"
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "{{"
+            "#,
+            &registry,
+        )
+        .err()
+        .expect("malformed template should fail during Workspace loading");
+
+        assert!(format!("{malformed:#}").contains(
+            "source local action 0 registration agentboard/run-cmd: invalid template input cmd"
+        ));
+
+        parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+                [sources.source]
+                kind = "qmd"
+                collections = ["tasks"]
+                query = "ready"
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "echo {{ item.id }}"
+            "#,
+            &registry,
+        )
+        .expect("Item-dependent templates should remain deferred until rendering");
     }
 
     #[test]
