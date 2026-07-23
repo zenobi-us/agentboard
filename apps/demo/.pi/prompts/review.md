@@ -20,5 +20,4 @@ Do not merge the PR.
 Stop after reporting the transition you applied.
 
 Issue: $1
-PR: $2
 UserRequest: $ARGUMENTS

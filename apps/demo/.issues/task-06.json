@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-06: Label the session name field","body":"Target: `tasks/task-06.html`\n\n## Acceptance criteria\n\n- Replace the session-name span with a label using `for=\"session-name\"`.\n- Preserve the input id and name.\n- Run `./test.sh task-06`."}
+{"title":"AB-DEMO-06: Label the session name field","body":"Target: `pages/task-06.html`\n\n## Acceptance criteria\n\n- Replace the session-name span with a label using `for=\"session-name\"`.\n- Preserve the input id and name.\n- Run `./test.sh task-06`."}

@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-04: Announce the empty queue state","body":"Target: `tasks/task-04.html`\n\n## Acceptance criteria\n\n- Add `role=\"status\"` to the empty-state section.\n- Preserve the heading and instructions.\n- Run `./test.sh task-04`."}
+{"title":"AB-DEMO-04: Announce the empty queue state","body":"Target: `pages/task-04.html`\n\n## Acceptance criteria\n\n- Add `role=\"status\"` to the empty-state section.\n- Preserve the heading and instructions.\n- Run `./test.sh task-04`."}

@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-11: Add a no-script activity fallback","body":"Target: `tasks/task-11.html`\n\n## Acceptance criteria\n\n- Add `<noscript>Agent activity requires JavaScript.</noscript>`.\n- Keep the existing activity container.\n- Run `./test.sh task-11`."}
+{"title":"AB-DEMO-11: Add a no-script activity fallback","body":"Target: `pages/task-11.html`\n\n## Acceptance criteria\n\n- Add `<noscript>Agent activity requires JavaScript.</noscript>`.\n- Keep the existing activity container.\n- Run `./test.sh task-11`."}

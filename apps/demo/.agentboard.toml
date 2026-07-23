@@ -26,8 +26,8 @@ branch = "agentboard/issue-{{ item.reference_id }}"
 uses = "agentboard/run-cmd"
 
 [sources.actions.with]
-cmd = "pi -p '/implement {{ item.reference_id }}'"
-cwd = "."
+cmd = '''xdg-terminal-exec --title="AgentBoard implement #{{ item.reference_id }}" -- pi -p "/implement {{ item.reference_id }}" >/dev/null 2>&1 &'''
+cwd = "worktrees/issue-{{ item.reference_id }}"
 
 [[sources]]
 id = "review"
@@ -57,8 +57,8 @@ branch = "agentboard/issue-{{ item.reference_id }}"
 uses = "agentboard/run-cmd"
 
 [sources.actions.with]
-cmd = "pi -p '/review {{ item.reference_id }}'"
-cwd = "."
+cmd = '''xdg-terminal-exec --title="AgentBoard review #{{ item.reference_id }}" -- pi -p "/review {{ item.reference_id }}" >/dev/null 2>&1 &'''
+cwd = "worktrees/issue-{{ item.reference_id }}"
 
 [[sources]]
 id = "cleanup"
