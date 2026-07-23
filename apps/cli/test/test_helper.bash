@@ -49,6 +49,10 @@ case "${1:-}" in
       fi
       previous="$argument"
     done
+    if [ -n "${QMD_FAIL_COLLECTION:-}" ] && [ "$collection" = "$QMD_FAIL_COLLECTION" ]; then
+      echo "qmd collection fixture failure: $collection" >&2
+      exit 9
+    fi
     root="$QMD_ITEMS"
     if [ -n "$collection" ] && [ -d "$QMD_ITEMS/$collection" ]; then
       root="$QMD_ITEMS/$collection"

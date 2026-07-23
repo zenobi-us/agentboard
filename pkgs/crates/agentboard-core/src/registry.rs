@@ -49,6 +49,12 @@ pub struct SourceCollection {
     pub limit: usize,
 }
 
+/// One named Source-owned diagnostic reported generically by the CLI.
+pub struct HealthCheck {
+    pub name: String,
+    pub result: RuntimeResult<()>,
+}
+
 pub struct SourceContext<'a> {
     pub source_id: &'a str,
 }
@@ -67,6 +73,11 @@ pub trait Source: Send + Sync {
     /// Check reachability. Defaults to collection so diagnostics retain collection metadata.
     fn health_check<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
         self.collect(context)
+    }
+
+    /// Return extra Source-owned checks that diagnostics should report by name.
+    fn health_checks(&self) -> Vec<HealthCheck> {
+        vec![]
     }
 
     /// Return stable Store partition identity for this Source's Item universe.
@@ -221,6 +232,7 @@ pub struct SourceRegistration {
 pub struct BuiltSource {
     registration_id: &'static str,
     config: RawConfig,
+    config_json: String,
     runtime: Arc<dyn Source>,
 }
 
@@ -233,6 +245,11 @@ impl BuiltSource {
     /// Exposes the serializable typed view, including deserialized defaults.
     pub fn config(&self) -> &RawConfig {
         &self.config
+    }
+
+    /// Preserves typed config field order for stable configured-Source Store hashes.
+    pub fn config_json(&self) -> &str {
+        &self.config_json
     }
 
     /// Returns the already-constructed runtime for orchestration in the CLI.
@@ -406,6 +423,7 @@ fn build_source_definition<D: SourceDefinition>(
     config: RawConfig,
 ) -> Result<BuiltSource, BuildError> {
     let config = deserialize_raw(config).map_err(BuildError::InvalidConfig)?;
+    let config_json = serde_json::to_string(&config).map_err(BuildError::InvalidConfig)?;
     // Serialize before handing ownership to the factory. This preserves the same
     // defaulted typed values used for construction without cloning arbitrary configs.
     let configured = serialize_raw(&config).map_err(BuildError::InvalidConfig)?;
@@ -413,6 +431,7 @@ fn build_source_definition<D: SourceDefinition>(
     Ok(BuiltSource {
         registration_id: D::ID,
         config: configured,
+        config_json,
         runtime: Arc::new(runtime),
     })
 }

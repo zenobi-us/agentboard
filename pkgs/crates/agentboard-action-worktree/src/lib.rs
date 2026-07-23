@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     path::Path,
     process::{Command as ProcessCommand, Stdio},
 };
@@ -46,23 +45,6 @@ impl Action for CreateWorktreeAction {
     fn execute(&self, _context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
         Ok(execute_worktree(&self.config))
     }
-}
-
-/// Temporary legacy bridge for the CLI cutover in issue #24.
-pub fn create_worktree(inputs: &BTreeMap<String, String>) -> Result<(String, String)> {
-    let run = execute_worktree(&CreateWorktreeConfig {
-        repo: inputs.get("repo").unwrap().clone(),
-        root: inputs.get("root").unwrap().clone(),
-        branch: inputs.get("branch").unwrap().clone(),
-    });
-    if run.success {
-        return Ok((run.stdout, run.stderr));
-    }
-    let message = run.message.unwrap_or_else(|| "git worktree failed".into());
-    if run.stderr.is_empty() || run.stderr == message {
-        bail!(message);
-    }
-    bail!("{message}: {}", run.stderr);
 }
 
 fn execute_worktree(config: &CreateWorktreeConfig) -> ActionRun {
@@ -167,7 +149,7 @@ mod tests {
         registry::{Action, ActionContext, ActionDefinition, Registry},
     };
     use serde_json::json;
-    use std::fs;
+    use std::{collections::BTreeMap, fs};
     use tempfile::tempdir;
 
     fn item() -> Item {

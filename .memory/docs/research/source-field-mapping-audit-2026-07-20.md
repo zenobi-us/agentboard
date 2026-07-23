@@ -1,5 +1,7 @@
 # Research: Source-field mapping across AgentBoard crates
 
+Historical snapshot: architecture statements about closed Source enums and CLI dispatch describe the pre-ADR-0010 implementation. Current code uses typed Source registrations and generic Registry runtime dispatch; mapping conclusions remain useful.
+
 ## Summary
 
 No. The crates under `pkgs/crates/` do **not** inherit a common mapping behavior. `agentboard-core` shares a `FieldMap` data type and normalized `Item` model, but no source trait or shared mapping engine exists; each source adapter implements its own lookup and normalization, while action crates consume already-normalized/rendered data and expose no source-field mapping. All three currently implemented source adapters do support user-selected paths for `reference_id`, `title`, `status`, and `url`, but QMD calls the config table `map`, Jira/GitHub call it `field_map`, and their semantics remain adapter-specific. [`pkgs/crates/agentboard-core/src/model.rs` — `SourceKind`, `FieldMap`, `Item`; `apps/cli/src/adapters.rs` — `collect_items`, `execute_action`]

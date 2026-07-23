@@ -58,6 +58,37 @@ EOF
   [ "$(cat "$TMP/order")" = $'first-AB-1\nfirst-AB-2\nsecond-AB-2' ]
 }
 
+@test "a failed Source does not prevent sibling Sources completing" {
+  write_collection_item good AB-2
+  cat > "$TMP/workspace.toml" <<EOF
+[[sources]]
+id = "fails"
+[sources.source]
+kind = "qmd"
+collections = ["fail"]
+query = "ready"
+
+[[sources]]
+id = "works"
+[sources.source]
+kind = "qmd"
+collections = ["good"]
+query = "ready"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cmd = '''echo "{{ item.reference_id }}" >> "$TMP/completed"'''
+EOF
+  export QMD_FAIL_COLLECTION=fail
+
+  run "$AB" --color never run "$TMP/workspace.toml"
+
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"source fails failed"* ]]
+  [ "$(cat "$TMP/completed")" = "AB-2" ]
+}
+
 @test "changed rendered inputs create new retry identity" {
   write_item AB-1 "First Title"
   write_workspace "echo '{{ item.title }}' >> '$TMP/ran'"

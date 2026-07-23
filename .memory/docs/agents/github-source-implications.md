@@ -1,5 +1,7 @@
 # GitHub Issues vs GitHub Projects source implications
 
+Status: implemented direction. Registry wording below reflects ADR 0010 and the atomic runtime cutover; GitHub API tradeoff research remains current.
+
 ## Recommendation
 
 Build `agentboard-source-github` as **one crate with explicit modes**, and ship `mode = "issue"` first. Do not start with separate `agentboard-source-github-issues` and `agentboard-source-github-projects` crates.
@@ -27,13 +29,13 @@ Add `mode = "project"` only when a workspace needs project custom fields, projec
 
 ## Existing AgentBoard fit
 
-AgentBoard source kinds are currently explicit enum variants in `SourceKind`, and CLI collection dispatch matches on that enum, so any GitHub source needs both core config changes and CLI wiring (`pkgs/crates/agentboard-core/src/model.rs`, `apps/cli/src/adapters.rs`). The current Jira source already demonstrates the network-source pattern: provider query is passed through, requested fields are selected, provider JSON is normalized into `Item`, and the raw provider record is preserved (`pkgs/crates/agentboard-source-jira/src/lib.rs`, `pkgs/crates/agentboard-source-jira/CONTEXT.md`). The store records item observations and action attempts as append-only JSONL, with item buckets keyed by stable upstream item universes and action attempts scoped by source slug plus source hash (`.memory/docs/adr/apps/cli/0002-store-items-and-actions-as-per-source-jsonl.md`, `apps/cli/CONTEXT.md`).
+AgentBoard composes Source definitions through one explicit static Registry. The GitHub crate owns typed config, construction, collection, health, metadata, and Item Bucket identity; CLI orchestration invokes the registered runtime without GitHub-specific branches (`pkgs/crates/agentboard-source-github/src/lib.rs`, `pkgs/crates/agentboard-core/src/registry.rs`, `apps/cli/src/runtime.rs`). The current Jira source demonstrates the same network-source pattern: provider query is passed through, requested fields are selected, provider JSON is normalized into `Item`, and the raw provider record is preserved (`pkgs/crates/agentboard-source-jira/src/lib.rs`, `pkgs/crates/agentboard-source-jira/CONTEXT.md`). The Store records item observations and action attempts as append-only JSONL, with item buckets keyed by stable upstream item universes and action attempts scoped by source slug plus source hash (`.memory/docs/adr/apps/cli/0002-store-items-and-actions-as-per-source-jsonl.md`, `apps/cli/CONTEXT.md`).
 
 ```text
 workspace source config
         |
         v
-SourceKind::Github { mode }
+registered github Source { mode }
         |
         v
 GitHub API boundary -> normalized Item + raw payload -> store -> source-owned actions
@@ -55,7 +57,7 @@ GitHub API boundary -> normalized Item + raw payload -> store -> source-owned ac
 | Webhooks/events | GitHub documents `issues` webhook events and payloads for issue activity (https://docs.github.com/en/webhooks/webhook-events-and-payloads). | GitHub documents Projects-related webhook events such as project v2 item changes on the same webhook payload reference (https://docs.github.com/en/webhooks/webhook-events-and-payloads). | Webhooks are not needed for the current run/watch poll model. If added later, keep them in a separate ingestion path; do not complicate MVP collection. |
 | Local normalization | Issue defaults are obvious: `id` can be `repository#number` or node id, `title` from issue title, `status` from issue state, `url` from `html_url`, `raw.github.issue` from the issue object (https://docs.github.com/en/rest/issues/issues; `pkgs/crates/agentboard-core/src/model.rs`). | Project defaults need content-aware branching: issue/PR content has repository URLs and numbers, draft issue content does not have a repository issue identity, and redacted content may not provide usable display data (https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-api-to-manage-projects; https://docs.github.com/en/graphql/reference/projects). | Preserve raw provider payload either way. Project mode probably needs normalized status from a named Project field, not from issue state. |
 | Implementation complexity | Low: add `Github` mode enum, crate/Cargo wiring, token lookup, REST client, pagination, duplicate id check, normalizer, tests. This follows Jira's existing async adapter shape (`pkgs/crates/agentboard-source-jira/src/lib.rs`, `.memory/docs/adr/pkgs/crates/agentboard-source-jira/0004-use-async-source-adapters.md`). | Medium/high: GraphQL client/query text, owner/project number lookup, item pagination, nested field value pagination, content union handling, redacted handling, custom field mapping, query-cost awareness (https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-api-to-manage-projects; https://docs.github.com/en/graphql/overview/rate-limits-and-query-limits-for-the-graphql-api). | Ship issue mode first. Project mode is a second collector inside the same crate, not a reason to delay all GitHub support. |
-| Package boundary | Separate issue package would be small but would duplicate later GitHub auth/client/rate-limit code. | Separate project package would isolate complexity but force users into separate source/action histories for one GitHub work universe. | Use `pkgs/crates/agentboard-source-github` with explicit `Issue` and later `Project` config variants. Add one `SourceKind::Github` variant in core and one CLI dispatch branch. |
+| Package boundary | Separate issue package would be small but would duplicate later GitHub auth/client/rate-limit code. | Separate project package would isolate complexity but force users into separate source/action histories for one GitHub work universe. | Use `pkgs/crates/agentboard-source-github` with explicit `Issue` and later `Project` config variants behind one `github` Source registration. |
 
 ## Tradeoffs
 
@@ -69,7 +71,7 @@ Cost: the nested config enum must stay strict. If the crate accepts vague mixed 
 
 Pros: smaller issue crate and hard isolation from Project GraphQL complexity.
 
-Cost: duplicates GitHub credential/client behavior, creates two source kinds in core, adds two CLI dispatch paths, and makes action histories split by package/source even when users think of it as one GitHub source (`apps/cli/src/adapters.rs`, `.memory/docs/adr/pkgs/crates/agentboard-core/0005-actions-are-owned-by-sources.md`).
+Cost: duplicates GitHub credential/client behavior, adds two registrations, and makes action histories split by package/source even when users think of it as one GitHub source (`apps/cli/src/cli.rs`, `.memory/docs/adr/pkgs/crates/agentboard-core/0005-actions-are-owned-by-sources.md`).
 
 ### Project-first
 
@@ -79,9 +81,9 @@ Cost: too much machinery before first value. It also forces every user to grant 
 
 ## Minimum viable implementation path
 
-1. Add `agentboard-source-github` crate with dependencies similar to Jira: `agentboard-core`, `anyhow`, `reqwest`, `serde_json` (`pkgs/crates/agentboard-source-jira/Cargo.toml`).
-2. Add one `SourceKind::Github { mode, query, credentials, limit, field_map, status_map }` in `agentboard-core`, with `GithubSourceMode::Issue` first (`pkgs/crates/agentboard-core/src/model.rs`).
-3. Wire `SourceKind::Github` to `agentboard_source_github::collect_items` in CLI dispatch (`apps/cli/src/adapters.rs`).
+1. Keep `agentboard-source-github` as one crate with dependencies similar to Jira: `agentboard-core`, `anyhow`, `reqwest`, `serde_json` (`pkgs/crates/agentboard-source-jira/Cargo.toml`).
+2. Extend `GithubSourceConfig` with an explicit mode-specific config variant when Project mode is implemented (`pkgs/crates/agentboard-source-github/src/lib.rs`).
+3. Keep one `github` Source registration; CLI composition adds the definition once and runtime orchestration remains generic (`apps/cli/src/cli.rs`, `pkgs/crates/agentboard-core/src/registry.rs`).
 4. Implement Issue mode using REST search when `search` is present; require users to include `is:issue` or inject it deliberately to avoid pull requests, because GitHub's search endpoint is for issues and pull requests together (https://docs.github.com/en/rest/search/search#search-issues-and-pull-requests).
 5. Page with REST `Link` headers and `per_page=100` until `limit` is reached; preserve `raw.github.issue` and reject duplicate normalized ids (`https://docs.github.com/en/rest/using-the-rest-api/using-pagination-in-the-rest-api`, `pkgs/crates/agentboard-source-jira/src/lib.rs`).
 6. Defer Project mode until needed. When added, use GraphQL cursor pagination, require `read:project`, store raw project item + field values + content, and normalize status from a configured project field (https://docs.github.com/en/graphql/guides/using-pagination-in-the-graphql-api; https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-api-to-manage-projects).
@@ -99,7 +101,7 @@ Cost: too much machinery before first value. It also forces every user to grant 
 - GitHub CLI `gh issue list` manual — practical issue filters and JSON output: https://cli.github.com/manual/gh_issue_list
 - GitHub CLI `gh project item-list` manual — project item listing and Projects filter syntax: https://cli.github.com/manual/gh_project_item-list
 - GitHub webhook payload docs — issues and Projects event availability: https://docs.github.com/en/webhooks/webhook-events-and-payloads
-- AgentBoard repo docs/source — source boundaries, config enum, dispatch, storage, raw payload rules: `AGENTS.md`, `CONTEXT-MAP.md`, `pkgs/crates/agentboard-core/CONTEXT.md`, `apps/cli/CONTEXT.md`, `pkgs/crates/agentboard-source-jira/CONTEXT.md`, `pkgs/crates/agentboard-core/src/model.rs`, `apps/cli/src/adapters.rs`, `pkgs/crates/agentboard-source-jira/src/lib.rs`, `.memory/docs/adr/apps/cli/0002-store-items-and-actions-as-per-source-jsonl.md`, `.memory/docs/adr/pkgs/crates/agentboard-core/0005-actions-are-owned-by-sources.md`, `.memory/docs/adr/pkgs/crates/agentboard-source-qmd/0007-source-adapters-own-query-semantics.md`
+- AgentBoard repo docs/source — Source boundaries, Registry composition, storage, and raw payload rules: `AGENTS.md`, `CONTEXT-MAP.md`, `pkgs/crates/agentboard-core/CONTEXT.md`, `apps/cli/CONTEXT.md`, `pkgs/crates/agentboard-source-jira/CONTEXT.md`, `pkgs/crates/agentboard-core/src/registry.rs`, `apps/cli/src/runtime.rs`, `pkgs/crates/agentboard-source-jira/src/lib.rs`, `.memory/docs/adr/apps/cli/0002-store-items-and-actions-as-per-source-jsonl.md`, `.memory/docs/adr/pkgs/crates/agentboard-core/0005-actions-are-owned-by-sources.md`, `.memory/docs/adr/pkgs/crates/agentboard-source-qmd/0007-source-adapters-own-query-semantics.md`
 
 ## Sources dropped
 

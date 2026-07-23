@@ -1,7 +1,4 @@
-use std::{
-    collections::BTreeMap,
-    process::{Command as ProcessCommand, Stdio},
-};
+use std::process::{Command as ProcessCommand, Stdio};
 
 use anyhow::{anyhow, bail, Result};
 use schemars::JsonSchema;
@@ -9,7 +6,6 @@ use serde::Deserialize;
 
 use agentboard_core::{
     cap,
-    model::{Item, SourceConfig, Workspace},
     registry::{Action, ActionContext, ActionDefinition, RuntimeResult},
     ActionRun,
 };
@@ -45,24 +41,6 @@ impl Action for RunCmdAction {
     fn execute(&self, context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
         Ok(execute_command(&self.config, context))
     }
-}
-
-/// Temporary legacy bridge for the CLI cutover in issue #24.
-pub fn run_cmd(
-    ws: &Workspace,
-    source: &SourceConfig,
-    item: &Item,
-    inputs: &BTreeMap<String, String>,
-) -> Result<ActionRun> {
-    let action = RunCmdDefinition::build(RunCmdConfig {
-        cmd: inputs.get("cmd").unwrap().clone(),
-        cwd: inputs.get("cwd").cloned(),
-    })?;
-    action.execute(&ActionContext {
-        workspace_id: &ws.id,
-        source_id: &source.id,
-        item,
-    })
 }
 
 fn execute_command(config: &RunCmdConfig, context: &ActionContext<'_>) -> ActionRun {
@@ -120,6 +98,7 @@ mod tests {
         registry::{Action, ActionContext, ActionDefinition, Registry},
     };
     use serde_json::json;
+    use std::collections::BTreeMap;
     use tempfile::tempdir;
 
     fn item() -> Item {

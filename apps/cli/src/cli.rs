@@ -9,15 +9,15 @@ use agentboard_core::registry::Registry;
 use agentboard_source_github::GithubSourceDefinition;
 use agentboard_source_jira::JiraSourceDefinition;
 use agentboard_source_qmd::QmdSourceDefinition;
-use std::{env, path::PathBuf, process::Command as ProcessCommand};
+use std::{env, path::PathBuf, process::Command as ProcessCommand, sync::Arc};
 
 use anyhow::{bail, Context, Result};
 use clap::{ArgAction, Parser, Subcommand};
 
 use crate::{
     config::{
-        init_workspace, list_workspaces, load_workspace, load_workspace_for_doctor,
-        named_workspace_path, validate_workspace_name,
+        init_workspace, list_workspaces, load_workspace, named_workspace_path,
+        validate_workspace_name,
     },
     output::{ColorChoice, Output, Verbosity},
     runtime::{parse_duration, run_once, watch},
@@ -161,7 +161,7 @@ pub fn register_builtins() -> Result<Registry> {
 
 /// Parse CLI arguments and dispatch the requested user command.
 pub async fn run() -> Result<()> {
-    let registry = register_builtins()?;
+    let registry = Arc::new(register_builtins()?);
     let cli = Cli::parse();
     let verbosity = if cli.quiet {
         Verbosity::Quiet
@@ -186,7 +186,7 @@ pub async fn run() -> Result<()> {
         Command::Run { workspace, dry_run } => {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
             let output = create_output()?;
-            run_once(&workspace, dry_run, &output).await
+            run_once(&workspace, Arc::clone(&registry), dry_run, &output).await
         }
         Command::Watch {
             workspace,
@@ -195,7 +195,7 @@ pub async fn run() -> Result<()> {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
             let interval = parse_duration(&interval)?;
             let output = create_output()?;
-            watch(workspace, interval, &output).await
+            watch(workspace, Arc::clone(&registry), interval, &output).await
         }
         Command::List { workspace, json } => {
             list_items(&load_workspace(workspace.as_deref(), &registry)?, json)
@@ -212,7 +212,7 @@ pub async fn run() -> Result<()> {
             )
         }
         Command::Doctor { workspace } => {
-            let workspace = load_workspace_for_doctor(workspace.as_deref(), &registry)?;
+            let workspace = load_workspace(workspace.as_deref(), &registry)?;
             let output = create_output()?;
             doctor(&workspace, &registry, &output).await
         }

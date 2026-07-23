@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use agentboard_core::{
-    model::{FieldMap, Item, SourceConfig, SourceKind},
+    model::{FieldMap, Item},
     registry::{
         RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition, SourceFuture,
     },
@@ -170,42 +170,6 @@ fn normalize_site(site: &str) -> String {
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .to_ascii_lowercase()
-}
-
-/// Temporary legacy bridge for the CLI cutover in issue #24.
-pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
-    let config = match &source.source {
-        SourceKind::Jira {
-            site,
-            email_env,
-            token_env,
-            credentials,
-            jql,
-            limit,
-            fields,
-            field_map,
-            status_map,
-        } => JiraSourceConfig {
-            site: site.clone(),
-            email_env: email_env.clone(),
-            token_env: token_env.clone(),
-            credentials: credentials
-                .as_ref()
-                .map(|credentials| JiraCredentialConfig {
-                    helper: credentials.helper.clone(),
-                }),
-            jql: jql.clone(),
-            limit: *limit,
-            fields: fields.clone(),
-            field_map: field_map.clone(),
-            status_map: status_map.clone(),
-        },
-        _ => bail!("source {} is not jira", source.id),
-    };
-    Ok(JiraSourceDefinition::build(config)?
-        .collect_jira(&source.id)
-        .await?
-        .items)
 }
 
 struct JiraQuery<'a> {

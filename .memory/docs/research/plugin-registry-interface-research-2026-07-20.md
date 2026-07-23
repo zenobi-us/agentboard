@@ -1,5 +1,7 @@
 # Research: Rust plugin interfaces and registry for AgentBoard Actions and Sources
 
+Historical snapshot: “current” enum/match descriptions below are pre-ADR-0010 evidence. The adopted implementation is one explicit static Registry with no runtime plugin ABI; see ADR 0010 and current Core/CLI context docs.
+
 ## Summary
 
 AgentBoard should adopt a compile-time plugin seam using one explicitly populated `Registry` with separate source and action maps. Generic typed plugin definitions provide IDs, typed configuration, generated schemas, and constructors; registration erases those definitions into factories, while small runtime trait objects provide source and action behavior.

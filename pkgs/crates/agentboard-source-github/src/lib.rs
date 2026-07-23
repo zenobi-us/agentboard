@@ -1,7 +1,7 @@
 use std::{collections::HashSet, process::Command};
 
 use agentboard_core::{
-    model::{GithubSourceMode as LegacyGithubSourceMode, Item, SourceConfig, SourceKind},
+    model::Item,
     registry::{
         RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition, SourceFuture,
     },
@@ -156,39 +156,6 @@ impl Source for GithubSource {
 
 fn default_source_limit() -> usize {
     50
-}
-
-/// Temporary legacy bridge for the CLI cutover in issue #24.
-pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
-    Ok(inspect_items(source).await?.0)
-}
-
-/// Collect configured Items and return GitHub's total matching issue count.
-pub async fn inspect_items(source: &SourceConfig) -> Result<(Vec<Item>, usize)> {
-    let config = match &source.source {
-        SourceKind::Github {
-            mode: LegacyGithubSourceMode::Issue,
-            query,
-            credentials,
-            limit,
-            field_map,
-            status_map,
-        } => GithubSourceConfig {
-            mode: GithubSourceMode::Issue,
-            query: query.clone(),
-            credentials: GithubCredentialConfig {
-                helper: credentials.helper.clone(),
-            },
-            limit: *limit,
-            field_map: field_map.clone(),
-            status_map: status_map.clone(),
-        },
-        _ => bail!("source {} is not github", source.id),
-    };
-    let collection = GithubSourceDefinition::build(config)?
-        .collect_github_issues(&source.id)
-        .await?;
-    Ok((collection.items, collection.available.unwrap_or(0)))
 }
 
 async fn github_issue_search(

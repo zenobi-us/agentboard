@@ -6,13 +6,13 @@ Accepted
 
 ## Context
 
-AgentBoard models a Source as a configured provider of task-like items plus source-owned query semantics (`pkgs/crates/agentboard-core/CONTEXT.md`). Source adapters preserve raw provider payloads and normalize provider records into small Items (`apps/cli/CONTEXT.md`). Existing dispatch is explicit by `SourceKind` in core and CLI (`pkgs/crates/agentboard-core/src/model.rs`, `apps/cli/src/adapters.rs`).
+AgentBoard models a Source as a configured provider of task-like items plus source-owned query semantics (`pkgs/crates/agentboard-core/CONTEXT.md`). Source adapters preserve raw provider payloads and normalize provider records into small Items (`apps/cli/CONTEXT.md`). Source configuration and runtime behavior are registered explicitly through the static Registry (`.memory/docs/adr/0010-use-explicit-static-source-and-action-registration.md`).
 
 GitHub exposes issue data through REST issue/search APIs, while GitHub Projects v2 uses GraphQL project item, field, and content-union APIs. Project mode adds custom fields/status and different auth requirements, so it is not the same collector as issue mode (`.memory/docs/agents/github-source-implications.md`).
 
 ## Decision
 
-Use one `agentboard-source-github` package and one `SourceKind::Github` with explicit mode-specific config flattened under `sources.source`, matching the Jira source shape.
+Use one `agentboard-source-github` package and one `github` Source registration with explicit mode-specific config flattened under `sources.source`, matching the Jira source shape.
 
 MVP mode is `issue`:
 

@@ -1,4 +1,7 @@
-use std::{collections::HashSet, process::Command as ProcessCommand};
+use std::{
+    collections::HashSet,
+    process::{Command as ProcessCommand, Stdio},
+};
 
 use anyhow::{anyhow, bail, Context, Result};
 use schemars::JsonSchema;
@@ -6,9 +9,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use agentboard_core::{
-    model::{FieldMap, Item, SourceConfig, SourceKind},
+    model::{FieldMap, Item},
     registry::{
-        RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition, SourceFuture,
+        HealthCheck, RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition,
+        SourceFuture,
     },
 };
 
@@ -103,6 +107,13 @@ impl Source for QmdSource {
         Box::pin(async move { self.collect_qmd(context.source_id) })
     }
 
+    fn health_checks(&self) -> Vec<HealthCheck> {
+        vec![HealthCheck {
+            name: "command qmd".into(),
+            result: check_qmd_command(),
+        }]
+    }
+
     fn item_bucket_identity(&self) -> String {
         let mut collections = self.config.collections.clone();
         collections.sort();
@@ -112,27 +123,6 @@ impl Source for QmdSource {
 
 fn default_source_limit() -> usize {
     50
-}
-
-/// Temporary legacy bridge for the CLI cutover in issue #24.
-pub async fn collect_items(source: &SourceConfig) -> Result<Vec<Item>> {
-    let config = match &source.source {
-        SourceKind::Qmd {
-            collections,
-            query,
-            limit,
-            map,
-        } => QmdSourceConfig {
-            collections: collections.clone(),
-            query: query.clone(),
-            limit: *limit,
-            map: map.clone(),
-        },
-        _ => bail!("source {} is not qmd", source.id),
-    };
-    Ok(QmdSourceDefinition::build(config)?
-        .collect_qmd(&source.id)?
-        .items)
 }
 
 fn normalize_document(
@@ -192,6 +182,19 @@ fn qmd_query(collections: &[String], query: &str, limit: usize) -> Result<Vec<Va
         bail!("qmd query failed: {}", String::from_utf8_lossy(&out.stderr));
     }
     parse_qmd_results(&String::from_utf8_lossy(&out.stdout))
+}
+
+fn check_qmd_command() -> Result<()> {
+    let status = ProcessCommand::new("qmd")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .with_context(|| "required command qmd not found")?;
+    if !status.success() {
+        bail!("required command qmd returned {status}");
+    }
+    Ok(())
 }
 
 fn parse_qmd_results(text: &str) -> Result<Vec<Value>> {

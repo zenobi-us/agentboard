@@ -1,7 +1,4 @@
 //! Shared serializable domain records used across CLI, Source, and Action crates.
-//!
-//! Registry contracts stay in `registry`; this module holds stable data exchanged
-//! between those contracts and current orchestration during the staged cutover.
 
 use std::{collections::BTreeMap, path::PathBuf};
 
@@ -9,81 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::registry::BuiltSource;
-
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct WorkspaceConfig {
-    pub sources: Vec<SourceConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct SourceConfig {
-    pub id: String,
-    pub source: SourceKind,
-    #[serde(default)]
-    pub actions: Vec<ActionConfig>,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
-pub enum SourceKind {
-    Qmd {
-        collections: Vec<String>,
-        query: String,
-        #[serde(default = "default_source_limit")]
-        limit: usize,
-        #[serde(default)]
-        map: FieldMap,
-    },
-    Jira {
-        site: String,
-        #[serde(default = "default_jira_email_env")]
-        email_env: String,
-        #[serde(default = "default_jira_token_env")]
-        token_env: String,
-        #[serde(default)]
-        credentials: Option<JiraCredentialConfig>,
-        jql: String,
-        #[serde(default = "default_source_limit")]
-        limit: usize,
-        #[serde(default)]
-        fields: Vec<String>,
-        #[serde(default)]
-        field_map: FieldMap,
-        #[serde(default)]
-        status_map: BTreeMap<String, String>,
-    },
-    Github {
-        mode: GithubSourceMode,
-        query: String,
-        credentials: GithubCredentialConfig,
-        #[serde(default = "default_source_limit")]
-        limit: usize,
-        #[serde(default)]
-        field_map: FieldMap,
-        status_map: BTreeMap<String, String>,
-    },
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(rename_all = "kebab-case")]
-pub enum GithubSourceMode {
-    Issue,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct JiraCredentialConfig {
-    pub helper: String,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct GithubCredentialConfig {
-    pub helper: String,
-}
+use crate::registry::{BuiltSource, ConfiguredSourceEnvelope};
 
 #[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -92,18 +15,6 @@ pub struct FieldMap {
     pub title: Option<String>,
     pub status: Option<String>,
     pub url: Option<String>,
-}
-
-fn default_source_limit() -> usize {
-    50
-}
-
-fn default_jira_email_env() -> String {
-    "JIRA_EMAIL".into()
-}
-
-fn default_jira_token_env() -> String {
-    "JIRA_API_TOKEN".into()
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -140,14 +51,17 @@ pub struct ActionAttempt {
     pub message: Option<String>,
 }
 
-/// Holds both the current serializable Workspace view and Sources built during loading.
-///
-/// The legacy `config` field keeps issue #23 compatible with current runtime callers.
-/// `built_sources` is the single-construction handoff consumed by the issue #24 cutover.
+/// Keeps one configured Source inseparable from the runtime built from it.
+#[derive(Clone)]
+pub struct WorkspaceSource {
+    pub configured: ConfiguredSourceEnvelope,
+    pub built: BuiltSource,
+}
+
+/// Loaded Workspace with each configured Source paired to its registered runtime.
 #[derive(Clone)]
 pub struct Workspace {
     pub id: String,
     pub path: PathBuf,
-    pub config: WorkspaceConfig,
-    pub built_sources: Vec<BuiltSource>,
+    pub sources: Vec<WorkspaceSource>,
 }

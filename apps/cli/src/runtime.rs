@@ -4,12 +4,16 @@ use std::{
     time::{Duration, Instant},
 };
 
-use agentboard_core::model::{SourceConfig, Workspace};
+use agentboard_core::{
+    model::{ActionAttempt, ActionConfig, Item, Workspace, WorkspaceSource},
+    registry::{ActionContext, Registry, SourceContext},
+    RenderedAction,
+};
 use anyhow::{bail, Result};
+use chrono::Utc;
 use serde_json::json;
 
 use crate::{
-    adapters::{collect_items, execute_action},
     output::Output,
     store::{acquire_lock, action_key, append_action, append_items, successful_actions},
     template::render_action,
@@ -33,17 +37,27 @@ enum WaitOutcome {
 /// Execute one Workspace Run.
 ///
 /// A normal Run holds the Workspace lock. Dry runs skip locking and Store writes.
-pub async fn run_once(ws: &Workspace, dry_run: bool, output: &Output) -> Result<()> {
+pub async fn run_once(
+    ws: &Workspace,
+    registry: Arc<Registry>,
+    dry_run: bool,
+    output: &Output,
+) -> Result<()> {
     let _lock = if dry_run {
         None
     } else {
         Some(acquire_lock(ws)?)
     };
-    run_sources(ws, dry_run, output).await
+    run_sources(ws, registry, dry_run, output).await
 }
 
 /// Repeatedly execute one Workspace Run until Ctrl-C.
-pub async fn watch(ws: Workspace, delay: Duration, output: &Output) -> Result<()> {
+pub async fn watch(
+    ws: Workspace,
+    registry: Arc<Registry>,
+    delay: Duration,
+    output: &Output,
+) -> Result<()> {
     let _lock = acquire_lock(&ws)?;
     let mut cycle = 1_u64;
     loop {
@@ -52,7 +66,7 @@ pub async fn watch(ws: Workspace, delay: Duration, output: &Output) -> Result<()
             &format!("watch {} cycle {cycle} starting", ws.id),
             json!({"workspace": ws.id, "cycle": cycle}),
         )?;
-        match run_sources(&ws, false, output).await {
+        match run_sources(&ws, Arc::clone(&registry), false, output).await {
             Ok(()) => output.success(
                 "watch.cycle.complete",
                 &format!("watch {} cycle {cycle} complete", ws.id),
@@ -133,7 +147,12 @@ where
 }
 
 // Run Source pipelines concurrently, but report a failed process if any Source fails.
-async fn run_sources(ws: &Workspace, dry_run: bool, output: &Output) -> Result<()> {
+async fn run_sources(
+    ws: &Workspace,
+    registry: Arc<Registry>,
+    dry_run: bool,
+    output: &Output,
+) -> Result<()> {
     let run_id = output.next_run_id();
     let started = Instant::now();
     output.info(
@@ -143,14 +162,15 @@ async fn run_sources(ws: &Workspace, dry_run: bool, output: &Output) -> Result<(
     )?;
     let ws = Arc::new(ws.clone());
     let mut handles = Vec::new();
-    for source in ws.config.sources.clone() {
+    for source in ws.sources.clone() {
         let ws = Arc::clone(&ws);
+        let registry = Arc::clone(&registry);
         let output = output.clone();
         let run_id = run_id.clone();
         handles.push(tokio::spawn(async move {
-            run_source(&ws, &source, dry_run, &run_id, &output)
+            run_source(&ws, &source, &registry, dry_run, &run_id, &output)
                 .await
-                .map_err(|err| (source.id, err))
+                .map_err(|err| (source.configured.id, err))
         }));
     }
 
@@ -206,18 +226,21 @@ async fn run_sources(ws: &Workspace, dry_run: bool, output: &Output) -> Result<(
 // Run one Source pipeline: collect, append observations, then execute pending Actions serially.
 async fn run_source(
     ws: &Workspace,
-    source: &SourceConfig,
+    source: &WorkspaceSource,
+    registry: &Registry,
     dry_run: bool,
     run_id: &str,
     output: &Output,
 ) -> Result<RunSummary> {
+    let source_id = &source.configured.id;
     let started = Instant::now();
     output.detail(
         "source.start",
-        &format!("source {} collecting", source.id),
-        json!({"workspace": ws.id, "run": run_id, "source": source.id}),
+        &format!("source {source_id} collecting"),
+        json!({"workspace": ws.id, "run": run_id, "source": source_id}),
     )?;
-    let mut items = collect_items(source).await?;
+    let context = SourceContext { source_id };
+    let mut items = source.built.runtime().collect(&context).await?.items;
     items.sort_by(|a, b| a.id.cmp(&b.id));
     if !dry_run {
         append_items(ws, source, &items)?;
@@ -228,15 +251,15 @@ async fn run_source(
         ..Default::default()
     };
     for item in items {
-        for (idx, action) in source.actions.iter().enumerate() {
+        for (idx, action) in source.configured.actions.iter().enumerate() {
             let rendered = render_action(ws, source, &item, idx, action)?;
-            let key = action_key(&source.id, &item.id, idx, &rendered.hash);
+            let key = action_key(source_id, &item.id, idx, &rendered.hash);
             if successes.contains(&key) {
                 summary.skipped += 1;
                 output.detail(
                     "action.skipped",
-                    &format!("{} {} action#{idx} skipped", source.id, item.id),
-                    json!({"workspace": ws.id, "run": run_id, "source": source.id, "item": item.id, "action_index": idx, "uses": action.uses}),
+                    &format!("{source_id} {} action#{idx} skipped", item.id),
+                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx, "uses": action.uses}),
                 )?;
                 continue;
             }
@@ -245,45 +268,46 @@ async fn run_source(
                 summary.succeeded += 1;
                 println!(
                     "{} {} action#{idx} {} {}",
-                    source.id,
+                    source_id,
                     item.id,
                     action.uses,
                     serde_json::to_string(&rendered.inputs)?
                 );
                 output.detail(
                     "action.dry-run",
-                    &format!("{} {} action#{idx} {} would run", source.id, item.id, action.uses),
-                    json!({"workspace": ws.id, "run": run_id, "source": source.id, "item": item.id, "action_index": idx, "uses": action.uses}),
+                    &format!("{source_id} {} action#{idx} {} would run", item.id, action.uses),
+                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx, "uses": action.uses}),
                 )?;
                 continue;
             }
-            let attempt = execute_action(ws, source, &item, idx, action, rendered)?;
+            let attempt =
+                execute_action_attempt(registry, &ws.id, source_id, &item, idx, action, rendered);
             append_action(ws, source, &attempt)?;
             if attempt.success {
                 summary.succeeded += 1;
                 output.detail(
                     "action.succeeded",
-                    &format!("{} {} action#{idx} {} succeeded", source.id, item.id, action.uses),
-                    json!({"workspace": ws.id, "run": run_id, "source": source.id, "item": item.id, "action_index": idx, "uses": action.uses}),
+                    &format!("{source_id} {} action#{idx} {} succeeded", item.id, action.uses),
+                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx, "uses": action.uses}),
                 )?;
                 if !attempt.stdout.is_empty() {
-                    output.detail("action.stdout", &attempt.stdout, json!({"workspace": ws.id, "run": run_id, "source": source.id, "item": item.id, "action_index": idx}))?;
+                    output.detail("action.stdout", &attempt.stdout, json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx}))?;
                 }
                 if !attempt.stderr.is_empty() {
-                    output.detail("action.stderr", &attempt.stderr, json!({"workspace": ws.id, "run": run_id, "source": source.id, "item": item.id, "action_index": idx}))?;
+                    output.detail("action.stderr", &attempt.stderr, json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx}))?;
                 }
             } else {
                 summary.failed += 1;
                 output.error(
                     "action.failed",
-                    &format!("{} {} action#{idx} {} failed", source.id, item.id, action.uses),
-                    json!({"workspace": ws.id, "run": run_id, "source": source.id, "item": item.id, "action_index": idx, "uses": action.uses}),
+                    &format!("{source_id} {} action#{idx} {} failed", item.id, action.uses),
+                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx, "uses": action.uses}),
                 )?;
                 if !attempt.stdout.is_empty() {
-                    output.error("action.stdout", &attempt.stdout, json!({"workspace": ws.id, "run": run_id, "source": source.id, "item": item.id, "action_index": idx}))?;
+                    output.error("action.stdout", &attempt.stdout, json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx}))?;
                 }
                 if !attempt.stderr.is_empty() {
-                    output.error("action.stderr", &attempt.stderr, json!({"workspace": ws.id, "run": run_id, "source": source.id, "item": item.id, "action_index": idx}))?;
+                    output.error("action.stderr", &attempt.stderr, json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx}))?;
                 }
                 break;
             }
@@ -292,13 +316,13 @@ async fn run_source(
     output.info(
         "source.complete",
         &format!(
-            "source {} complete: {} items, {} attempted, {} skipped, {} failed",
-            source.id, summary.items, summary.attempted, summary.skipped, summary.failed
+            "source {source_id} complete: {} items, {} attempted, {} skipped, {} failed",
+            summary.items, summary.attempted, summary.skipped, summary.failed
         ),
         json!({
             "workspace": ws.id,
             "run": run_id,
-            "source": source.id,
+            "source": source_id,
             "items": summary.items,
             "attempted": summary.attempted,
             "skipped": summary.skipped,
@@ -310,9 +334,50 @@ async fn run_source(
     Ok(summary)
 }
 
+fn execute_action_attempt(
+    registry: &Registry,
+    workspace_id: &str,
+    source_id: &str,
+    item: &Item,
+    idx: usize,
+    action: &ActionConfig,
+    rendered: RenderedAction,
+) -> ActionAttempt {
+    let hash = rendered.hash;
+    let run = registry
+        .build_action(&action.uses, rendered.inputs)
+        .map_err(anyhow::Error::from)
+        .and_then(|action| {
+            action.execute(&ActionContext {
+                workspace_id,
+                source_id,
+                item,
+            })
+        });
+    let (success, stdout, stderr, message) = match run {
+        Ok(run) => (run.success, run.stdout, run.stderr, run.message),
+        Err(error) => (
+            false,
+            String::new(),
+            String::new(),
+            Some(format!("{error:#}")),
+        ),
+    };
+    ActionAttempt {
+        ts: Utc::now().to_rfc3339(),
+        source_id: source_id.to_string(),
+        item_id: item.id.clone(),
+        source_action_index: idx,
+        uses: action.uses.clone(),
+        rendered_action_hash: hash,
+        success,
+        stdout,
+        stderr,
+        message,
+    }
+}
+
 /// Parse an interval string accepted by `watch`.
-///
-/// Currently accepts seconds with or without a trailing `s`.
 pub fn parse_duration(s: &str) -> Result<Duration> {
     let secs = s.strip_suffix('s').unwrap_or(s).parse()?;
     Ok(Duration::from_secs(secs))
@@ -322,7 +387,82 @@ pub fn parse_duration(s: &str) -> Result<Duration> {
 mod tests {
     use super::*;
     use crate::output::{ColorChoice, Verbosity};
-    use std::{fs, future};
+    use agentboard_core::{
+        registry::{Action, ActionDefinition, RuntimeResult},
+        ActionRun,
+    };
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+    use serde_json::json;
+    use std::{collections::BTreeMap, fs, future};
+
+    #[derive(Deserialize, JsonSchema)]
+    #[serde(deny_unknown_fields)]
+    struct FailingActionConfig {
+        message: String,
+    }
+
+    struct FailingActionDefinition;
+
+    struct FailingAction {
+        message: String,
+    }
+
+    impl ActionDefinition for FailingActionDefinition {
+        const ID: &'static str = "test/failing";
+        type Config = FailingActionConfig;
+        type Runtime = FailingAction;
+
+        fn build(config: Self::Config) -> RuntimeResult<Self::Runtime> {
+            Ok(FailingAction {
+                message: config.message,
+            })
+        }
+    }
+
+    impl Action for FailingAction {
+        fn execute(&self, _context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
+            anyhow::bail!(self.message.clone())
+        }
+    }
+
+    #[test]
+    fn registered_action_errors_become_failed_item_attempts() {
+        let mut registry = Registry::new();
+        registry.add_action::<FailingActionDefinition>().unwrap();
+        let item = Item {
+            id: "AB-1".into(),
+            reference_id: "AB-1".into(),
+            title: "Fail locally".into(),
+            status: "ready".into(),
+            url: "https://example.test/AB-1".into(),
+            source_id: "source".into(),
+            source_kind: "test".into(),
+            raw: json!({}),
+        };
+        let action = ActionConfig {
+            uses: FailingActionDefinition::ID.into(),
+            inputs: BTreeMap::from([("message".into(), "expected failure".into())]),
+        };
+        let rendered = RenderedAction {
+            inputs: action.inputs.clone(),
+            hash: "rendered-hash".into(),
+        };
+
+        let attempt = execute_action_attempt(
+            &registry,
+            "workspace",
+            "source",
+            &item,
+            0,
+            &action,
+            rendered,
+        );
+
+        assert!(!attempt.success);
+        assert_eq!(attempt.rendered_action_hash, "rendered-hash");
+        assert_eq!(attempt.message.as_deref(), Some("expected failure"));
+    }
 
     #[tokio::test(start_paused = true)]
     async fn watch_wait_counts_down_against_one_absolute_deadline() {

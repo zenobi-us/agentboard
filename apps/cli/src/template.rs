@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 
 use agentboard_core::{
-    model::{ActionConfig, Item, SourceConfig, Workspace},
+    model::{ActionConfig, Item, Workspace, WorkspaceSource},
     RenderedAction,
 };
 use anyhow::Result;
@@ -18,7 +18,7 @@ use crate::config::{expand_vars, hash_json};
 /// Render an action's input templates and compute its retry identity hash.
 pub fn render_action(
     ws: &Workspace,
-    source: &SourceConfig,
+    source: &WorkspaceSource,
     item: &Item,
     idx: usize,
     action: &ActionConfig,
@@ -31,7 +31,7 @@ pub fn render_action(
             value,
             context! {
                 workspace => json!({"id": ws.id, "path": ws.path}),
-                source => source,
+                source => &source.configured,
                 item => item,
                 action => json!({"uses": action.uses, "index": idx}),
             },
@@ -58,7 +58,7 @@ pub fn slugify(s: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentboard_core::model::{SourceKind, WorkspaceConfig};
+    use crate::config::parse_workspace;
     use serde_json::json;
     use std::path::PathBuf;
 
@@ -68,32 +68,86 @@ mod tests {
     }
 
     #[test]
-    fn templates_expose_reference_id_and_complete_source() {
-        let action = ActionConfig {
-            uses: "agentboard/run-cmd".into(),
-            inputs: BTreeMap::from([(
-                "cmd".into(),
-                "{{ item.reference_id }}|{{ source.id }}|{{ source.source.kind }}|{{ source.source.collections[0] }}|{{ source.actions[0].uses }}".into(),
-            )]),
-        };
-        let source = SourceConfig {
-            id: "notes".into(),
-            source: SourceKind::Qmd {
-                collections: vec!["work".into()],
-                query: "status:ready".into(),
-                limit: 50,
-                map: Default::default(),
-            },
-            actions: vec![action.clone()],
-        };
+    fn templates_and_action_identity_remain_stable_through_registered_view() {
+        let registry = crate::cli::register_builtins().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "notes"
+                [sources.source]
+                kind = "qmd"
+                collections = ["work"]
+                query = "status:ready"
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "echo {{ item.reference_id }}"
+            "#,
+            &registry,
+        )
+        .unwrap();
         let ws = Workspace {
             id: "workspace".into(),
             path: PathBuf::from("/tmp/workspace.toml"),
-            config: WorkspaceConfig {
-                sources: vec![source.clone()],
-            },
-            built_sources: vec![],
+            sources: parsed.sources,
         };
+        let source = &ws.sources[0];
+        let action = &source.configured.actions[0];
+        let item = Item {
+            id: "/doc/AB-1.md".into(),
+            reference_id: "AB-1".into(),
+            title: "Do it".into(),
+            status: "ready".into(),
+            url: "/doc/AB-1.md".into(),
+            source_id: "notes".into(),
+            source_kind: "qmd".into(),
+            raw: json!({}),
+        };
+
+        let rendered = render_action(&ws, source, &item, 0, action).unwrap();
+
+        assert_eq!(rendered.inputs["cmd"], "echo AB-1");
+        assert_eq!(
+            rendered.hash,
+            "138a66006ac0ab3ffa344e4b8ad5210839456e5aeed0f0f10226bd44bb5e383d"
+        );
+        assert_eq!(
+            crate::store::action_key(&source.configured.id, &item.id, 0, &rendered.hash),
+            concat!(
+                "notes\0/doc/AB-1.md",
+                "\0",
+                "0",
+                "\0",
+                "138a66006ac0ab3ffa344e4b8ad5210839456e5aeed0f0f10226bd44bb5e383d"
+            )
+        );
+    }
+
+    #[test]
+    fn templates_expose_complete_registered_source_shape() {
+        let registry = crate::cli::register_builtins().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "notes"
+                [sources.source]
+                kind = "qmd"
+                collections = ["work"]
+                query = "status:ready"
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "{{ item.reference_id }}|{{ source.id }}|{{ source.source.kind }}|{{ source.source.collections[0] }}|{{ source.actions[0].uses }}"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: "workspace".into(),
+            path: PathBuf::from("/tmp/workspace.toml"),
+            sources: parsed.sources,
+        };
+        let source = &ws.sources[0];
         let item = Item {
             id: "/notes/AB-1.md".into(),
             reference_id: "AB-1".into(),
@@ -105,7 +159,7 @@ mod tests {
             raw: json!({}),
         };
 
-        let rendered = render_action(&ws, &source, &item, 0, &action).unwrap();
+        let rendered = render_action(&ws, source, &item, 0, &source.configured.actions[0]).unwrap();
 
         assert_eq!(
             rendered.inputs["cmd"],

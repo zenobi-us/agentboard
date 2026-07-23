@@ -1,26 +1,21 @@
-//! Append-only Workspace Store operations and current diagnostic checks.
-//!
-//! Store layout still consumes the legacy configured view in issue #23; Registry
-//! plumbing is present so issue #24 can replace dispatch without another startup path.
+//! Append-only Workspace Store operations and registered diagnostic checks.
 
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     io::{BufRead, BufReader, Write},
     path::PathBuf,
-    process::{Command as ProcessCommand, Stdio},
 };
 
 use agentboard_core::{
-    model::{ActionAttempt, Item, SourceConfig, SourceKind, Workspace},
-    registry::Registry,
+    model::{ActionAttempt, Item, Workspace, WorkspaceSource},
+    registry::{Registry, SourceCollection, SourceContext},
 };
 use anyhow::{anyhow, bail, Context, Result};
 use fs4::{FileExt, TryLockError};
 use serde_json::{json, Value};
 
 use crate::{
-    adapters::{inspect_source, SourceInspection},
     config::{actions_path, items_path, source_slug, store_root},
     output::Output,
 };
@@ -67,7 +62,7 @@ pub fn acquire_lock(ws: &Workspace) -> Result<Lock> {
 }
 
 /// Append item observations for one source to its JSONL store.
-pub fn append_items(ws: &Workspace, source: &SourceConfig, items: &[Item]) -> Result<()> {
+pub fn append_items(ws: &Workspace, source: &WorkspaceSource, items: &[Item]) -> Result<()> {
     let mut f = append_file(items_path(ws, source))?;
     for item in items {
         writeln!(f, "{}", serde_json::to_string(item)?)?;
@@ -76,7 +71,11 @@ pub fn append_items(ws: &Workspace, source: &SourceConfig, items: &[Item]) -> Re
 }
 
 /// Append one action attempt to the source action JSONL store.
-pub fn append_action(ws: &Workspace, source: &SourceConfig, attempt: &ActionAttempt) -> Result<()> {
+pub fn append_action(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    attempt: &ActionAttempt,
+) -> Result<()> {
     let mut f = append_file(actions_path(ws, source))?;
     writeln!(f, "{}", serde_json::to_string(attempt)?)?;
     Ok(())
@@ -98,7 +97,7 @@ pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
 fn latest_item_records(ws: &Workspace) -> Result<HashMap<String, StoredItem>> {
     let mut map = HashMap::new();
     let mut seen_paths = HashSet::new();
-    for source in &ws.config.sources {
+    for source in &ws.sources {
         let path = items_path(ws, source);
         if !seen_paths.insert(path.clone()) || !path.exists() {
             continue;
@@ -150,7 +149,7 @@ pub fn all_actions(ws: &Workspace) -> Result<Vec<ActionAttempt>> {
 fn all_stored_actions(ws: &Workspace) -> Result<Vec<StoredAction>> {
     let mut out = Vec::new();
     let mut seen_paths = HashSet::new();
-    for source in &ws.config.sources {
+    for source in &ws.sources {
         let path = actions_path(ws, source);
         if !seen_paths.insert(path.clone()) || !path.exists() {
             continue;
@@ -167,7 +166,7 @@ fn all_stored_actions(ws: &Workspace) -> Result<Vec<StoredAction>> {
 }
 
 /// Return identity keys for successful actions, used to skip already-completed work.
-pub fn successful_actions(ws: &Workspace, source: &SourceConfig) -> Result<HashSet<String>> {
+pub fn successful_actions(ws: &Workspace, source: &WorkspaceSource) -> Result<HashSet<String>> {
     let path = actions_path(ws, source);
     if !path.exists() {
         return Ok(HashSet::new());
@@ -288,11 +287,8 @@ fn resolve_item(ws: &Workspace, item_ref: &str) -> Result<StoredItem> {
     }
 }
 
-/// Validate config, Store writability, Source reachability, and required commands.
-///
-/// The Registry is threaded now so issue #24 can replace legacy dispatch without
-/// changing command composition or accidentally creating a second Registry.
-pub async fn doctor(ws: &Workspace, _registry: &Registry, output: &Output) -> Result<()> {
+/// Validate the Store, registered Source reachability, and registered Action health.
+pub async fn doctor(ws: &Workspace, registry: &Registry, output: &Output) -> Result<()> {
     output.info(
         "doctor.start",
         &format!("doctor {} starting", ws.id),
@@ -300,8 +296,8 @@ pub async fn doctor(ws: &Workspace, _registry: &Registry, output: &Output) -> Re
     )?;
     let mut failures = 0_usize;
 
-    let config = crate::config::validate_config(&ws.config);
-    report_check(output, ws, "config", config, &mut failures)?;
+    // Registry loading already completed strict config validation before diagnostics.
+    report_check(output, ws, "config", Ok(()), &mut failures)?;
 
     let root = store_root(ws);
     let probe = root.join(".doctor-write-test");
@@ -314,65 +310,60 @@ pub async fn doctor(ws: &Workspace, _registry: &Registry, output: &Output) -> Re
     let _ = fs::remove_file(&probe);
     report_check(output, ws, "store", store, &mut failures)?;
 
-    let mut commands = HashSet::new();
-    for source in &ws.config.sources {
-        if matches!(&source.source, SourceKind::Qmd { .. }) {
-            commands.insert("qmd");
-        }
-        match inspect_source(source).await {
-            Ok(inspection) => output.success(
+    for source in &ws.sources {
+        let source_id = &source.configured.id;
+        let context = SourceContext { source_id };
+        match source.built.runtime().health_check(&context).await {
+            Ok(collection) => output.success(
                 "doctor.check",
-                &source_reachable_message(&source.id, &inspection),
+                &source_reachable_message(source_id, &collection),
                 json!({
                     "workspace": ws.id,
                     "check": "source",
-                    "source": source.id,
+                    "source": source_id,
                     "outcome": "pass",
-                    "fetched": inspection.items.len(),
-                    "available": inspection.available,
-                    "limit": inspection.limit,
+                    "fetched": collection.items.len(),
+                    "available": collection.available,
+                    "limit": collection.limit,
                 }),
             )?,
             Err(err) => {
                 failures += 1;
                 output.error(
                     "doctor.check",
-                    &format!("fail source {}: {err:#}", source.id),
-                    json!({"workspace": ws.id, "check": "source", "source": source.id, "outcome": "fail", "error": format!("{err:#}")}),
+                    &format!("fail source {source_id}: {err:#}"),
+                    json!({"workspace": ws.id, "check": "source", "source": source_id, "outcome": "fail", "error": format!("{err:#}")}),
                 )?;
             }
         }
         output.info(
             "doctor.actions",
-            &format!("actions [{}]", source.actions.len()),
-            json!({"workspace": ws.id, "source": source.id, "actions": source.actions.len()}),
+            &format!("actions [{}]", source.configured.actions.len()),
+            json!({"workspace": ws.id, "source": source_id, "actions": source.configured.actions.len()}),
         )?;
-        for (index, action) in source.actions.iter().enumerate() {
-            match check_action(action) {
+        for (index, action) in source.configured.actions.iter().enumerate() {
+            match registry.check_action(&action.uses) {
                 Ok(()) => output.success(
                     "doctor.action",
                     &format!("  - {} [ok]", action.uses),
-                    json!({"workspace": ws.id, "source": source.id, "action_index": index, "uses": action.uses, "outcome": "pass"}),
+                    json!({"workspace": ws.id, "source": source_id, "action_index": index, "uses": action.uses, "outcome": "pass"}),
                 )?,
                 Err(err) => {
                     failures += 1;
+                    let detail = std::error::Error::source(&err)
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| err.to_string());
                     output.error(
                         "doctor.action",
-                        &format!("  - {} [fail: {err:#}]", action.uses),
-                        json!({"workspace": ws.id, "source": source.id, "action_index": index, "uses": action.uses, "outcome": "fail", "error": format!("{err:#}")}),
+                        &format!("  - {} [fail: {detail}]", action.uses),
+                        json!({"workspace": ws.id, "source": source_id, "action_index": index, "uses": action.uses, "outcome": "fail", "error": detail}),
                     )?;
                 }
             }
         }
-    }
-    for command in commands {
-        report_check(
-            output,
-            ws,
-            &format!("command {command}"),
-            command_exists(command),
-            &mut failures,
-        )?;
+        for check in source.built.runtime().health_checks() {
+            report_check(output, ws, &check.name, check.result, &mut failures)?;
+        }
     }
 
     if failures > 0 {
@@ -391,26 +382,17 @@ pub async fn doctor(ws: &Workspace, _registry: &Registry, output: &Output) -> Re
     Ok(())
 }
 
-fn check_action(action: &agentboard_core::model::ActionConfig) -> Result<()> {
-    crate::config::validate_action(action)?;
-    match action.uses.as_str() {
-        "agentboard/run-cmd" => command_exists("sh"),
-        "agentboard/create-worktree" => command_exists("git"),
-        _ => Ok(()),
-    }
-}
-
-fn source_reachable_message(source_id: &str, inspection: &SourceInspection) -> String {
-    match inspection.available {
+fn source_reachable_message(source_id: &str, collection: &SourceCollection) -> String {
+    match collection.available {
         Some(available) => format!(
             "ok source {source_id} reachable ({available} available; {} fetched; limit {})",
-            inspection.items.len(),
-            inspection.limit
+            collection.items.len(),
+            collection.limit
         ),
         None => format!(
             "ok source {source_id} reachable ({} fetched; limit {}; available unknown)",
-            inspection.items.len(),
-            inspection.limit
+            collection.items.len(),
+            collection.limit
         ),
     }
 }
@@ -439,19 +421,6 @@ fn report_check(
     }
 }
 
-fn command_exists(cmd: &str) -> Result<()> {
-    let status = ProcessCommand::new(cmd)
-        .arg("--version")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .with_context(|| format!("required command {cmd} not found"))?;
-    if !status.success() {
-        bail!("required command {cmd} returned {status}");
-    }
-    Ok(())
-}
-
 fn action_matches_item(action: &StoredAction, item: &StoredItem) -> bool {
     action.slug == item.slug && action.attempt.item_id == item.item.id
 }
@@ -468,13 +437,13 @@ pub fn action_key(source_id: &str, item_id: &str, idx: usize, hash: &str) -> Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentboard_core::model::{SourceConfig, SourceKind, WorkspaceConfig};
+    use crate::config::parse_workspace;
     use serde_json::json;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn doctor_source_message_distinguishes_available_from_fetched() {
-        let known = SourceInspection {
+        let known = SourceCollection {
             items: vec![],
             available: Some(237),
             limit: 50,
@@ -484,7 +453,7 @@ mod tests {
             "ok source github reachable (237 available; 0 fetched; limit 50)"
         );
 
-        let unknown = SourceInspection {
+        let unknown = SourceCollection {
             items: vec![],
             available: None,
             limit: 50,
@@ -497,9 +466,9 @@ mod tests {
 
     #[test]
     fn same_jira_site_shares_latest_item_observations() {
-        let ws = workspace(vec![
-            jira_source("open", "https://team-a.atlassian.net", "project = AB"),
-            jira_source(
+        let ws = workspace(&[
+            ("open", "https://team-a.atlassian.net", "project = AB"),
+            (
                 "mine",
                 "https://team-a.atlassian.net/",
                 "assignee = currentUser()",
@@ -507,8 +476,8 @@ mod tests {
         ]);
         let _cleanup = StoreCleanup::new(&ws);
 
-        append_items(&ws, &ws.config.sources[0], &[item("open", "PROJ-1")]).unwrap();
-        append_items(&ws, &ws.config.sources[1], &[item("mine", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.sources[0], &[item("open", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.sources[1], &[item("mine", "PROJ-1")]).unwrap();
 
         let items: Vec<_> = latest_items(&ws).unwrap().into_values().collect();
         assert_eq!(items.len(), 1);
@@ -517,14 +486,14 @@ mod tests {
 
     #[test]
     fn different_jira_sites_do_not_collide_on_issue_key() {
-        let ws = workspace(vec![
-            jira_source("a", "https://team-a.atlassian.net", "project = AB"),
-            jira_source("b", "https://team-b.atlassian.net", "project = AB"),
+        let ws = workspace(&[
+            ("a", "https://team-a.atlassian.net", "project = AB"),
+            ("b", "https://team-b.atlassian.net", "project = AB"),
         ]);
         let _cleanup = StoreCleanup::new(&ws);
 
-        append_items(&ws, &ws.config.sources[0], &[item("from a", "PROJ-1")]).unwrap();
-        append_items(&ws, &ws.config.sources[1], &[item("from b", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.sources[0], &[item("from a", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.sources[1], &[item("from b", "PROJ-1")]).unwrap();
 
         let items = latest_items(&ws).unwrap();
         assert_eq!(items.len(), 2);
@@ -532,13 +501,9 @@ mod tests {
 
     #[test]
     fn legacy_item_store_error_explains_how_to_rebuild() {
-        let ws = workspace(vec![jira_source(
-            "jira",
-            "https://team-a.atlassian.net",
-            "project = AB",
-        )]);
+        let ws = workspace(&[("jira", "https://team-a.atlassian.net", "project = AB")]);
         let _cleanup = StoreCleanup::new(&ws);
-        let path = items_path(&ws, &ws.config.sources[0]);
+        let path = items_path(&ws, &ws.sources[0]);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(
             &path,
@@ -558,13 +523,9 @@ mod tests {
 
     #[test]
     fn malformed_item_store_keeps_parse_error_without_rebuild_advice() {
-        let ws = workspace(vec![jira_source(
-            "jira",
-            "https://team-a.atlassian.net",
-            "project = AB",
-        )]);
+        let ws = workspace(&[("jira", "https://team-a.atlassian.net", "project = AB")]);
         let _cleanup = StoreCleanup::new(&ws);
-        let path = items_path(&ws, &ws.config.sources[0]);
+        let path = items_path(&ws, &ws.sources[0]);
         fs::create_dir_all(path.parent().unwrap()).unwrap();
         fs::write(&path, "not json\n").unwrap();
 
@@ -579,25 +540,24 @@ mod tests {
 
     #[test]
     fn successful_actions_are_scoped_to_source_hash() {
-        let old_source = jira_source("jira", "https://team-a.atlassian.net", "project = AB");
-        let new_source = jira_source(
+        let old = workspace(&[("jira", "https://team-a.atlassian.net", "project = AB")]);
+        let ws = workspace(&[(
             "jira",
             "https://team-a.atlassian.net",
             "assignee = currentUser()",
-        );
-        let ws = workspace(vec![new_source.clone()]);
+        )]);
         let _cleanup = StoreCleanup::new(&ws);
 
-        append_action(&ws, &old_source, &attempt("jira", "PROJ-1", true)).unwrap();
+        append_action(&ws, &old.sources[0], &attempt("jira", "PROJ-1", true)).unwrap();
 
-        assert!(successful_actions(&ws, &new_source).unwrap().is_empty());
+        assert!(successful_actions(&ws, &ws.sources[0]).unwrap().is_empty());
     }
 
     #[test]
     fn action_state_matches_item_bucket_not_source_label() {
-        let ws = workspace(vec![
-            jira_source("a", "https://team-a.atlassian.net", "project = AB"),
-            jira_source(
+        let ws = workspace(&[
+            ("a", "https://team-a.atlassian.net", "project = AB"),
+            (
                 "b",
                 "https://team-a.atlassian.net",
                 "assignee = currentUser()",
@@ -606,14 +566,14 @@ mod tests {
         let _cleanup = StoreCleanup::new(&ws);
         append_items(
             &ws,
-            &ws.config.sources[1],
+            &ws.sources[1],
             &[Item {
                 source_id: "b".into(),
                 ..item("from b", "PROJ-1")
             }],
         )
         .unwrap();
-        append_action(&ws, &ws.config.sources[0], &attempt("a", "PROJ-1", true)).unwrap();
+        append_action(&ws, &ws.sources[0], &attempt("a", "PROJ-1", true)).unwrap();
 
         let item = resolve_item(&ws, "PROJ-1").unwrap();
         let actions = all_stored_actions(&ws).unwrap();
@@ -623,15 +583,15 @@ mod tests {
 
     #[test]
     fn qualified_item_ref_disambiguates_item_bucket() {
-        let ws = workspace(vec![
-            jira_source("a", "https://team-a.atlassian.net", "project = AB"),
-            jira_source("b", "https://team-b.atlassian.net", "project = AB"),
+        let ws = workspace(&[
+            ("a", "https://team-a.atlassian.net", "project = AB"),
+            ("b", "https://team-b.atlassian.net", "project = AB"),
         ]);
         let _cleanup = StoreCleanup::new(&ws);
-        append_items(&ws, &ws.config.sources[0], &[item("from a", "PROJ-1")]).unwrap();
-        append_items(&ws, &ws.config.sources[1], &[item("from b", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.sources[0], &[item("from a", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.sources[1], &[item("from b", "PROJ-1")]).unwrap();
 
-        let slug = source_slug(&ws.config.sources[1]);
+        let slug = source_slug(&ws.sources[1]);
         assert_eq!(
             resolve_item(&ws, &format!("{slug}:PROJ-1"))
                 .unwrap()
@@ -645,7 +605,24 @@ mod tests {
             .contains("ambiguous"));
     }
 
-    fn workspace(sources: Vec<SourceConfig>) -> Workspace {
+    fn workspace(sources: &[(&str, &str, &str)]) -> Workspace {
+        let text = sources
+            .iter()
+            .map(|(id, site, jql)| {
+                format!(
+                    r#"
+[[sources]]
+id = {id:?}
+[sources.source]
+kind = "jira"
+site = {site:?}
+jql = {jql:?}
+"#
+                )
+            })
+            .collect::<String>();
+        let registry = crate::cli::register_builtins().unwrap();
+        let parsed = parse_workspace(&text, &registry).unwrap();
         Workspace {
             id: format!(
                 "test-{}",
@@ -655,26 +632,7 @@ mod tests {
                     .as_nanos()
             ),
             path: "work.toml".into(),
-            config: WorkspaceConfig { sources },
-            built_sources: vec![],
-        }
-    }
-
-    fn jira_source(id: &str, site: &str, jql: &str) -> SourceConfig {
-        SourceConfig {
-            id: id.into(),
-            source: SourceKind::Jira {
-                site: site.into(),
-                email_env: "JIRA_EMAIL".into(),
-                token_env: "JIRA_API_TOKEN".into(),
-                credentials: None,
-                jql: jql.into(),
-                limit: 50,
-                fields: vec![],
-                field_map: Default::default(),
-                status_map: Default::default(),
-            },
-            actions: vec![],
+            sources: parsed.sources,
         }
     }
 

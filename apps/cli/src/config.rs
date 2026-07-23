@@ -6,8 +6,8 @@
 use std::{collections::HashSet, env, fs, path::PathBuf};
 
 use agentboard_core::{
-    model::{ActionConfig, GithubSourceMode, SourceConfig, SourceKind, Workspace, WorkspaceConfig},
-    registry::{BuiltSource, Registry, SourceEnvelope, WorkspaceEnvelope},
+    model::{Workspace, WorkspaceSource},
+    registry::{ConfiguredSourceEnvelope, Registry, SourceEnvelope, WorkspaceEnvelope},
 };
 use anyhow::{bail, Context, Result};
 use directories::BaseDirs;
@@ -68,13 +68,9 @@ pub fn init_workspace(name: &str) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Carries Registry-loaded Sources before filesystem identity is attached.
-///
-/// Keeping this seam text-only makes loader behavior testable without XDG paths,
-/// and lets schema and loading share the same caller-supplied Registry.
+/// Carries configured Sources already paired to their single constructed runtime.
 pub struct ParsedWorkspace {
-    pub configured: WorkspaceEnvelope,
-    pub sources: Vec<BuiltSource>,
+    pub sources: Vec<WorkspaceSource>,
 }
 
 /// Parses the stable Workspace envelope, then delegates typed config to registrations.
@@ -84,8 +80,7 @@ pub struct ParsedWorkspace {
 pub fn parse_workspace(text: &str, registry: &Registry) -> Result<ParsedWorkspace> {
     let envelope: WorkspaceEnvelope = toml::from_str(text).context("parse workspace TOML")?;
     let mut ids = HashSet::new();
-    let mut configured_sources = Vec::with_capacity(envelope.sources.len());
-    let mut built_sources = Vec::with_capacity(envelope.sources.len());
+    let mut sources = Vec::with_capacity(envelope.sources.len());
 
     for source in envelope.sources {
         if source.id.trim().is_empty() {
@@ -111,42 +106,28 @@ pub fn parse_workspace(text: &str, registry: &Registry) -> Result<ParsedWorkspac
                 })?;
         }
 
-        // Rebuild the serializable envelope from typed config so defaults and field
-        // names exactly match the values that produced the runtime.
-        configured_sources.push(agentboard_core::registry::ConfiguredSourceEnvelope {
-            id: source.id,
-            source: SourceEnvelope {
-                kind,
-                config: built.config().clone(),
+        sources.push(WorkspaceSource {
+            configured: ConfiguredSourceEnvelope {
+                id: source.id,
+                source: SourceEnvelope {
+                    kind,
+                    config: built.config().clone(),
+                },
+                actions: source.actions,
             },
-            actions: source.actions,
+            built,
         });
-        built_sources.push(built);
     }
 
-    Ok(ParsedWorkspace {
-        configured: WorkspaceEnvelope {
-            sources: configured_sources,
-        },
-        sources: built_sources,
-    })
+    Ok(ParsedWorkspace { sources })
 }
 
 /// Load a workspace by name or explicit TOML path through the process Registry.
-///
-/// When no input is supplied, load `.agentboard.toml` from the current
-/// directory. Named workspaces resolve under the user config directory.
-/// Explicit paths get a stable workspace id from the file stem plus canonical
-/// path hash.
 pub fn load_workspace(input: Option<&str>, registry: &Registry) -> Result<Workspace> {
     let (path, named_id) = resolve_workspace_input(input);
     let text =
         fs::read_to_string(&path).with_context(|| format!("read workspace {}", path.display()))?;
     let parsed = parse_workspace(&text, registry)?;
-    // Issue #24 removes this compatibility conversion when runtime callers consume
-    // `built_sources` and the registered configured view directly.
-    let config: WorkspaceConfig = serde_json::from_value(serde_json::to_value(&parsed.configured)?)
-        .context("convert registered Workspace to current runtime view")?;
     let id = if let Some(id) = named_id {
         id
     } else {
@@ -160,14 +141,8 @@ pub fn load_workspace(input: Option<&str>, registry: &Registry) -> Result<Worksp
     Ok(Workspace {
         id,
         path,
-        config,
-        built_sources: parsed.sources,
+        sources: parsed.sources,
     })
-}
-
-/// Uses the same strict Registry loader for `doctor` so invalid config never reaches checks.
-pub fn load_workspace_for_doctor(input: Option<&str>, registry: &Registry) -> Result<Workspace> {
-    load_workspace(input, registry)
 }
 
 fn resolve_workspace_input(input: Option<&str>) -> (PathBuf, Option<String>) {
@@ -178,120 +153,6 @@ fn resolve_workspace_input(input: Option<&str>) -> (PathBuf, Option<String>) {
         }
         Some(input) => (named_workspace_path(input), Some(input.to_string())),
     }
-}
-
-/// Validate workspace config invariants before a run touches sources or actions.
-pub fn validate_config(config: &WorkspaceConfig) -> Result<()> {
-    let mut ids = HashSet::new();
-    for src in &config.sources {
-        if !ids.insert(&src.id) {
-            bail!("duplicate source id {}", src.id);
-        }
-        if src.id.trim().is_empty() {
-            bail!("source id cannot be empty");
-        }
-        match &src.source {
-            SourceKind::Qmd {
-                collections,
-                query,
-                limit,
-                ..
-            } => {
-                if collections.is_empty() {
-                    bail!("qmd source {} requires at least one collection", src.id);
-                }
-                if query.trim().is_empty() {
-                    bail!("qmd source {} requires query", src.id);
-                }
-                if *limit == 0 {
-                    bail!("qmd source {} limit must be greater than zero", src.id);
-                }
-            }
-            SourceKind::Jira {
-                site,
-                email_env,
-                token_env,
-                credentials,
-                jql,
-                limit,
-                ..
-            } => {
-                if site.trim().is_empty() {
-                    bail!("jira source {} requires site", src.id);
-                }
-                if let Some(credentials) = credentials {
-                    if credentials.helper.trim().is_empty() {
-                        bail!("jira source {} credential helper cannot be empty", src.id);
-                    }
-                } else {
-                    if email_env.trim().is_empty() {
-                        bail!("jira source {} requires email_env", src.id);
-                    }
-                    if token_env.trim().is_empty() {
-                        bail!("jira source {} requires token_env", src.id);
-                    }
-                }
-                if jql.trim().is_empty() {
-                    bail!("jira source {} requires jql", src.id);
-                }
-                if *limit == 0 {
-                    bail!("jira source {} limit must be greater than zero", src.id);
-                }
-            }
-            SourceKind::Github {
-                mode: GithubSourceMode::Issue,
-                query,
-                credentials,
-                limit,
-                status_map,
-                ..
-            } => {
-                if query.trim().is_empty() {
-                    bail!("github source {} requires query", src.id);
-                }
-                if credentials.helper.trim().is_empty() {
-                    bail!("github source {} credential helper cannot be empty", src.id);
-                }
-                if status_map.is_empty() {
-                    bail!("github source {} requires status_map", src.id);
-                }
-                for (label, status) in status_map {
-                    if label.trim().is_empty() || status.trim().is_empty() {
-                        bail!(
-                            "github source {} status_map cannot contain empty labels or statuses",
-                            src.id
-                        );
-                    }
-                }
-                if *limit == 0 {
-                    bail!("github source {} limit must be greater than zero", src.id);
-                }
-            }
-        }
-        for action in &src.actions {
-            validate_action(action)?;
-        }
-    }
-    Ok(())
-}
-
-/// Validate one configured Action without rendering or executing it.
-pub fn validate_action(action: &ActionConfig) -> Result<()> {
-    match action.uses.as_str() {
-        "agentboard/create-worktree" => require_inputs(action, &["repo", "root", "branch"]),
-        "agentboard/run-cmd" => require_inputs(action, &["cmd"]),
-        other if other.starts_with("agentboard/") => bail!("unknown built-in action {other}"),
-        other => bail!("unknown action {other}"),
-    }
-}
-
-fn require_inputs(action: &ActionConfig, keys: &[&str]) -> Result<()> {
-    for key in keys {
-        if !action.inputs.contains_key(*key) {
-            bail!("{} requires input {key}", action.uses);
-        }
-    }
-    Ok(())
 }
 
 /// Return the XDG config directory used for named workspace files.
@@ -327,12 +188,12 @@ pub fn source_dir(ws: &Workspace, source_id: &str) -> PathBuf {
 }
 
 /// Return the item Store path for a source item universe.
-pub fn items_path(ws: &Workspace, source: &SourceConfig) -> PathBuf {
+pub fn items_path(ws: &Workspace, source: &WorkspaceSource) -> PathBuf {
     store_root(ws).join(format!("items-{}.jsonl", source_slug(source)))
 }
 
 /// Return the action Store path for one configured source view/action plan.
-pub fn actions_path(ws: &Workspace, source: &SourceConfig) -> PathBuf {
+pub fn actions_path(ws: &Workspace, source: &WorkspaceSource) -> PathBuf {
     store_root(ws).join(format!(
         "actions-{}-{}.jsonl",
         source_slug(source),
@@ -340,31 +201,42 @@ pub fn actions_path(ws: &Workspace, source: &SourceConfig) -> PathBuf {
     ))
 }
 
-/// Return the stable, readable item-universe identity for one source.
-pub fn source_slug(source: &SourceConfig) -> String {
-    let (kind, identity) = match &source.source {
-        SourceKind::Jira { site, .. } => ("jira", normalize_site(site)),
-        SourceKind::Qmd { collections, .. } => {
-            let mut collections = collections.clone();
-            collections.sort();
-            ("qmd", collections.join(","))
-        }
-        SourceKind::Github { .. } => ("github", "github.com".to_string()),
-    };
+/// Return the stable, readable item-universe identity for one registered Source.
+pub fn source_slug(source: &WorkspaceSource) -> String {
+    let kind = source.built.registration_id();
+    let identity = source.built.runtime().item_bucket_identity();
     format!("{kind}-{}-{}", slugify(&identity), short_hash(&identity))
 }
 
 /// Return the stable configured-source identity for action logs.
-pub fn source_hash(source: &SourceConfig) -> String {
-    short_hash(&serde_json::to_string(source).unwrap())
+pub fn source_hash(source: &WorkspaceSource) -> String {
+    short_hash(&configured_source_json(source))
 }
 
-fn normalize_site(site: &str) -> String {
-    site.trim()
-        .trim_end_matches('/')
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .to_ascii_lowercase()
+// Preserve the pre-Registry SourceConfig serialization byte-for-byte. Typed config
+// JSON retains each registration's field order; CLI still owns the outer identity.
+fn configured_source_json(source: &WorkspaceSource) -> String {
+    debug_assert_eq!(
+        source.configured.source.kind,
+        source.built.registration_id()
+    );
+    let config = source.built.config_json();
+    let fields = config
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+        .expect("registered Source config must serialize as an object");
+    let kind = serde_json::to_string(source.built.registration_id()).unwrap();
+    let source_json = if fields.is_empty() {
+        format!("{{\"kind\":{kind}}}")
+    } else {
+        format!("{{\"kind\":{kind},{fields}}}")
+    };
+    format!(
+        "{{\"id\":{},\"source\":{},\"actions\":{}}}",
+        serde_json::to_string(&source.configured.id).unwrap(),
+        source_json,
+        serde_json::to_string(&source.configured.actions).unwrap()
+    )
 }
 
 fn slugify(s: &str) -> String {
@@ -414,18 +286,13 @@ pub fn short_hash(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentboard_core::model::{
-        GithubCredentialConfig, GithubSourceMode, SourceConfig, SourceKind,
-    };
     use agentboard_core::registry::{
         RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition, SourceFuture,
     };
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
-    use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    // Detects accidental double construction at the public Registry/config seam.
     static SOURCE_BUILDS: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Deserialize, Serialize, JsonSchema)]
@@ -434,9 +301,10 @@ mod tests {
         value: String,
     }
 
-    struct CountingSource;
+    struct CountingSource {
+        value: String,
+    }
 
-    /// Counts construction so the loader cannot accidentally validate and build separately.
     struct CountingSourceDefinition;
 
     impl SourceDefinition for CountingSourceDefinition {
@@ -444,9 +312,11 @@ mod tests {
         type Config = CountingSourceConfig;
         type Runtime = CountingSource;
 
-        fn build(_config: Self::Config) -> RuntimeResult<Self::Runtime> {
+        fn build(config: Self::Config) -> RuntimeResult<Self::Runtime> {
             SOURCE_BUILDS.fetch_add(1, Ordering::SeqCst);
-            Ok(CountingSource)
+            Ok(CountingSource {
+                value: config.value,
+            })
         }
     }
 
@@ -462,39 +332,47 @@ mod tests {
         }
 
         fn item_bucket_identity(&self) -> String {
-            "counting".into()
+            self.value.clone()
         }
     }
 
-    /// Protects the registry/config seam: current TOML shape builds one runtime and keeps its view.
     #[test]
-    fn registry_parses_workspace_and_builds_each_source_once() {
+    fn registry_builds_once_and_pairs_sources_in_workspace_order() {
         SOURCE_BUILDS.store(0, Ordering::SeqCst);
-        let mut registry = agentboard_core::registry::Registry::new();
+        let mut registry = Registry::new();
         registry.add_source::<CountingSourceDefinition>().unwrap();
 
         let loaded = parse_workspace(
             r#"
                 [[sources]]
-                id = "local"
-
+                id = "first"
                 [sources.source]
                 kind = "counting"
-                value = "configured"
+                value = "bucket-a"
+
+                [[sources]]
+                id = "second"
+                [sources.source]
+                kind = "counting"
+                value = "bucket-b"
             "#,
             &registry,
         )
         .unwrap();
 
-        assert_eq!(SOURCE_BUILDS.load(Ordering::SeqCst), 1);
-        assert_eq!(loaded.sources.len(), 1);
-        assert_eq!(loaded.sources[0].registration_id(), "counting");
-        assert_eq!(loaded.sources[0].config()["value"], "configured");
-        assert_eq!(loaded.configured.sources[0].id, "local");
-        assert_eq!(loaded.configured.sources[0].source.kind, "counting");
+        assert_eq!(SOURCE_BUILDS.load(Ordering::SeqCst), 2);
+        assert_eq!(loaded.sources[0].configured.id, "first");
+        assert_eq!(
+            loaded.sources[0].built.runtime().item_bucket_identity(),
+            "bucket-a"
+        );
+        assert_eq!(loaded.sources[1].configured.id, "second");
+        assert_eq!(
+            loaded.sources[1].built.runtime().item_bucket_identity(),
+            "bucket-b"
+        );
     }
 
-    /// Keeps loader failures actionable across the generic Registry boundary.
     #[test]
     fn registry_load_errors_include_location_registration_and_underlying_error() {
         let registry = crate::cli::register_builtins().unwrap();
@@ -570,201 +448,90 @@ mod tests {
     }
 
     #[test]
-    fn qmd_source_requires_collections_and_query() {
-        let config = WorkspaceConfig {
-            sources: vec![SourceConfig {
-                id: "local".into(),
-                source: SourceKind::Qmd {
-                    collections: vec![],
-                    query: "ready".into(),
-                    limit: 10,
-                    map: Default::default(),
-                },
-                actions: vec![],
-            }],
-        };
-        assert!(validate_config(&config).is_err());
-    }
+    fn registered_cutover_preserves_builtin_store_paths_byte_for_byte() {
+        let registry = crate::cli::register_builtins().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "notes"
+                [sources.source]
+                kind = "qmd"
+                collections = ["work", "ops"]
+                query = "status:ready"
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "echo {{ item.id }}"
 
-    #[test]
-    fn jira_source_requires_site_and_jql() {
-        let config = WorkspaceConfig {
-            sources: vec![SourceConfig {
-                id: "jira".into(),
-                source: SourceKind::Jira {
-                    site: "".into(),
-                    email_env: "JIRA_EMAIL".into(),
-                    token_env: "JIRA_API_TOKEN".into(),
-                    credentials: None,
-                    jql: "project = AB".into(),
-                    limit: 50,
-                    fields: vec![],
-                    field_map: Default::default(),
-                    status_map: Default::default(),
-                },
-                actions: vec![],
-            }],
-        };
-        assert!(validate_config(&config).is_err());
-    }
+                [[sources]]
+                id = "jira"
+                [sources.source]
+                kind = "jira"
+                site = "https://Team-A.atlassian.net/"
+                jql = "project = AB"
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "true"
 
-    #[test]
-    fn jira_site_controls_item_store_identity() {
-        let first = jira_source("https://team-a.atlassian.net/", "project = AB");
-        let same_site = jira_source("https://team-a.atlassian.net", "assignee = currentUser()");
-        let other_site = jira_source("https://team-b.atlassian.net", "project = AB");
-
-        assert_eq!(source_slug(&first), source_slug(&same_site));
-        assert_ne!(source_slug(&first), source_slug(&other_site));
-    }
-
-    #[test]
-    fn source_hash_tracks_configured_source_view() {
-        let first = jira_source("https://team-a.atlassian.net", "project = AB");
-        let changed_jql = jira_source("https://team-a.atlassian.net", "assignee = currentUser()");
-
-        assert_ne!(source_hash(&first), source_hash(&changed_jql));
-    }
-
-    #[test]
-    fn store_paths_use_slug_and_hash() {
-        let source = jira_source("https://team-a.atlassian.net", "project = AB");
+                [[sources]]
+                id = "github"
+                [sources.source]
+                kind = "github"
+                mode = "issue"
+                query = "repo:zenobi-us/agentboard is:open"
+                status_map = { ready = "ready" }
+                [sources.source.credentials]
+                helper = "gh auth token"
+                [[sources.actions]]
+                uses = "agentboard/create-worktree"
+                [sources.actions.with]
+                branch = "item-{{ item.id }}"
+                repo = "/repo"
+                root = "/worktree"
+            "#,
+            &registry,
+        )
+        .unwrap();
         let ws = Workspace {
             id: "work".into(),
             path: "work.toml".into(),
-            config: WorkspaceConfig {
-                sources: vec![source.clone()],
-            },
-            built_sources: vec![],
+            sources: parsed.sources,
         };
-
-        let items = items_path(&ws, &source)
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
-        let actions = actions_path(&ws, &source)
-            .file_name()
-            .unwrap()
-            .to_string_lossy()
-            .to_string();
-
-        assert!(items.starts_with("items-jira-team-a-atlassian-net-"));
-        assert!(actions.starts_with("actions-jira-team-a-atlassian-net-"));
-        assert!(actions.ends_with(&format!("-{}.jsonl", source_hash(&source))));
-    }
-
-    #[test]
-    fn github_issue_source_requires_query_helper_and_limit() {
-        let mut source = github_source("repo:zenobi-us/agentboard is:open");
-        assert!(validate_config(&WorkspaceConfig {
-            sources: vec![source.clone()]
-        })
-        .is_ok());
-
-        source.source = SourceKind::Github {
-            mode: GithubSourceMode::Issue,
-            query: "".into(),
-            credentials: GithubCredentialConfig {
-                helper: "gh auth token".into(),
-            },
-            limit: 50,
-            field_map: Default::default(),
-            status_map: Default::default(),
-        };
-        assert!(validate_config(&WorkspaceConfig {
-            sources: vec![source]
-        })
-        .is_err());
-    }
-
-    #[test]
-    fn github_sources_share_item_store_identity() {
-        let first = github_source("repo:zenobi-us/agentboard is:open");
-        let second = github_source("repo:zenobi-us/agentboard label:ready");
-
-        assert_eq!(source_slug(&first), source_slug(&second));
-        assert!(source_slug(&first).starts_with("github-github-com-"));
-    }
-
-    #[test]
-    fn github_status_map_must_be_explicit_in_config() {
-        let missing = r#"
-            [[sources]]
-            id = "github"
-
-            [sources.source]
-            kind = "github"
-            mode = "issue"
-            query = "repo:zenobi-us/agentboard is:open"
-
-            [sources.source.credentials]
-            helper = "gh auth token"
-        "#;
-        assert!(toml::from_str::<WorkspaceConfig>(missing).is_err());
-
-        let explicit_empty = r#"
-            [[sources]]
-            id = "github"
-
-            [sources.source]
-            kind = "github"
-            mode = "issue"
-            query = "repo:zenobi-us/agentboard is:open"
-            status_map = {}
-
-            [sources.source.credentials]
-            helper = "gh auth token"
-        "#;
-        let config = toml::from_str::<WorkspaceConfig>(explicit_empty).unwrap();
-        assert!(validate_config(&config).is_err());
-    }
-
-    #[test]
-    fn github_status_map_rejects_empty_entries() {
-        let mut source = github_source("repo:zenobi-us/agentboard is:open");
-        if let SourceKind::Github { status_map, .. } = &mut source.source {
-            *status_map = BTreeMap::from([("ready".into(), "".into())]);
-        }
-
-        assert!(validate_config(&WorkspaceConfig {
-            sources: vec![source]
-        })
-        .is_err());
-    }
-
-    fn jira_source(site: &str, jql: &str) -> SourceConfig {
-        SourceConfig {
-            id: "jira".into(),
-            source: SourceKind::Jira {
-                site: site.into(),
-                email_env: "JIRA_EMAIL".into(),
-                token_env: "JIRA_API_TOKEN".into(),
-                credentials: None,
-                jql: jql.into(),
-                limit: 50,
-                fields: vec![],
-                field_map: Default::default(),
-                status_map: Default::default(),
-            },
-            actions: vec![],
-        }
-    }
-
-    fn github_source(query: &str) -> SourceConfig {
-        SourceConfig {
-            id: "github".into(),
-            source: SourceKind::Github {
-                mode: GithubSourceMode::Issue,
-                query: query.into(),
-                credentials: GithubCredentialConfig {
-                    helper: "gh auth token".into(),
-                },
-                limit: 50,
-                field_map: Default::default(),
-                status_map: [("ready".to_string(), "ready".to_string())].into(),
-            },
-            actions: vec![],
+        let cases = [
+            (
+                &ws.sources[0],
+                "items-qmd-ops-work-689cc400d680.jsonl",
+                "actions-qmd-ops-work-689cc400d680-97357d02e12c.jsonl",
+            ),
+            (
+                &ws.sources[1],
+                "items-jira-team-a-atlassian-net-104c2a00a65c.jsonl",
+                "actions-jira-team-a-atlassian-net-104c2a00a65c-e38419b90306.jsonl",
+            ),
+            (
+                &ws.sources[2],
+                "items-github-github-com-3aeb00246038.jsonl",
+                "actions-github-github-com-3aeb00246038-fd21721e81de.jsonl",
+            ),
+        ];
+        for (source, expected_items, expected_actions) in cases {
+            assert_eq!(
+                items_path(&ws, source)
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                expected_items
+            );
+            assert_eq!(
+                actions_path(&ws, source)
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                expected_actions
+            );
         }
     }
 }

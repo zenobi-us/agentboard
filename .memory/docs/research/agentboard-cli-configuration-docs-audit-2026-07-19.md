@@ -1,5 +1,7 @@
 # Research: AgentBoard CLI configuration documentation
 
+Historical snapshot: parser/schema references below describe the pre-Registry configuration path. Current Workspace loading and schema composition use registered typed Source and Action definitions while preserving the same TOML syntax.
+
 ## Summary
 
 AgentBoard's docs are usable for a happy-path Workspace: they establish TOML syntax, the nested Source/Action shape, named and explicit-path invocation, and several realistic examples. They are not a complete configuration reference: precedence and merge behavior are absent, defaults and validation are scattered, environment expansion of every rendered Action input is undisclosed, and the GitHub source page's primary example is invalid because it omits required `status_map`. [`apps/cli/docs/workspaces.md:5-77`](../../../apps/cli/docs/workspaces.md) [`pkgs/crates/agentboard-core/src/model.rs:7-105`](../../../pkgs/crates/agentboard-core/src/model.rs) [`pkgs/crates/agentboard-source-github/src/docs.md:5-19`](../../../pkgs/crates/agentboard-source-github/src/docs.md)
