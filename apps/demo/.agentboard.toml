@@ -1,0 +1,84 @@
+[[sources]]
+id = "implement"
+
+[sources.source]
+kind = "github"
+mode = "issue"
+query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-agent" -label:"agentboard:ready-for-review"'''
+limit = 12
+
+[sources.source.credentials]
+helper = "gh auth token"
+
+[sources.source.status_map]
+"agentboard:ready-for-agent" = "ready-for-agent"
+"agentboard:changes-requested" = "changes-requested"
+
+[[sources.actions]]
+uses = "agentboard/create-worktree"
+
+[sources.actions.with]
+repo = "."
+root = "worktrees/issue-{{ item.reference_id }}"
+branch = "agentboard/issue-{{ item.reference_id }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+cmd = "pi -p '/implement {{ item.reference_id }}'"
+cwd = "."
+
+[[sources]]
+id = "review"
+
+[sources.source]
+kind = "github"
+mode = "issue"
+query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-review"'''
+limit = 12
+
+[sources.source.credentials]
+helper = "gh auth token"
+
+[sources.source.status_map]
+"agentboard:ready-for-review" = "ready-for-review"
+"agentboard:review-complete" = "review-complete"
+
+[[sources.actions]]
+uses = "agentboard/create-worktree"
+
+[sources.actions.with]
+repo = "."
+root = "worktrees/issue-{{ item.reference_id }}"
+branch = "agentboard/issue-{{ item.reference_id }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+cmd = "pi -p '/review {{ item.reference_id }}'"
+cwd = "."
+
+[[sources]]
+id = "cleanup"
+
+[sources.source]
+kind = "github"
+mode = "issue"
+query = '''repo:__GITHUB_REPOSITORY__ is:closed label:"agentboard:review-complete" label:"agentboard:cleanup-approved"'''
+limit = 12
+
+[sources.source.credentials]
+helper = "gh auth token"
+
+[sources.source.status_map]
+"agentboard:cleanup-approved" = "cleanup-approved"
+"agentboard:review-complete" = "review-complete"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+cmd = "git worktree remove worktrees/issue-{{ item.reference_id }} --force"
+cwd = "."

@@ -1,0 +1,1 @@
+{"title":"AB-DEMO-07: Use a dialog for cleanup confirmation","body":"Target: `tasks/task-07.html`\n\n## Acceptance criteria\n\n- Replace the outer section with `<dialog id=\"cleanup-confirmation\">`.\n- Keep both actions and the heading inside the dialog.\n- Run `./test.sh task-07`."}
