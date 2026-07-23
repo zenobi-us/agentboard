@@ -23,45 +23,47 @@ AgentBoard records successful actions. GitHub labels, PR state, and your explici
 
 ## Prerequisites [#prerequisites]
 
-The demo targets a Linux desktop with a default terminal configured through `xdg-terminal-exec`. Install and configure:
+The demo uses [`open-terminal`](https://www.npmjs.com/package/open-terminal) through `npx` to launch Pi in new terminal windows on Linux or macOS. Install and configure:
 
 * AgentBoard
 * [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`
 * Git
 * [Bun](https://bun.sh/)
-* `xdg-terminal-exec`
+* [Node.js](https://nodejs.org/) with `npm` and `npx`
+* `curl` and `tar`
 * [Pi](https://github.com/badlogic/pi-mono) with a model provider configured
 
 ## 1. Create the private demo repository [#1-create-the-private-demo-repository]
 
-Clone AgentBoard and copy the demo into a standalone directory:
+From the directory where you want the local clone, run:
 
 ```sh
-gh repo clone zenobi-us/agentboard
-cp -a agentboard/apps/demo agentboard-quickstart-demo
+curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | sh
+```
+
+When prompted, enter the new GitHub repository as `OWNER/agentboard-quickstart-demo`. To skip the prompt, pass `REPO` to the shell running the downloaded script:
+
+```sh
+curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh \
+  | REPO=OWNER/agentboard-quickstart-demo sh
+```
+
+The setup script:
+
+1. creates a private GitHub repository;
+2. clones it into `./agentboard-quickstart-demo`;
+3. downloads and copies only AgentBoard's `apps/demo` directory;
+4. renders the repository-specific query in `.agentboard.toml`;
+5. installs ESLint, Husky, and lint-staged;
+6. creates a pre-commit hook that lints staged `*.html` and `*.css` files with ESLint;
+7. commits and pushes the demo;
+8. creates the lifecycle labels and twelve GitHub issues from `.issues/*.json`.
+
+Enter the generated repository:
+
+```sh
 cd agentboard-quickstart-demo
 ```
-
-Initialize the standalone repository, then create and push a private GitHub repository. Replace `OWNER` with your GitHub user or organization:
-
-```sh
-git init
-git add .
-git commit -m "chore: initialize AgentBoard demo"
-gh repo create OWNER/agentboard-quickstart-demo \
-  --private \
-  --source=. \
-  --remote=origin \
-  --push
-```
-
-Run the setup script:
-
-```sh
-./setup.sh
-```
-
-`setup.sh` verifies the required commands and GitHub authentication, renders the repository-specific query in `.agentboard.toml`, creates the lifecycle labels, and creates GitHub issues directly from `.issues/*.json`. Re-running it skips issues whose titles already exist.
 
 The generated Workspace contains three configured GitHub Sources:
 
@@ -85,11 +87,17 @@ gh issue edit <number> --add-label agentboard:ready-for-agent
 gh issue edit <number> --add-label agentboard:ready-for-agent
 ```
 
-GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree and launches Pi in a new terminal through `xdg-terminal-exec`.
+GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree, installs its npm dependencies, and launches Pi in a new terminal with:
+
+```sh
+npx --yes open-terminal "pi -p '/implement <issue>'"
+```
+
+`--yes` allows `npx` to install `open-terminal` on demand without blocking the background action for confirmation.
 
 ## 3. Observe implementation and review [#3-observe-implementation-and-review]
 
-The implementation Pi session reads the issue, runs its task-specific test and the full HTML/CSS validation, commits, pushes, and creates or updates a PR containing `Closes #<issue>`. It then moves the issue to `agentboard:ready-for-review`.
+The implementation Pi session reads the issue and implements its written acceptance criteria. On commit, Husky runs lint-staged and ESLint against staged HTML and CSS files. Pi fixes hook failures, pushes, and creates or updates a PR containing `Closes #<issue>`. It then moves the issue to `agentboard:ready-for-review`.
 
 The review Source launches a separate reviewer Pi session in the same issue worktree:
 

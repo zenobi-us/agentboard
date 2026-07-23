@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-07-23T13:32:53.131Z",
+  "generatedAt": "2026-07-23T14:07:28.177Z",
   "repository": "zenobi-us/agentboard",
   "ref": "refs/heads/main",
-  "sha": "1842c3dc6d4b8c2b2da37ac227e2cf551fd21d53",
+  "sha": "47ada2b9d85bf2e10b59fc735dff48ed1809a867",
   "channel": "next",
   "packages": [
     {
@@ -15,7 +15,7 @@
       "path": "apps/docs",
       "name": "@agentboard/docs",
       "version": "0.0.1",
-      "sha": "1842c3dc6d4b8c2b2da37ac227e2cf551fd21d53"
+      "sha": "47ada2b9d85bf2e10b59fc735dff48ed1809a867"
     }
   ]
 }
