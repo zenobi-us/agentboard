@@ -2,6 +2,7 @@
 Implement the GitHub issue and create a PR.
 
 - Use gh to read the issue and any existing PR for the branch.
+- Before changing files, use `gh issue comment` to acknowledge that work has started.
 - Work only in this worktree.
 - Implement the issue's written acceptance criteria directly.
 - Commit normally. Husky runs lint-staged and ESLint against staged HTML and CSS files.
@@ -12,6 +13,7 @@ When the branch is ready:
 
 - remove labels agentboard:ready-for-agent and agentboard:changes-requested when present
 - then add agentboard:ready-for-review
+- use `gh issue comment` to report completion, link the PR, include validation results, and hand the issue off for review
 
 Do not merge the PR.
 Stop after reporting the PR URL and validation results.

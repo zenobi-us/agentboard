@@ -49,7 +49,7 @@ case "${1:-}" in
     ;;
 esac
 
-for command in curl git gh bun agentboard pi tar; do
+for command in curl git gh bun npm agentboard pi tar zellij; do
   require_command "$command"
 done
 
