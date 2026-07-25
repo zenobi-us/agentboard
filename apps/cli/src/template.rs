@@ -10,14 +10,13 @@ use agentboard_core::{
     RenderedAction,
 };
 use anyhow::{Context, Result};
-use minijinja::{context, Environment, UndefinedBehavior};
+use minijinja::{context, Environment};
 use serde_json::{json, Value};
 
 use crate::config::{expand_vars, hash_json};
 
 fn environment() -> Environment<'static> {
     let mut env = Environment::new();
-    env.set_undefined_behavior(UndefinedBehavior::Strict);
     env.add_filter("slugify", slugify);
     env
 }
@@ -97,6 +96,17 @@ mod tests {
     #[test]
     fn slug_filter_is_path_safe() {
         assert_eq!(slugify("Fix Login!".into()), "fix-login");
+    }
+
+    #[test]
+    fn unrelated_missing_values_keep_existing_lenient_behavior() {
+        let env = environment();
+
+        assert_eq!(
+            env.render_str("{{ item.optional }}", context! { item => json!({}) })
+                .unwrap(),
+            ""
+        );
     }
 
     #[test]
