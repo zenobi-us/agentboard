@@ -1,0 +1,3 @@
+# Expose preceding named Action inputs through template context
+
+AgentBoard will let Actions declare an optional Source-scoped identifier and expose each preceding named Action's freshly rendered inputs to later Action templates under `actions.<id>.inputs`. Duplicate identifiers are invalid, missing or forward references fail rendering, and an Action skipped because of a stored success still contributes its newly rendered inputs. Identifiers affect template addressing only; structured Action outputs, output persistence, and retry identity changes remain outside this decision so input reuse does not expand the Action contract or Store schema.

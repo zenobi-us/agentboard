@@ -24,6 +24,10 @@ _Avoid_: Source id, Item identity
 A source-owned side effect that runs for a matching item when that item/action has no previous success record.
 _Avoid_: Job, hook, plugin
 
+**Named Action**:
+An Action with a Source-scoped identifier whose rendered inputs can be referenced by later Actions from the same Source.
+_Avoid_: Step, named job
+
 **Action attempt**:
 One recorded execution result for one item/action/rendered-input hash.
 _Avoid_: Build result, task result
