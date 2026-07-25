@@ -20,6 +20,10 @@ _Avoid_: Collect when referring to the public command
 A repeated run loop for one workspace.
 _Avoid_: Daemon unless it is actually installed as a service
 
+**Dashboard**:
+A read-only terminal view of stored Item and Action state for one Workspace. A Dashboard observes the Store without executing a Run.
+_Avoid_: Monitor, control panel
+
 **Store**:
 The local append-only record of item observations and action attempts for one workspace.
 _Avoid_: Database, cache when precision matters
