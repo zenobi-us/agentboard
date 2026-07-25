@@ -749,6 +749,89 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn missing_named_action_input_is_an_item_scoped_render_failure() {
+        let mut registry = Registry::new();
+        registry.add_source::<ItemSourceDefinition>().unwrap();
+        registry.add_action::<TestActionDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/items"
+
+                [[sources.actions]]
+                id = "first"
+                uses = "test/action"
+                [sources.actions.with]
+                message = "first-{{ item.id }}"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "{{ actions.first.inputs.missing }}"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "must not run"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: format!(
+                "runtime-missing-action-input-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            None,
+        )
+        .unwrap();
+
+        let summary = run_source(&ws, &ws.sources[0], &registry, false, "run", &output)
+            .await
+            .unwrap();
+        assert_eq!(summary.attempted, 4);
+        assert_eq!(summary.succeeded, 2);
+        assert_eq!(summary.failed, 2);
+
+        let attempts = fs::read_to_string(actions_path(&ws, &ws.sources[0]))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ActionAttempt>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(attempts.len(), 4);
+        assert_eq!(
+            attempts
+                .iter()
+                .map(|attempt| (attempt.source_action_index, attempt.success))
+                .collect::<Vec<_>>(),
+            [(0, true), (1, false), (0, true), (1, false)]
+        );
+        assert!(attempts
+            .iter()
+            .filter(|attempt| attempt.source_action_index == 1)
+            .all(
+                |attempt| attempt.message.as_deref().is_some_and(|message| message
+                    .contains("undefined Action template reference actions.first.inputs.missing"))
+            ));
+
+        fs::remove_dir_all(store_root(&ws)).unwrap();
+    }
+
+    #[tokio::test]
     async fn failed_named_action_stops_later_actions_for_each_item() {
         let mut registry = Registry::new();
         registry.add_source::<ItemSourceDefinition>().unwrap();
