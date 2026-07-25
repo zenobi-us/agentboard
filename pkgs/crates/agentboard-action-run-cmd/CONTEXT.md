@@ -12,6 +12,10 @@ _Avoid_: Script runner plugin
 The action `with` values after MiniJinja rendering and environment expansion by the CLI.
 _Avoid_: Template config inside this crate
 
+**Launch healthcheck**:
+An optional shell probe that confirms an asynchronous handoff is ready after the launch command exits successfully.
+_Avoid_: Continuous session monitor, harness lifecycle
+
 ## Boundaries
 
 - This crate executes already-rendered inputs only.
