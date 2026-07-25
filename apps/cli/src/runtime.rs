@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     future::Future,
     sync::Arc,
     time::{Duration, Instant},
@@ -12,12 +11,12 @@ use agentboard_core::{
 };
 use anyhow::{bail, Result};
 use chrono::Utc;
-use serde_json::{json, Value};
+use serde_json::json;
 
 use crate::{
     output::Output,
     store::{acquire_lock, action_key, append_action, append_items, successful_actions},
-    template::render_action,
+    template::{render_action, ActionTemplateContext},
 };
 
 #[derive(Default)]
@@ -252,7 +251,7 @@ async fn run_source(
         ..Default::default()
     };
     for item in items {
-        let mut actions = BTreeMap::<String, Value>::new();
+        let mut actions = ActionTemplateContext::new();
         for (idx, action) in source.configured.actions.iter().enumerate() {
             let rendered = match render_action(ws, source, &item, idx, action, &actions) {
                 Ok(rendered) => rendered,
@@ -279,7 +278,7 @@ async fn run_source(
                 }
             };
             if let Some(id) = &action.id {
-                actions.insert(id.clone(), json!({"inputs": &rendered.inputs}));
+                actions.insert(id.clone(), rendered.inputs.clone());
             }
             let key = action_key(source_id, &item.id, idx, &rendered.hash);
             if successes.contains(&key) {

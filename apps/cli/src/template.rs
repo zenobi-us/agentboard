@@ -3,17 +3,94 @@
 //! Keeping rendering on serializable config prevents runtime trait objects from
 //! leaking into templates and preserves user-facing field names through cutovers.
 
-use std::collections::BTreeMap;
+use std::{collections::BTreeMap, sync::Arc};
 
 use agentboard_core::{
     model::{ActionConfig, Item, Workspace, WorkspaceSource},
     RenderedAction,
 };
-use anyhow::{bail, Context, Result};
-use minijinja::{context, Environment, Template};
-use serde_json::{json, Value};
+use anyhow::{Context, Result};
+use minijinja::{
+    context,
+    value::{Object, ObjectRepr},
+    Environment, Error, ErrorKind, Value,
+};
+use serde_json::json;
 
 use crate::config::{expand_vars, hash_json};
+
+pub type ActionTemplateContext = BTreeMap<String, BTreeMap<String, String>>;
+
+#[derive(Debug)]
+struct ActionsValue(ActionTemplateContext);
+
+impl Object for ActionsValue {
+    fn repr(self: &Arc<Self>) -> ObjectRepr {
+        ObjectRepr::Map
+    }
+
+    fn get_value(self: &Arc<Self>, key: &Value) -> Option<Value> {
+        let key = key.as_str()?;
+        Some(match self.0.get(key) {
+            Some(inputs) => Value::from_object(NamedActionValue {
+                id: key.to_owned(),
+                inputs: inputs.clone(),
+            }),
+            None => undefined_action_value(format!("actions.{key}")),
+        })
+    }
+}
+
+#[derive(Debug)]
+struct NamedActionValue {
+    id: String,
+    inputs: BTreeMap<String, String>,
+}
+
+impl Object for NamedActionValue {
+    fn repr(self: &Arc<Self>) -> ObjectRepr {
+        ObjectRepr::Map
+    }
+
+    fn get_value(self: &Arc<Self>, key: &Value) -> Option<Value> {
+        let key = key.as_str()?;
+        Some(if key == "inputs" {
+            Value::from_object(ActionInputsValue {
+                id: self.id.clone(),
+                inputs: self.inputs.clone(),
+            })
+        } else {
+            undefined_action_value(format!("actions.{}.{key}", self.id))
+        })
+    }
+}
+
+#[derive(Debug)]
+struct ActionInputsValue {
+    id: String,
+    inputs: BTreeMap<String, String>,
+}
+
+impl Object for ActionInputsValue {
+    fn repr(self: &Arc<Self>) -> ObjectRepr {
+        ObjectRepr::Map
+    }
+
+    fn get_value(self: &Arc<Self>, key: &Value) -> Option<Value> {
+        let key = key.as_str()?;
+        Some(match self.inputs.get(key) {
+            Some(value) => Value::from(value.clone()),
+            None => undefined_action_value(format!("actions.{}.inputs.{key}", self.id)),
+        })
+    }
+}
+
+fn undefined_action_value(path: String) -> Value {
+    Value::from(Error::new(
+        ErrorKind::UndefinedError,
+        format!("undefined Action template reference {path}"),
+    ))
+}
 
 fn environment() -> Environment<'static> {
     let mut env = Environment::new();
@@ -38,20 +115,22 @@ pub fn render_action(
     item: &Item,
     idx: usize,
     action: &ActionConfig,
-    actions: &BTreeMap<String, Value>,
+    actions: &ActionTemplateContext,
 ) -> Result<RenderedAction> {
     let env = environment();
+    let actions = Value::from_object(ActionsValue(actions.clone()));
     let mut inputs = BTreeMap::new();
     for (key, value) in &action.inputs {
-        let template = env.template_from_str(value)?;
-        validate_action_references(&template, actions)?;
-        let rendered = template.render(context! {
-            workspace => json!({"id": ws.id, "path": ws.path}),
-            source => &source.configured,
-            item => item,
-            action => json!({"uses": action.uses, "index": idx}),
-            actions => actions,
-        })?;
+        let rendered = env.render_str(
+            value,
+            context! {
+                workspace => json!({"id": ws.id, "path": ws.path}),
+                source => &source.configured,
+                item => item,
+                action => json!({"uses": action.uses, "index": idx}),
+                actions => &actions,
+            },
+        )?;
         let rendered = if expands_as_path(&action.uses, key) {
             expand_vars(&rendered)
         } else {
@@ -61,29 +140,6 @@ pub fn render_action(
     }
     let hash = hash_json(&json!({"uses": action.uses, "with": inputs}));
     Ok(RenderedAction { inputs, hash })
-}
-
-fn validate_action_references(
-    template: &Template<'_, '_>,
-    actions: &BTreeMap<String, Value>,
-) -> Result<()> {
-    for variable in template.undeclared_variables(true) {
-        let Some(path) = variable.strip_prefix("actions.") else {
-            continue;
-        };
-        let mut segments = path.split('.');
-        let Some(id) = segments.next() else {
-            continue;
-        };
-        let mut value = actions.get(id);
-        for segment in segments {
-            value = value.and_then(|value| value.get(segment));
-        }
-        if value.is_none() {
-            bail!("undefined Action template reference {variable}");
-        }
-    }
-    Ok(())
 }
 
 fn expands_as_path(uses: &str, input: &str) -> bool {
@@ -396,10 +452,7 @@ mod tests {
         assert_eq!(rendered_first.inputs["root"], expected_root);
 
         let mut actions = BTreeMap::new();
-        actions.insert(
-            first.id.clone().unwrap(),
-            json!({"inputs": &rendered_first.inputs}),
-        );
+        actions.insert(first.id.clone().unwrap(), rendered_first.inputs.clone());
         let rendered_second = render_action(
             &ws,
             source,
@@ -411,17 +464,20 @@ mod tests {
         .unwrap();
         assert_eq!(rendered_second.inputs["cmd"], expected_root);
 
-        let mut missing_input = source.configured.actions[1].clone();
-        missing_input.inputs.insert(
-            "cmd".into(),
-            "{{ actions.issue_worktree.inputs.rooot }}".into(),
-        );
-        let missing_input = render_action(&ws, source, &item, 1, &missing_input, &actions)
-            .err()
-            .expect("missing named Action input should fail");
-        assert!(missing_input
-            .to_string()
-            .contains("undefined Action template reference actions.issue_worktree.inputs.rooot"));
+        for template in [
+            "{{ actions.issue_worktree.inputs.rooot }}",
+            "{{ actions[\"issue_worktree\"].inputs[\"rooot\"] }}",
+            "{% set prior = actions.issue_worktree %}{{ prior.inputs.rooot }}",
+        ] {
+            let mut missing_input = source.configured.actions[1].clone();
+            missing_input.inputs.insert("cmd".into(), template.into());
+            let missing_input = render_action(&ws, source, &item, 1, &missing_input, &actions)
+                .err()
+                .expect("missing named Action input should fail");
+            assert!(missing_input.to_string().contains(
+                "undefined Action template reference actions.issue_worktree.inputs.rooot"
+            ));
+        }
 
         let unnamed = render_action(
             &ws,
@@ -433,9 +489,7 @@ mod tests {
         )
         .err()
         .expect("unnamed Action should be absent from runtime context");
-        assert!(unnamed
-            .to_string()
-            .contains("undefined Action template reference actions.unnamed.inputs.cmd"));
+        assert!(unnamed.to_string().contains("undefined value"));
 
         let forward = render_action(
             &ws,
@@ -447,9 +501,7 @@ mod tests {
         )
         .err()
         .expect("forward Action reference should fail");
-        assert!(forward
-            .to_string()
-            .contains("undefined Action template reference actions.future.inputs.cmd"));
+        assert!(forward.to_string().contains("undefined value"));
 
         let mut same_inputs_without_id = first.clone();
         same_inputs_without_id.id = None;
