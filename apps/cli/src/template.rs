@@ -51,10 +51,24 @@ pub fn render_action(
                 action => json!({"uses": action.uses, "index": idx}),
             },
         )?;
-        inputs.insert(key.clone(), expand_vars(&rendered));
+        let rendered = if expands_as_path(&action.uses, key) {
+            expand_vars(&rendered)
+        } else {
+            rendered
+        };
+        inputs.insert(key.clone(), rendered);
     }
     let hash = hash_json(&json!({"uses": action.uses, "with": inputs}));
     Ok(RenderedAction { inputs, hash })
+}
+
+fn expands_as_path(uses: &str, input: &str) -> bool {
+    matches!(
+        (uses, input),
+        ("agentboard/run-cmd", "cwd")
+            | ("agentboard/create-worktree", "repo")
+            | ("agentboard/create-worktree", "root")
+    )
 }
 
 /// Convert arbitrary text into a conservative path/branch-safe slug.
@@ -135,6 +149,76 @@ mod tests {
                 "\0",
                 "138a66006ac0ab3ffa344e4b8ad5210839456e5aeed0f0f10226bd44bb5e383d"
             )
+        );
+    }
+
+    #[test]
+    fn only_path_inputs_expand_agentboard_environment_variables() {
+        let registry = crate::cli::register_builtins().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "notes"
+                [sources.source]
+                kind = "qmd"
+                collections = ["work"]
+                query = "status:ready"
+
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "printf '%s' \"{{ item.reference_id }}|$PWD|${PWD}\""
+                cwd = "$PWD"
+
+                [[sources.actions]]
+                uses = "agentboard/create-worktree"
+                [sources.actions.with]
+                repo = "$PWD/repo"
+                root = "${PWD}/worktrees/{{ item.reference_id }}"
+                branch = "$PWD/{{ item.reference_id }}"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: "workspace".into(),
+            path: PathBuf::from("/tmp/workspace.toml"),
+            sources: parsed.sources,
+        };
+        let source = &ws.sources[0];
+        let item = Item {
+            id: "/doc/AB-1.md".into(),
+            reference_id: "AB-1".into(),
+            title: "Do it".into(),
+            status: "ready".into(),
+            url: "/doc/AB-1.md".into(),
+            source_id: "notes".into(),
+            source_kind: "qmd".into(),
+            raw: json!({}),
+        };
+        let pwd = std::env::var("PWD").unwrap();
+
+        let command = render_action(&ws, source, &item, 0, &source.configured.actions[0]).unwrap();
+        let expected_command = BTreeMap::from([
+            ("cmd".into(), "printf '%s' \"AB-1|$PWD|${PWD}\"".into()),
+            ("cwd".into(), pwd.clone()),
+        ]);
+        assert_eq!(command.inputs, expected_command);
+        assert_eq!(
+            command.hash,
+            hash_json(&json!({"uses": "agentboard/run-cmd", "with": expected_command}))
+        );
+
+        let worktree = render_action(&ws, source, &item, 1, &source.configured.actions[1]).unwrap();
+        let expected_worktree = BTreeMap::from([
+            ("branch".into(), "$PWD/AB-1".into()),
+            ("repo".into(), format!("{pwd}/repo")),
+            ("root".into(), format!("{pwd}/worktrees/AB-1")),
+        ]);
+        assert_eq!(worktree.inputs, expected_worktree);
+        assert_eq!(
+            worktree.hash,
+            hash_json(&json!({"uses": "agentboard/create-worktree", "with": expected_worktree}))
         );
     }
 

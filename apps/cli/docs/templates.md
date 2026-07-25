@@ -63,23 +63,36 @@ Example:
 "Fix Login!" -> "fix-login"
 ```
 
-## Expansion order
+## Rendering and expansion order
 
-AgentBoard renders MiniJinja first, then expands configured path variables:
+AgentBoard processes Action inputs in three stages:
 
-- leading `~/`
-- `$VAR`
-- `${VAR}`
-
-Example:
+1. MiniJinja renders every input.
+2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
+   - `agentboard/run-cmd`: `cwd`
+   - `agentboard/create-worktree`: `repo`, `root`
+3. `agentboard/run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
 
 ```toml
+[[sources.actions]]
+uses = "agentboard/create-worktree"
+[sources.actions.with]
+repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+branch = "{{ item.id | slugify }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cwd = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+cmd = '''printf '%s: %s\n' "{{ item.reference_id }}" "$PWD"'''
 ```
+
+Here AgentBoard expands `$WORKTREE_ROOT` in path fields, MiniJinja renders item fields, and the spawned shell resolves `$PWD` from its configured `cwd`.
 
 ## Action hash
 
-AgentBoard hashes the rendered Action inputs. That hash is part of retry identity:
+AgentBoard hashes the final inputs after MiniJinja and AgentBoard-time path expansion. Those exact strings are passed to the Action, so shell variables in `cmd` remain literal in both the hash and the command given to `sh -c`. The hash is part of retry identity:
 
 ```text
 (source_id, item.id, source_action_index, rendered_action_hash)

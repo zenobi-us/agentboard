@@ -41,6 +41,32 @@ EOF
   [[ "$rendered" == "$prefix"*"|md|qmd|test|agentboard/run-cmd|$QMD_ITEMS/AB-1.md|AB-1|fix-login|agentboard/run-cmd|0|kin|md|$QMD_ITEMS/AB-1.md" ]]
 }
 
+@test "run-cmd leaves shell variables for the shell after applying cwd" {
+  write_item AB-1
+  mkdir -p "$TMP/launch" "$TMP/action"
+  export SHELL_VALUE="agentboard"
+  cat > "$TMP/workspace.toml" <<EOF
+[[sources]]
+id = "md"
+[sources.source]
+kind = "qmd"
+collections = ["test"]
+query = "ready"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cwd = "$TMP/action"
+cmd = '''SHELL_VALUE=shell; printf '%s|%s|%s|%s' "{{ item.reference_id }}" "\$PWD" "\$SHELL_VALUE" "\${SHELL_VALUE}" > "$TMP/result"'''
+EOF
+
+  cd "$TMP/launch"
+  run "$AB" run "$TMP/workspace.toml"
+
+  [ "$status" -eq 0 ]
+  [ "$(cat "$TMP/result")" = "AB-1|$TMP/action|shell|shell" ]
+}
+
 @test "template inputs expand home and environment paths after MiniJinja rendering" {
   write_item AB-1
   export HOME="$TMP/home"

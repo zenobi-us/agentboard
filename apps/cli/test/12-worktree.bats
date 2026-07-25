@@ -36,6 +36,32 @@ branch = "$branch"
 EOF
 }
 
+@test "create-worktree expands repository and root environment paths" {
+  write_item AB-1
+  export REPO_PATH="$TMP/repo"
+  export WORKTREE_ROOT="$TMP/worktrees"
+  cat > "$TMP/workspace.toml" <<'EOF'
+[[sources]]
+id = "md"
+[sources.source]
+kind = "qmd"
+collections = ["test"]
+query = "ready"
+
+[[sources.actions]]
+uses = "agentboard/create-worktree"
+[sources.actions.with]
+repo = "$REPO_PATH"
+root = "${WORKTREE_ROOT}/{{ item.reference_id }}"
+branch = "{{ item.reference_id }}"
+EOF
+
+  run "$AB" run "$TMP/workspace.toml"
+
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$TMP/worktrees/AB-1" branch --show-current)" = "AB-1" ]
+}
+
 @test "create-worktree creates a new branch and worktree" {
   write_item AB-1
   write_worktree_workspace "$TMP/worktrees/ab-1" "ab-1"

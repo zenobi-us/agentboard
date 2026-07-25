@@ -54,13 +54,19 @@ Fix: choose a different `root`, remove the bad directory, or repair the existing
 
 ## Environment variable did not expand
 
-AgentBoard expands variables after template rendering:
+First identify where expansion belongs.
 
-- `$VAR`
-- `${VAR}`
-- leading `~/`
+AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
 
-Check that the variable exists in the environment of the `agentboard` process, not just your interactive shell startup file.
+- `agentboard/run-cmd.cwd`
+- `agentboard/create-worktree.repo`
+- `agentboard/create-worktree.root`
+
+For these fields, check that the variable exists in the environment of the `agentboard` process, not only an interactive shell startup file.
+
+Variables in `agentboard/run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
+
+MiniJinja expressions such as `{{ item.reference_id }}` always render before either kind of environment expansion.
 
 ## Jira credentials fail
 
