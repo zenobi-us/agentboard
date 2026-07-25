@@ -10,13 +10,14 @@ use agentboard_core::{
     RenderedAction,
 };
 use anyhow::{Context, Result};
-use minijinja::{context, Environment};
-use serde_json::json;
+use minijinja::{context, Environment, UndefinedBehavior};
+use serde_json::{json, Value};
 
 use crate::config::{expand_vars, hash_json};
 
 fn environment() -> Environment<'static> {
     let mut env = Environment::new();
+    env.set_undefined_behavior(UndefinedBehavior::Strict);
     env.add_filter("slugify", slugify);
     env
 }
@@ -38,6 +39,7 @@ pub fn render_action(
     item: &Item,
     idx: usize,
     action: &ActionConfig,
+    actions: &BTreeMap<String, Value>,
 ) -> Result<RenderedAction> {
     let env = environment();
     let mut inputs = BTreeMap::new();
@@ -49,6 +51,7 @@ pub fn render_action(
                 source => &source.configured,
                 item => item,
                 action => json!({"uses": action.uses, "index": idx}),
+                actions => actions,
             },
         )?;
         let rendered = if expands_as_path(&action.uses, key) {
@@ -133,7 +136,7 @@ mod tests {
             raw: json!({}),
         };
 
-        let rendered = render_action(&ws, source, &item, 0, action).unwrap();
+        let rendered = render_action(&ws, source, &item, 0, action, &BTreeMap::new()).unwrap();
 
         assert_eq!(rendered.inputs["cmd"], "echo AB-1");
         assert_eq!(
@@ -198,7 +201,15 @@ mod tests {
         };
         let pwd = std::env::var("PWD").unwrap();
 
-        let command = render_action(&ws, source, &item, 0, &source.configured.actions[0]).unwrap();
+        let command = render_action(
+            &ws,
+            source,
+            &item,
+            0,
+            &source.configured.actions[0],
+            &BTreeMap::new(),
+        )
+        .unwrap();
         let expected_command = BTreeMap::from([
             ("cmd".into(), "printf '%s' \"AB-1|$PWD|${PWD}\"".into()),
             ("cwd".into(), pwd.clone()),
@@ -209,7 +220,15 @@ mod tests {
             hash_json(&json!({"uses": "agentboard/run-cmd", "with": expected_command}))
         );
 
-        let worktree = render_action(&ws, source, &item, 1, &source.configured.actions[1]).unwrap();
+        let worktree = render_action(
+            &ws,
+            source,
+            &item,
+            1,
+            &source.configured.actions[1],
+            &BTreeMap::new(),
+        )
+        .unwrap();
         let expected_worktree = BTreeMap::from([
             ("branch".into(), "$PWD/AB-1".into()),
             ("repo".into(), format!("{pwd}/repo")),
@@ -258,11 +277,143 @@ mod tests {
             raw: json!({}),
         };
 
-        let rendered = render_action(&ws, source, &item, 0, &source.configured.actions[0]).unwrap();
+        let rendered = render_action(
+            &ws,
+            source,
+            &item,
+            0,
+            &source.configured.actions[0],
+            &BTreeMap::new(),
+        )
+        .unwrap();
 
         assert_eq!(
             rendered.inputs["cmd"],
             "AB-1|notes|qmd|work|agentboard/run-cmd"
         );
+    }
+
+    #[test]
+    fn templates_expose_only_preceding_named_action_inputs() {
+        let registry = crate::cli::register_builtins().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "notes"
+                [sources.source]
+                kind = "qmd"
+                collections = ["work"]
+                query = "status:ready"
+
+                [[sources.actions]]
+                id = "issue_worktree"
+                uses = "agentboard/create-worktree"
+                [sources.actions.with]
+                repo = "$PWD/repo"
+                root = "$PWD/worktrees/{{ item.reference_id }}"
+                branch = "item-{{ item.reference_id }}"
+
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "{{ actions.issue_worktree.inputs.root }}"
+
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "unnamed"
+
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "{{ actions.unnamed.inputs.cmd }}"
+
+                [[sources.actions]]
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "{{ actions.future.inputs.cmd }}"
+
+                [[sources.actions]]
+                id = "future"
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "future"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: "workspace".into(),
+            path: PathBuf::from("/tmp/workspace.toml"),
+            sources: parsed.sources,
+        };
+        let source = &ws.sources[0];
+        let item = Item {
+            id: "/notes/AB-1.md".into(),
+            reference_id: "AB-1".into(),
+            title: "Do it".into(),
+            status: "ready".into(),
+            url: "/notes/AB-1.md".into(),
+            source_id: "notes".into(),
+            source_kind: "qmd".into(),
+            raw: json!({}),
+        };
+        let first = &source.configured.actions[0];
+        let rendered_first = render_action(&ws, source, &item, 0, first, &BTreeMap::new()).unwrap();
+        let expected_root = format!("{}/worktrees/AB-1", std::env::var("PWD").unwrap());
+        assert_eq!(rendered_first.inputs["root"], expected_root);
+
+        let mut actions = BTreeMap::new();
+        actions.insert(
+            first.id.clone().unwrap(),
+            json!({"inputs": &rendered_first.inputs}),
+        );
+        let rendered_second = render_action(
+            &ws,
+            source,
+            &item,
+            1,
+            &source.configured.actions[1],
+            &actions,
+        )
+        .unwrap();
+        assert_eq!(rendered_second.inputs["cmd"], expected_root);
+
+        let unnamed = render_action(
+            &ws,
+            source,
+            &item,
+            3,
+            &source.configured.actions[3],
+            &actions,
+        )
+        .err()
+        .expect("unnamed Action should be absent from runtime context");
+        assert!(unnamed.to_string().contains("undefined value"));
+
+        let forward = render_action(
+            &ws,
+            source,
+            &item,
+            4,
+            &source.configured.actions[4],
+            &actions,
+        )
+        .err()
+        .expect("forward Action reference should fail");
+        assert!(forward.to_string().contains("undefined value"));
+
+        let mut same_inputs_without_id = first.clone();
+        same_inputs_without_id.id = None;
+        let rendered_without_id = render_action(
+            &ws,
+            source,
+            &item,
+            0,
+            &same_inputs_without_id,
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        assert_eq!(rendered_first.hash, rendered_without_id.hash);
     }
 }

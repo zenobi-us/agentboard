@@ -11,7 +11,7 @@ use agentboard_core::{
 };
 use anyhow::{bail, Context, Result};
 use directories::BaseDirs;
-use serde_json::Value;
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
 use crate::template::validate_action_templates;
@@ -97,6 +97,7 @@ pub fn parse_workspace(text: &str, registry: &Registry) -> Result<ParsedWorkspac
             .build_configured_source(&kind, source.source.config)
             .with_context(|| format!("source {} registration {kind}", source.id))?;
 
+        let mut action_ids = HashSet::new();
         for (index, action) in source.actions.iter().enumerate() {
             let location = || {
                 format!(
@@ -104,6 +105,12 @@ pub fn parse_workspace(text: &str, registry: &Registry) -> Result<ParsedWorkspac
                     source.id, action.uses
                 )
             };
+            if let Some(id) = &action.id {
+                validate_action_id(id).with_context(location)?;
+                if !action_ids.insert(id.clone()) {
+                    bail!("{}: duplicate action id {id}", location());
+                }
+            }
             registry
                 .validate_action(&action.uses, &action.inputs)
                 .with_context(location)?;
@@ -124,6 +131,18 @@ pub fn parse_workspace(text: &str, registry: &Registry) -> Result<ParsedWorkspac
     }
 
     Ok(ParsedWorkspace { sources })
+}
+
+fn validate_action_id(id: &str) -> Result<()> {
+    let mut chars = id.chars();
+    if !chars
+        .next()
+        .is_some_and(|char| char.is_ascii_alphabetic() || char == '_')
+        || !chars.all(|char| char.is_ascii_alphanumeric() || char == '_')
+    {
+        bail!("invalid action id {id:?}; expected [A-Za-z_][A-Za-z0-9_]*");
+    }
+    Ok(())
 }
 
 /// Load a workspace by name or explicit TOML path through the process Registry.
@@ -235,11 +254,17 @@ fn configured_source_json(source: &WorkspaceSource) -> String {
     } else {
         format!("{{\"kind\":{kind},{fields}}}")
     };
+    let actions = source
+        .configured
+        .actions
+        .iter()
+        .map(|action| json!({"uses": &action.uses, "with": &action.inputs}))
+        .collect::<Vec<_>>();
     format!(
         "{{\"id\":{},\"source\":{},\"actions\":{}}}",
         serde_json::to_string(&source.configured.id).unwrap(),
         source_json,
-        serde_json::to_string(&source.configured.actions).unwrap()
+        serde_json::to_string(&actions).unwrap()
     )
 }
 
@@ -472,6 +497,84 @@ mod tests {
             &registry,
         )
         .expect("Item-dependent templates should remain deferred until rendering");
+    }
+
+    #[test]
+    fn workspace_load_validates_source_scoped_action_ids() {
+        let registry = crate::cli::register_builtins().unwrap();
+        let valid = parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+                [sources.source]
+                kind = "qmd"
+                collections = ["tasks"]
+                query = "ready"
+                [[sources.actions]]
+                id = "issue_worktree_2"
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "true"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        assert_eq!(
+            valid.sources[0].configured.actions[0].id.as_deref(),
+            Some("issue_worktree_2")
+        );
+        let mut unnamed = valid.sources[0].clone();
+        unnamed.configured.actions[0].id = None;
+        assert_eq!(source_hash(&valid.sources[0]), source_hash(&unnamed));
+
+        let invalid = parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+                [sources.source]
+                kind = "qmd"
+                collections = ["tasks"]
+                query = "ready"
+                [[sources.actions]]
+                id = "2-bad"
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "true"
+            "#,
+            &registry,
+        )
+        .err()
+        .expect("invalid Action ID should fail");
+        assert!(format!("{invalid:#}").contains(
+            "source local action 0 registration agentboard/run-cmd: invalid action id \"2-bad\""
+        ));
+
+        let duplicate = parse_workspace(
+            r#"
+                [[sources]]
+                id = "local"
+                [sources.source]
+                kind = "qmd"
+                collections = ["tasks"]
+                query = "ready"
+                [[sources.actions]]
+                id = "same"
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "true"
+                [[sources.actions]]
+                id = "same"
+                uses = "agentboard/run-cmd"
+                [sources.actions.with]
+                cmd = "true"
+            "#,
+            &registry,
+        )
+        .err()
+        .expect("duplicate Action ID should fail");
+        assert!(format!("{duplicate:#}").contains(
+            "source local action 1 registration agentboard/run-cmd: duplicate action id same"
+        ));
     }
 
     #[test]

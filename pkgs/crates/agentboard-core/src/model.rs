@@ -20,6 +20,8 @@ pub struct FieldMap {
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ActionConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
     pub uses: String,
     #[serde(default, rename = "with")]
     pub inputs: BTreeMap<String, String>,

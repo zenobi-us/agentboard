@@ -78,6 +78,7 @@ Action-specific inputs are documented by action crates:
 ## CLI validation rules
 
 - Source ids must be non-empty and unique.
+- Action ids are optional, unique within one Source, and match `[A-Za-z_][A-Za-z0-9_]*`.
 - Unknown Actions fail validation.
 - Unknown Workspace, Source, and typed Action input fields fail validation.
 

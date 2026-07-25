@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     future::Future,
     sync::Arc,
     time::{Duration, Instant},
@@ -11,7 +12,7 @@ use agentboard_core::{
 };
 use anyhow::{bail, Result};
 use chrono::Utc;
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::{
     output::Output,
@@ -251,8 +252,9 @@ async fn run_source(
         ..Default::default()
     };
     for item in items {
+        let mut actions = BTreeMap::<String, Value>::new();
         for (idx, action) in source.configured.actions.iter().enumerate() {
-            let rendered = match render_action(ws, source, &item, idx, action) {
+            let rendered = match render_action(ws, source, &item, idx, action, &actions) {
                 Ok(rendered) => rendered,
                 Err(error) => {
                     summary.attempted += 1;
@@ -276,6 +278,9 @@ async fn run_source(
                     break;
                 }
             };
+            if let Some(id) = &action.id {
+                actions.insert(id.clone(), json!({"inputs": &rendered.inputs}));
+            }
             let key = action_key(source_id, &item.id, idx, &rendered.hash);
             if successes.contains(&key) {
                 summary.skipped += 1;
@@ -544,6 +549,7 @@ mod tests {
             raw: json!({}),
         };
         let action = ActionConfig {
+            id: None,
             uses: TestActionDefinition::ID.into(),
             inputs: BTreeMap::from([
                 ("message".into(), "expected failure".into()),
@@ -652,6 +658,159 @@ mod tests {
         assert_eq!(attempts[2].item_id, "good");
         assert_eq!(attempts[2].source_action_index, 1);
         assert!(attempts[2].success);
+
+        fs::remove_dir_all(store_root(&ws)).unwrap();
+    }
+
+    #[tokio::test]
+    async fn named_action_inputs_flow_through_dry_run_execution_and_stored_success() {
+        let mut registry = Registry::new();
+        registry.add_source::<ItemSourceDefinition>().unwrap();
+        registry.add_action::<TestActionDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/items"
+
+                [[sources.actions]]
+                id = "first"
+                uses = "test/action"
+                [sources.actions.with]
+                message = "first-{{ item.id }}"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "{{ actions.first.inputs.message }}"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: format!(
+                "runtime-action-context-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            None,
+        )
+        .unwrap();
+
+        let dry_summary = run_source(&ws, &ws.sources[0], &registry, true, "dry-run", &output)
+            .await
+            .unwrap();
+        assert_eq!(dry_summary.attempted, 4);
+        assert_eq!(dry_summary.succeeded, 4);
+        assert!(!store_root(&ws).exists());
+
+        let summary = run_source(&ws, &ws.sources[0], &registry, false, "run", &output)
+            .await
+            .unwrap();
+        assert_eq!(summary.attempted, 4);
+        assert_eq!(summary.succeeded, 4);
+
+        let attempts = fs::read_to_string(actions_path(&ws, &ws.sources[0]))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ActionAttempt>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(attempts.len(), 4);
+        assert_eq!(attempts[1].stdout, "first-bad");
+        assert_eq!(attempts[3].stdout, "first-good");
+
+        let skipped = run_source(
+            &ws,
+            &ws.sources[0],
+            &registry,
+            false,
+            "stored-success",
+            &output,
+        )
+        .await
+        .unwrap();
+        assert_eq!(skipped.attempted, 0);
+        assert_eq!(skipped.skipped, 4);
+        assert_eq!(skipped.failed, 0);
+
+        fs::remove_dir_all(store_root(&ws)).unwrap();
+    }
+
+    #[tokio::test]
+    async fn failed_named_action_stops_later_actions_for_each_item() {
+        let mut registry = Registry::new();
+        registry.add_source::<ItemSourceDefinition>().unwrap();
+        registry.add_action::<TestActionDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/items"
+
+                [[sources.actions]]
+                id = "first"
+                uses = "test/action"
+                [sources.actions.with]
+                message = "stop"
+                outcome = "fail"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "{{ actions.first.inputs.message }}"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: format!(
+                "runtime-action-failure-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            None,
+        )
+        .unwrap();
+
+        let summary = run_source(&ws, &ws.sources[0], &registry, false, "run", &output)
+            .await
+            .unwrap();
+        assert_eq!(summary.attempted, 2);
+        assert_eq!(summary.failed, 2);
+
+        let attempts = fs::read_to_string(actions_path(&ws, &ws.sources[0]))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ActionAttempt>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(attempts.len(), 2);
+        assert!(attempts
+            .iter()
+            .all(|attempt| attempt.source_action_index == 0 && !attempt.success));
 
         fs::remove_dir_all(store_root(&ws)).unwrap();
     }

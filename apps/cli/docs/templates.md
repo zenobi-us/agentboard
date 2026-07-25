@@ -19,6 +19,7 @@ Templates can read:
 - `source`
 - `item`
 - `action`
+- `actions` (preceding named Actions only)
 
 Example values:
 
@@ -35,10 +36,35 @@ Example values:
 {{ item.url }}
 {{ action.uses }}
 {{ action.index }}
+{{ actions.issue_worktree.inputs.root }}
 ```
 
 `source` is the complete configured Source. Adapter settings stay nested under
 `source.source`, and configured Actions stay under `source.actions`.
+
+An Action may declare a Source-scoped `id`. Later Actions can read that named
+Action's final rendered inputs through `actions.<id>.inputs`. Unnamed Actions are
+absent, and missing or forward references fail rendering for that Item.
+
+```toml
+[[sources.actions]]
+id = "issue_worktree"
+uses = "agentboard/create-worktree"
+[sources.actions.with]
+repo = "~/Projects/MyProject"
+root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+branch = "{{ item.id | slugify }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cwd = "{{ actions.issue_worktree.inputs.root }}"
+cmd = "pwd"
+```
+
+Stored-success skips and dry runs still render each Action in order, so later
+Actions receive freshly rendered named inputs. Action IDs do not change retry
+identity.
 
 Use `item.reference_id` for provider-facing names and messages. `item.id` is the
 stable identity used by the Store and Action retry checks.

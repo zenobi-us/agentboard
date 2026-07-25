@@ -101,6 +101,10 @@ fn action_variant(
         "additionalProperties": false,
         "required": required,
         "properties": {
+            "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+            },
             "uses": { "type": "string", "enum": [registration.id()] },
             "with": inputs
         }
@@ -212,6 +216,11 @@ mod tests {
         assert_eq!(
             action_ids,
             ["agentboard/create-worktree", "agentboard/run-cmd"]
+        );
+        assert_eq!(
+            schema["properties"]["sources"]["items"]["properties"]["actions"]["items"]["oneOf"][0]
+                ["properties"]["id"]["pattern"],
+            "^[A-Za-z_][A-Za-z0-9_]*$"
         );
     }
 }
