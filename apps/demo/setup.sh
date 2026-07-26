@@ -35,6 +35,17 @@ success() {
 	printf 'AGENTBOARD DEMO SETUP: ✅ %s\n' "$*" >&2
 }
 
+confirm_replacement() {
+	[ -r /dev/tty ] || fail "$1 exists; interactive confirmation is required to replace it"
+	printf '%s exists. %s? [y/N] ' "$1" "$2" >/dev/tty
+	answer=''
+	IFS= read -r answer </dev/tty || fail 'could not read confirmation'
+	case "$answer" in
+	y | Y | yes | YES | Yes) ;;
+	*) fail 'setup cancelled; existing resources were left unchanged' ;;
+	esac
+}
+
 require_command() {
 	command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
@@ -76,13 +87,19 @@ name=${REPO#*/}
 [ -n "$owner" ] && [ -n "$name" ] && [ "$owner" != "$name" ] ||
 	fail 'REPO must use owner/name format'
 case "$name" in
-*/*) fail 'REPO must use owner/name format' ;;
+*/* | . | ..) fail 'REPO must use owner/name format' ;;
 esac
 
 target=$PWD/$name
-[ ! -e "$target" ] || fail "destination already exists: $target"
+replace_target=false
+replace_repo=false
+if [ -e "$target" ]; then
+	confirm_replacement "Local path $target" 'Delete and replace it'
+	replace_target=true
+fi
 if gh repo view "$REPO" >/dev/null 2>&1; then
-	fail "GitHub repository already exists: $REPO"
+	confirm_replacement "GitHub repository $REPO" 'Replace its commit history with the new demo'
+	replace_repo=true
 fi
 
 action "Setting up AgentBoard demo in $REPO (local clone: $target)"
@@ -102,9 +119,22 @@ for directory in "$source_dir"/*; do
 done
 [ -d "$source_root/apps/demo" ] || fail 'downloaded archive does not contain apps/demo'
 
-action "Creating private repository $REPO..."
-gh repo create "$REPO" --private
+if [ "$replace_target" = true ]; then
+	action "Deleting existing local path $target..."
+	rm -rf "$target"
+fi
+if [ "$replace_repo" = false ]; then
+	action "Creating private repository $REPO..."
+	gh repo create "$REPO" --private
+fi
+
+action "Cloning repository $REPO..."
 gh repo clone "$REPO" "$target"
+if [ "$replace_repo" = true ]; then
+	action 'Preparing clean demo commit history...'
+	git -C "$target" checkout --orphan agentboard-demo-replacement
+	git -C "$target" rm -rf --ignore-unmatch .
+fi
 cp -R "$source_root/apps/demo/." "$target/"
 
 sed "s|__GITHUB_REPOSITORY__|$REPO|g" "$target/.agentboard.toml" >"$tmp/agentboard.toml"
@@ -120,7 +150,11 @@ action 'Building demo...'
 git -C "$target" add .
 git -C "$target" commit -m 'chore: initialize AgentBoard demo'
 git -C "$target" branch -M main
-git -C "$target" push -u origin HEAD
+if [ "$replace_repo" = true ]; then
+	git -C "$target" push -u origin HEAD --force-with-lease
+else
+	git -C "$target" push -u origin HEAD
+fi
 
 action 'Configuring repository settings...'
 gh api --method PATCH "repos/$REPO" --input - >/dev/null <<'EOF'
