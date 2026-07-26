@@ -2,13 +2,16 @@
 set -eu
 
 readonly SOURCE_ARCHIVE='https://github.com/zenobi-us/agentboard/archive/refs/heads/main.tar.gz'
-readonly LABELS='agentboard:ready-for-agent|2f81f7|Ready for an implementation agent
-agentboard:in-progress|1d76db|Implementation agent owns the issue
-agentboard:changes-requested|d93f0b|Review requested implementation changes
-agentboard:ready-for-review|8250df|Ready for a review agent
-agentboard:review-in-progress|5319e7|Review agent owns the issue
-agentboard:review-complete|1f883d|Agent review passed
-agentboard:cleanup-approved|6f42c1|Worktree cleanup approved'
+
+readonly LABELS='[
+{ "label": "agentboard:ready-for-agent", "colour": "2f81f7", "description": "Ready for an implementation agent" },
+{ "label": "agentboard:in-progress", "colour": "1d76db", "description": "Implementation agent owns the issue" },
+{ "label": "agentboard:changes-requested", "colour": "d93f0b", "description": "Review requested implementation changes" },
+{ "label": "agentboard:ready-for-review", "colour": "8250df", "description": "Ready for a review agent" },
+{ "label": "agentboard:review-in-progress", "colour": "5319e7", "description": "Review agent owns the issue" },
+{ "label": "agentboard:review-complete", "colour": "1f883d", "description": "Agent review passed" },
+{ "label": "agentboard:cleanup-approved", "colour": "6f42c1", "description": "Worktree cleanup approved" }
+]'
 
 tmp=''
 
@@ -70,7 +73,7 @@ case "${1:-}" in
 	;;
 esac
 
-for command in curl git gh bun agentboard pi tar zellij; do
+for command in curl git gh jq bun agentboard pi tar zellij; do
 	require_command "$command"
 done
 
@@ -98,7 +101,7 @@ if [ -e "$target" ]; then
 	replace_target=true
 fi
 if gh repo view "$REPO" >/dev/null 2>&1; then
-	confirm_replacement "GitHub repository $REPO" 'Replace its commit history with the new demo'
+	confirm_replacement "GitHub repository $REPO" 'Permanently delete all issues and replace its commit history with the new demo'
 	replace_repo=true
 fi
 
@@ -167,9 +170,23 @@ gh api --method PATCH "repos/$REPO" --input - >/dev/null <<'EOF'
 }
 EOF
 
-action "$LABELS" | while IFS='|' read -r label color description; do
-	gh label create "$label" --repo "$REPO" --color "$color" --description "$description" --force >/dev/null
-done
+action 'Configuring labels...'
+printf '%s\n' "$LABELS" |
+	jq -r '.[] | [.label, .colour, .description] | @tsv' |
+	while IFS="$(printf '\t')" read -r label colour description; do
+		gh label create "$label" --repo "$REPO" --color "$colour" --description "$description" --force >/dev/null
+	done
+
+action 'Deleting existing issues...'
+gh issue list --repo "$REPO" --state all --limit 100000 --json id,number >"$tmp/issues.json"
+jq -r '.[] | [.id, .number] | @tsv' "$tmp/issues.json" >"$tmp/issues.tsv"
+while IFS="$(printf '\t')" read -r issue_id issue_number; do
+	[ -n "$issue_id" ] || continue
+	action "Permanently deleting issue #$issue_number..."
+	gh api graphql \
+		-f query="mutation(\$id: ID!) { deleteIssue(input: {issueId: \$id}) { clientMutationId } }" \
+		-f id="$issue_id" >/dev/null
+done <"$tmp/issues.tsv"
 
 action 'Creating demo issues...'
 set -- "$target"/.issues/*.json
