@@ -13,7 +13,7 @@ agentboard:cleanup-approved|6f42c1|Worktree cleanup approved'
 tmp=''
 
 usage() {
-  cat <<'EOF'
+	cat <<'EOF'
 Usage:
   curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | sh
 
@@ -22,78 +22,87 @@ The private repository is cloned into ./<name>.
 EOF
 }
 
+action() {
+	printf 'AGENTBOARD DEMO SETUP: ℹ️ %s\n' "$*" >&2
+}
+
 fail() {
-  printf 'setup: %s\n' "$*" >&2
-  exit 1
+	printf 'AGENTBOARD DEMO SETUP: ❌ %s\n' "$*" >&2
+	exit 1
+}
+
+success() {
+	printf 'AGENTBOARD DEMO SETUP: ✅ %s\n' "$*" >&2
 }
 
 require_command() {
-  command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
+	command -v "$1" >/dev/null 2>&1 || fail "required command not found: $1"
 }
 
 cleanup() {
-  if [ -n "$tmp" ] && [ -d "$tmp" ]; then
-    rm -rf "$tmp"
-  fi
+	if [ -n "$tmp" ] && [ -d "$tmp" ]; then
+		rm -rf "$tmp"
+	fi
 }
 
 trap cleanup 0 HUP INT TERM
 
 case "${1:-}" in
-  -h|--help)
-    usage
-    exit 0
-    ;;
-  '') ;;
-  *)
-    usage >&2
-    exit 2
-    ;;
+-h | --help)
+	usage
+	exit 0
+	;;
+'') ;;
+*)
+	usage >&2
+	exit 2
+	;;
 esac
 
 for command in curl git gh bun agentboard pi tar zellij; do
-  require_command "$command"
+	require_command "$command"
 done
 
 gh auth status >/dev/null 2>&1 || fail 'GitHub CLI is not authenticated; run: gh auth login'
 
 if [ -z "${REPO:-}" ]; then
-  [ -r /dev/tty ] || fail 'REPO is required when no interactive terminal is available'
-  printf 'GitHub repository (owner/name): ' >/dev/tty
-  IFS= read -r REPO </dev/tty || fail 'could not read repository name'
+	[ -r /dev/tty ] || fail 'REPO is required when no interactive terminal is available'
+	printf 'GitHub repository (owner/name): ' >/dev/tty
+	IFS= read -r REPO </dev/tty || fail 'could not read repository name'
 fi
 
 owner=${REPO%%/*}
 name=${REPO#*/}
 [ -n "$owner" ] && [ -n "$name" ] && [ "$owner" != "$name" ] ||
-  fail 'REPO must use owner/name format'
+	fail 'REPO must use owner/name format'
 case "$name" in
-  */*) fail 'REPO must use owner/name format' ;;
+*/*) fail 'REPO must use owner/name format' ;;
 esac
 
 target=$PWD/$name
 [ ! -e "$target" ] || fail "destination already exists: $target"
 if gh repo view "$REPO" >/dev/null 2>&1; then
-  fail "GitHub repository already exists: $REPO"
+	fail "GitHub repository already exists: $REPO"
 fi
 
+action "Setting up AgentBoard demo in $REPO (local clone: $target)"
 tmp=$(mktemp -d)
 archive=$tmp/agentboard.tar.gz
 source_dir=$tmp/source
 mkdir "$source_dir"
 
-printf 'Downloading AgentBoard demo...\n' >&2
+action 'Downloading AgentBoard demo...'
 curl -fsSL "$SOURCE_ARCHIVE" -o "$archive"
 tar -xzf "$archive" -C "$source_dir"
 
 source_root=''
 for directory in "$source_dir"/*; do
-  source_root=$directory
-  break
+	source_root=$directory
+	break
 done
 [ -d "$source_root/apps/demo" ] || fail 'downloaded archive does not contain apps/demo'
 
-printf 'Creating private repository %s...\n' "$REPO" >&2
+action "Creating private repository $REPO..."
 gh repo create "$REPO" --private
 gh repo clone "$REPO" "$target"
 cp -R "$source_root/apps/demo/." "$target/"
@@ -101,16 +110,19 @@ cp -R "$source_root/apps/demo/." "$target/"
 sed "s|__GITHUB_REPOSITORY__|$REPO|g" "$target/.agentboard.toml" >"$tmp/agentboard.toml"
 mv "$tmp/agentboard.toml" "$target/.agentboard.toml"
 
+action 'Installing dependencies...'
 (
-  cd "$target"
-  bun install
+	cd "$target"
+	bun install
 )
 
+action 'Building demo...'
 git -C "$target" add .
 git -C "$target" commit -m 'chore: initialize AgentBoard demo'
 git -C "$target" branch -M main
 git -C "$target" push -u origin HEAD
 
+action 'Configuring repository settings...'
 gh api --method PATCH "repos/$REPO" --input - >/dev/null <<'EOF'
 {
   "default_branch": "main",
@@ -121,28 +133,20 @@ gh api --method PATCH "repos/$REPO" --input - >/dev/null <<'EOF'
 }
 EOF
 
-gh api --method PUT "repos/$REPO/branches/main/protection" --input - >/dev/null <<'EOF'
-{
-  "required_status_checks": null,
-  "enforce_admins": true,
-  "required_pull_request_reviews": {
-    "required_approving_review_count": 0
-  },
-  "restrictions": null
-}
-EOF
-
-printf '%s\n' "$LABELS" | while IFS='|' read -r label color description; do
-  gh label create "$label" --repo "$REPO" --color "$color" --description "$description" --force >/dev/null
+action "$LABELS" | while IFS='|' read -r label color description; do
+	gh label create "$label" --repo "$REPO" --color "$color" --description "$description" --force >/dev/null
 done
 
+action 'Creating demo issues...'
 set -- "$target"/.issues/*.json
 [ -f "$1" ] || fail 'downloaded demo contains no issue JSON files'
-for task do
-  title=$(bun -e 'console.log((await Bun.file(process.argv.at(-1)).json()).title)' "$task")
-  number=$(gh api --method POST "repos/$REPO/issues" --input "$task" --jq .number)
-  printf 'Created issue #%s: %s\n' "$number" "$title"
+for task; do
+	title=$(bun -e 'console.log((await Bun.file(process.argv.at(-1)).json()).title)' "$task")
+	number=$(gh api --method POST "repos/$REPO/issues" --input "$task" --jq .number)
+	printf 'Created issue #%s: %s\n' "$number" "$title"
 done
+
+success 'Demo setup complete!'
 
 cat <<EOF
 
