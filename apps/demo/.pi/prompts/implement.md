@@ -7,11 +7,10 @@ Implement the GitHub issue and create or update its pull request.
 - Implement the issue's written acceptance criteria directly.
 - Commit normally. Husky runs lint-staged and ESLint against staged HTML and CSS files.
 - Fix hook failures; do not bypass hooks with `--no-verify`.
-- Push and create or update a PR whose body contains `Closes #$1`.
 
 When the branch is ready:
 
-- Comment on the issue with the PR link, validation results, and review handoff.
+- Push and create or update a PR whose body describes the "why" of the changes. Ensure the PR contains `Closes #$1`, validation results, and review handoff.
 - Remove `agentboard:in-progress`, `agentboard:ready-for-agent`, and `agentboard:changes-requested` when present.
 - Add `agentboard:ready-for-review` last, so the watcher sees the completed handoff state.
 

@@ -108,7 +108,29 @@ mv "$tmp/agentboard.toml" "$target/.agentboard.toml"
 
 git -C "$target" add .
 git -C "$target" commit -m 'chore: initialize AgentBoard demo'
+git -C "$target" branch -M main
 git -C "$target" push -u origin HEAD
+
+gh api --method PATCH "repos/$REPO" --input - >/dev/null <<'EOF'
+{
+  "default_branch": "main",
+  "allow_merge_commit": false,
+  "allow_rebase_merge": false,
+  "allow_squash_merge": true,
+  "delete_branch_on_merge": true
+}
+EOF
+
+gh api --method PUT "repos/$REPO/branches/main/protection" --input - >/dev/null <<'EOF'
+{
+  "required_status_checks": null,
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 0
+  },
+  "restrictions": null
+}
+EOF
 
 printf '%s\n' "$LABELS" | while IFS='|' read -r label color description; do
   gh label create "$label" --repo "$REPO" --color "$color" --description "$description" --force >/dev/null
