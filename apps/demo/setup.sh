@@ -3,8 +3,10 @@ set -eu
 
 readonly SOURCE_ARCHIVE='https://github.com/zenobi-us/agentboard/archive/refs/heads/main.tar.gz'
 readonly LABELS='agentboard:ready-for-agent|2f81f7|Ready for an implementation agent
+agentboard:in-progress|1d76db|Implementation agent owns the issue
 agentboard:changes-requested|d93f0b|Review requested implementation changes
 agentboard:ready-for-review|8250df|Ready for a review agent
+agentboard:review-in-progress|5319e7|Review agent owns the issue
 agentboard:review-complete|1f883d|Agent review passed
 agentboard:cleanup-approved|6f42c1|Worktree cleanup approved'
 
@@ -49,7 +51,7 @@ case "${1:-}" in
     ;;
 esac
 
-for command in curl git gh bun npm agentboard pi tar zellij; do
+for command in curl git gh bun agentboard pi tar zellij; do
   require_command "$command"
 done
 
@@ -125,10 +127,18 @@ cat <<EOF
 Demo ready: https://github.com/$REPO
 Local clone: $target
 
-Start AgentBoard:
+Start a Zellij session:
   cd $target
+  zellij --session agentboard-demo
+
+Then start AgentBoard inside that Zellij session:
   agentboard watch .agentboard.toml --interval 15s
 
 Queue an issue from another terminal:
   gh issue edit <number> --repo $REPO --add-label agentboard:ready-for-agent
+
+After review passes, merge the PR and close the issue, then approve cleanup:
+  gh issue edit <number> --repo $REPO --add-label agentboard:cleanup-approved
+
+If an agent exits before handing off, remove its in-progress label and restore the matching ready label.
 EOF

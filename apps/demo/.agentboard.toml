@@ -4,7 +4,7 @@ id = "implement"
 [sources.source]
 kind = "github"
 mode = "issue"
-query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-agent" -label:"agentboard:ready-for-review"'''
+query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-agent" -label:"agentboard:ready-for-review" -label:"agentboard:in-progress"'''
 limit = 12
 
 [sources.source.credentials]
@@ -15,6 +15,7 @@ helper = "gh auth token"
 "agentboard:changes-requested" = "changes-requested"
 
 [[sources.actions]]
+id = "worktree"
 uses = "agentboard/create-worktree"
 
 [sources.actions.with]
@@ -26,8 +27,9 @@ branch = "agentboard/issue-{{ item.reference_id }}"
 uses = "agentboard/run-cmd"
 
 [sources.actions.with]
-cmd = '''npm install && zellij action new-pane --cwd "worktrees/issues-{{ item.reference_id }}" --name "implement-{{ item.reference_id }}" -- pi "/implement {{ item.reference_id }}"'''
-cwd = "worktrees/issue-{{ item.reference_id }}"
+# ponytail: updated_at rearms this demo after label transitions; production workflows need explicit retry generations.
+cmd = ''': "{{ item.raw.github.issue.updated_at }}"; test -n "$ZELLIJ" && bun install && zellij action new-pane --cwd "$PWD" --name "implement-{{ item.reference_id }}" -- pi "/implement {{ item.reference_id }}"'''
+cwd = "{{ actions.worktree.inputs.root }}"
 
 [[sources]]
 id = "review"
@@ -35,7 +37,7 @@ id = "review"
 [sources.source]
 kind = "github"
 mode = "issue"
-query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-review"'''
+query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-review" -label:"agentboard:review-in-progress"'''
 limit = 12
 
 [sources.source.credentials]
@@ -46,6 +48,7 @@ helper = "gh auth token"
 "agentboard:review-complete" = "review-complete"
 
 [[sources.actions]]
+id = "worktree"
 uses = "agentboard/create-worktree"
 
 [sources.actions.with]
@@ -57,8 +60,9 @@ branch = "agentboard/issue-{{ item.reference_id }}"
 uses = "agentboard/run-cmd"
 
 [sources.actions.with]
-cmd = '''npm install && zellij action new-pane --cwd "$worktrees/issue-{{ item.reference_id }}" --name "review-{{ item.reference_id }}" -- pi "/review {{ item.reference_id }}"'''
-cwd = "worktrees/issue-{{ item.reference_id }}"
+# ponytail: updated_at rearms this demo after label transitions; production workflows need explicit retry generations.
+cmd = ''': "{{ item.raw.github.issue.updated_at }}"; test -n "$ZELLIJ" && bun install && zellij action new-pane --cwd "$PWD" --name "review-{{ item.reference_id }}" -- pi "/review {{ item.reference_id }}"'''
+cwd = "{{ actions.worktree.inputs.root }}"
 
 [[sources]]
 id = "cleanup"
