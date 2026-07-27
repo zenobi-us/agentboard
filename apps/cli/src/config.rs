@@ -598,7 +598,7 @@ mod tests {
     }
 
     #[test]
-    fn registered_cutover_preserves_builtin_store_paths_byte_for_byte() {
+    fn registered_builtins_produce_stable_store_paths() {
         let registry = crate::cli::register_builtins().unwrap();
         let parsed = parse_workspace(
             r#"
@@ -634,7 +634,7 @@ mod tests {
                 [sources.source.credentials]
                 helper = "gh auth token"
                 [[sources.actions]]
-                uses = "agentboard/create-worktree"
+                uses = "agentboard/worktree"
                 [sources.actions.with]
                 branch = "item-{{ item.id }}"
                 repo = "/repo"
@@ -662,7 +662,7 @@ mod tests {
             (
                 &ws.sources[2],
                 "items-github-github-com-3aeb00246038.jsonl",
-                "actions-github-github-com-3aeb00246038-fd21721e81de.jsonl",
+                "actions-github-github-com-3aeb00246038-ce721f0b6234.jsonl",
             ),
         ];
         for (source, expected_items, expected_actions) in cases {

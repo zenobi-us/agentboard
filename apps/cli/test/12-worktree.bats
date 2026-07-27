@@ -28,7 +28,7 @@ collections = ["test"]
 query = "ready"
 
 [[sources.actions]]
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 [sources.actions.with]
 repo = "$TMP/repo"
 root = "$root"
@@ -36,7 +36,7 @@ branch = "$branch"
 EOF
 }
 
-@test "create-worktree expands repository and root environment paths" {
+@test "worktree expands repository and root environment paths" {
   write_item AB-1
   export REPO_PATH="$TMP/repo"
   export WORKTREE_ROOT="$TMP/worktrees"
@@ -49,7 +49,7 @@ collections = ["test"]
 query = "ready"
 
 [[sources.actions]]
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 [sources.actions.with]
 repo = "$REPO_PATH"
 root = "${WORKTREE_ROOT}/{{ item.reference_id }}"
@@ -62,7 +62,7 @@ EOF
   [ "$(git -C "$TMP/worktrees/AB-1" branch --show-current)" = "AB-1" ]
 }
 
-@test "create-worktree creates a new branch and worktree" {
+@test "worktree creates a new branch and worktree" {
   write_item AB-1
   write_worktree_workspace "$TMP/worktrees/ab-1" "ab-1"
 
@@ -73,7 +73,7 @@ EOF
   git -C "$TMP/repo" worktree list --porcelain | grep -q "$TMP/worktrees/ab-1"
 }
 
-@test "create-worktree attaches an existing branch" {
+@test "worktree attaches an existing branch" {
   write_item AB-1
   git -C "$TMP/repo" branch existing
   write_worktree_workspace "$TMP/worktrees/existing" "existing"
@@ -85,7 +85,7 @@ EOF
 }
 
 # Deleting the attempt log forces a retry without inventing an unregistered nonce input.
-@test "create-worktree reuses the intended existing worktree on a retried action" {
+@test "worktree reuses the intended existing worktree on a retried action" {
   write_item AB-1 "Item AB-1" ready
   write_worktree_workspace "$TMP/worktrees/ab-1" "ab-1"
 
@@ -99,7 +99,21 @@ EOF
   [ "$(wc -l < "$(actions_store_file)")" -eq 1 ]
 }
 
-@test "create-worktree rejects an existing path for the wrong branch" {
+@test "worktree switches a clean managed worktree" {
+  write_item AB-1
+  git -C "$TMP/repo" branch target
+  write_worktree_workspace "$TMP/worktrees/ab-1" "feature"
+  run "$AB" run "$TMP/workspace.toml"
+  [ "$status" -eq 0 ]
+
+  write_worktree_workspace "$TMP/worktrees/ab-1" "target"
+  run "$AB" run "$TMP/workspace.toml"
+
+  [ "$status" -eq 0 ]
+  [ "$(git -C "$TMP/worktrees/ab-1" branch --show-current)" = "target" ]
+}
+
+@test "worktree rejects an arbitrary existing path" {
   write_item AB-1
   mkdir -p "$TMP/worktrees/wrong"
   write_worktree_workspace "$TMP/worktrees/wrong" "expected"
@@ -107,5 +121,5 @@ EOF
   run "$AB" --color never run "$TMP/workspace.toml"
 
   [ "$status" -ne 0 ]
-  [[ "$output" == *"exists but is not worktree for branch expected"* ]]
+  [[ "$output" == *"not a git repository"* ]]
 }

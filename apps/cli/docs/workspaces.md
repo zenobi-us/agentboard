@@ -72,7 +72,7 @@ Source-specific fields are documented by source crates:
 
 Action-specific inputs are documented by action crates:
 
-- [`agentboard/create-worktree`](/actions/worktree)
+- [`agentboard/worktree`](/actions/worktree)
 - [`agentboard/run-cmd`](/actions/run-cmd)
 
 ## CLI validation rules

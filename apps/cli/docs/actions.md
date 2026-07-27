@@ -45,7 +45,7 @@ Failed Actions retry on the next `run` or `watch` until they succeed.
 
 ## Action Docs
 
-- [`agentboard/create-worktree`](/actions/worktree)
+- [`agentboard/worktree`](/actions/worktree)
 - [`agentboard/run-cmd`](/actions/run-cmd)
 
 ## Trust Model

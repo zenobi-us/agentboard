@@ -91,7 +91,7 @@ uses = "agentboard/run-cmd"
 cmd = "true"
 
 [[sources.actions]]
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 [sources.actions.with]
 repo = "$TMP/repo"
 root = "$TMP/root"
@@ -101,7 +101,7 @@ EOF
   PATH="$TMP/bin" run "$AB" --color never doctor "$TMP/workspace.toml"
   [ "$status" -ne 0 ]
   [[ "$output" == *"agentboard/run-cmd [fail: required command sh not found"* ]]
-  [[ "$output" == *"agentboard/create-worktree [fail: required command git not found"* ]]
+  [[ "$output" == *"agentboard/worktree [fail: required command git not found"* ]]
 
   mkdir -p "$TMP/empty-bin"
   PATH="$TMP/empty-bin" run "$AB" --color never doctor "$TMP/workspace.toml"

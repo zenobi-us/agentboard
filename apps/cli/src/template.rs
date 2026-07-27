@@ -146,8 +146,8 @@ fn expands_as_path(uses: &str, input: &str) -> bool {
     matches!(
         (uses, input),
         ("agentboard/run-cmd", "cwd")
-            | ("agentboard/create-worktree", "repo")
-            | ("agentboard/create-worktree", "root")
+            | ("agentboard/worktree", "repo")
+            | ("agentboard/worktree", "root")
     )
 }
 
@@ -262,7 +262,7 @@ mod tests {
                 cwd = "$PWD"
 
                 [[sources.actions]]
-                uses = "agentboard/create-worktree"
+                uses = "agentboard/worktree"
                 [sources.actions.with]
                 repo = "$PWD/repo"
                 root = "${PWD}/worktrees/{{ item.reference_id }}"
@@ -325,7 +325,7 @@ mod tests {
         assert_eq!(worktree.inputs, expected_worktree);
         assert_eq!(
             worktree.hash,
-            hash_json(&json!({"uses": "agentboard/create-worktree", "with": expected_worktree}))
+            hash_json(&json!({"uses": "agentboard/worktree", "with": expected_worktree}))
         );
     }
 
@@ -395,7 +395,7 @@ mod tests {
 
                 [[sources.actions]]
                 id = "issue_worktree"
-                uses = "agentboard/create-worktree"
+                uses = "agentboard/worktree"
                 [sources.actions.with]
                 repo = "$PWD/repo"
                 root = "$PWD/worktrees/{{ item.reference_id }}"

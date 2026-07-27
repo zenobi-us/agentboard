@@ -9,7 +9,7 @@ site = "https://example.atlassian.net"
 jql = "project = AB AND statusCategory = Todo"
 
 [[sources.actions]]
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 
 [sources.actions.with]
 repo = "~/dev/myrepo"

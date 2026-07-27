@@ -28,7 +28,7 @@ source = value["properties"]["sources"]["items"]["properties"]
 source_ids = [variant["properties"]["kind"]["enum"][0] for variant in source["source"]["oneOf"]]
 action_ids = [variant["properties"]["uses"]["enum"][0] for variant in source["actions"]["items"]["oneOf"]]
 assert source_ids == ["github", "jira", "qmd"]
-assert action_ids == ["agentboard/create-worktree", "agentboard/run-cmd"]
+assert action_ids == ["agentboard/run-cmd", "agentboard/worktree"]
 assert all(name.startswith("source::") or name.startswith("action::") for name in value["definitions"])
 PY
 
@@ -86,5 +86,5 @@ PY
 @test "action validation rejects unknown actions and missing required inputs" {
   assert_bad_workspace "unknown action registration example/nope" $'[[sources]]\nid = "md"\n[sources.source]\nkind = "qmd"\ncollections = ["test"]\nquery = "ready"\n[[sources.actions]]\nuses = "example/nope"'
   assert_bad_workspace 'missing field `cmd`' $'[[sources]]\nid = "md"\n[sources.source]\nkind = "qmd"\ncollections = ["test"]\nquery = "ready"\n[[sources.actions]]\nuses = "agentboard/run-cmd"'
-  assert_bad_workspace 'missing field `branch`' $'[[sources]]\nid = "md"\n[sources.source]\nkind = "qmd"\ncollections = ["test"]\nquery = "ready"\n[[sources.actions]]\nuses = "agentboard/create-worktree"\n[sources.actions.with]\nrepo = "/tmp/repo"\nroot = "/tmp/root"'
+  assert_bad_workspace 'missing field `branch`' $'[[sources]]\nid = "md"\n[sources.source]\nkind = "qmd"\ncollections = ["test"]\nquery = "ready"\n[[sources.actions]]\nuses = "agentboard/worktree"\n[sources.actions.with]\nrepo = "/tmp/repo"\nroot = "/tmp/root"'
 }

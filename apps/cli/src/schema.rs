@@ -213,10 +213,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(source_ids, ["github", "jira", "qmd"]);
-        assert_eq!(
-            action_ids,
-            ["agentboard/create-worktree", "agentboard/run-cmd"]
-        );
+        assert_eq!(action_ids, ["agentboard/run-cmd", "agentboard/worktree"]);
         assert_eq!(
             schema["properties"]["sources"]["items"]["properties"]["actions"]["items"]["oneOf"][0]
                 ["properties"]["id"]["pattern"],

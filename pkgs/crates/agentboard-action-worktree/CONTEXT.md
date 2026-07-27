@@ -1,16 +1,16 @@
 # AgentBoard Worktree Action Context
 
-`agentboard-action-worktree` executes the built-in `agentboard/create-worktree` action.
+`agentboard-action-worktree` executes the built-in `agentboard/worktree` action.
 
 ## Language
 
 **Worktree action**:
-A built-in Action that creates or reuses a Git worktree for an item.
-_Avoid_: Worktrunk action unless the action actually uses Worktrunk
+A built-in Action that ensures an item's configured root is a Git worktree on the requested branch, creating or safely switching it as needed.
+_Avoid_: Create worktree action, Worktrunk action unless the action actually uses Worktrunk
 
-**Reusable worktree**:
-An existing root whose current branch matches the requested branch.
-_Avoid_: Existing directory success; mismatched directories are errors
+**Managed worktree**:
+A valid Git worktree at the configured root that the Worktree action may reuse or safely switch to the requested branch.
+_Avoid_: Existing directory success; arbitrary directories are errors
 
 ## Boundaries
 

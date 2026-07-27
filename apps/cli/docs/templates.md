@@ -49,7 +49,7 @@ absent, and missing or forward references fail rendering for that Item.
 ```toml
 [[sources.actions]]
 id = "issue_worktree"
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 [sources.actions.with]
 repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
@@ -96,12 +96,12 @@ AgentBoard processes Action inputs in three stages:
 1. MiniJinja renders every input.
 2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
    - `agentboard/run-cmd`: `cwd`
-   - `agentboard/create-worktree`: `repo`, `root`
+   - `agentboard/worktree`: `repo`, `root`
 3. `agentboard/run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 [sources.actions.with]
 repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"

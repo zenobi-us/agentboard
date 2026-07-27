@@ -4,7 +4,7 @@
 //! separate registration sets for loading, diagnostics, and schema generation.
 
 use agentboard_action_run_cmd::RunCmdDefinition;
-use agentboard_action_worktree::CreateWorktreeDefinition;
+use agentboard_action_worktree::WorktreeDefinition;
 use agentboard_core::registry::Registry;
 use agentboard_source_github::GithubSourceDefinition;
 use agentboard_source_jira::JiraSourceDefinition;
@@ -155,7 +155,7 @@ pub fn register_builtins() -> Result<Registry> {
     registry.add_source::<JiraSourceDefinition>()?;
     registry.add_source::<GithubSourceDefinition>()?;
     registry.add_action::<RunCmdDefinition>()?;
-    registry.add_action::<CreateWorktreeDefinition>()?;
+    registry.add_action::<WorktreeDefinition>()?;
     Ok(registry)
 }
 

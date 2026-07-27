@@ -16,7 +16,7 @@ helper = "gh auth token"
 
 [[sources.actions]]
 id = "worktree"
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 
 [sources.actions.with]
 repo = "."
@@ -49,7 +49,7 @@ helper = "gh auth token"
 
 [[sources.actions]]
 id = "worktree"
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 
 [sources.actions.with]
 repo = "."
