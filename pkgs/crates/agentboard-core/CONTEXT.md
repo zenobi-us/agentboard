@@ -28,9 +28,17 @@ _Avoid_: Job, hook, plugin
 An Action with a Source-scoped identifier whose rendered inputs can be referenced by later Actions from the same Source.
 _Avoid_: Step, named job
 
+**Rendered Action identity**:
+The identity of one configured Action position after its inputs are rendered for an Item. It changes when those rendered inputs change.
+_Avoid_: Action attempt, Action ID
+
 **Action attempt**:
-One recorded execution result for one item/action/rendered-input hash.
+One recorded execution result for one Item and Rendered Action identity.
 _Avoid_: Build result, task result
+
+**Action attempt outcome**:
+The result classification of an Action attempt: `success`, `failure`, or `cancelled`. A cancelled outcome records interrupted execution and does not satisfy the Action's previous-success rule.
+_Avoid_: Success flag, exit status
 
 ## Boundaries
 

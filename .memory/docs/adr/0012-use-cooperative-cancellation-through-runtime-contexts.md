@@ -1,0 +1,3 @@
+# Use cooperative cancellation through runtime contexts
+
+AgentBoard uses one invocation-scoped `tokio_util::sync::CancellationToken`, created by the CLI composition root and cloned into `SourceContext`, `ActionContext`, and `HealthCheckContext` across the CLI, Core, Source, and Action contexts. The first Ctrl-C cancels active work cooperatively and stops new work, the second Ctrl-C force-exits, and cancellation exits with status 130; built-ins must terminate owned requests and process groups without promising rollback of external side effects. Interrupted Actions persist an explicit `cancelled` outcome through a backward-compatible outcome enum and remain pending, while cancelled Source collections commit no authoritative Source Snapshot.

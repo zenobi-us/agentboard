@@ -16,17 +16,25 @@ _Avoid_: Project initialization, repository initialization
 One execution of the AgentBoard pipeline: load a workspace, read sources, update the store, and execute pending actions.
 _Avoid_: Collect when referring to the public command
 
-**Watch**:
-A repeated run loop for one workspace.
+**Watch Mode**:
+A persistent command mode that repeats or refreshes the selected operation until cancellation. A watched Run executes complete Runs; watched Store views refresh their current state.
 _Avoid_: Daemon unless it is actually installed as a service
 
 **Dashboard**:
 A read-only terminal view of stored Item and Action state for one Workspace. A Dashboard observes the Store without executing a Run.
 _Avoid_: Monitor, control panel
 
+**Action Plan Result**:
+The current summary of an Item's configured Actions: `error` when a current Rendered Action identity has no success and its latest attempt failed, or when an Action cannot render; `success` when every current identity has succeeded or none are configured; and `pending` otherwise, including when the latest attempt was cancelled.
+_Avoid_: Latest attempt, aggregate Action state, Dashboard Result
+
 **Store**:
-The local append-only record of item observations and action attempts for one workspace.
+The local append-only record of Item observations, Source Snapshots, and Action attempts for one Workspace.
 _Avoid_: Database, cache when precision matters
+
+**Source Snapshot**:
+The complete set of Items observed by one configured Source during its latest successful collection. A failed or cancelled collection does not replace the previous Source Snapshot.
+_Avoid_: Membership list, query cache
 
 **Item Bucket**:
 A Store partition for one stable item universe. For Jira, the item universe is keyed by the normalized Jira site URL because Jira issue keys are only unique inside one Jira organization.
