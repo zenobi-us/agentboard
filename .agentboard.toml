@@ -4,7 +4,7 @@ id = "implement"
 [sources.source]
 kind = "github"
 mode = "issue"
-query = '''repo:zenobi-us/agentboard is:open label:"ready-for-agent" -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing"'''
+query = '''repo:zenobi-us/agentboard is:open label:"ready-for-agent" -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
 limit = 1
 
 [sources.source.credentials]
@@ -62,7 +62,7 @@ id = "review"
 [sources.source]
 kind = "github"
 mode = "issue"
-query = '''repo:zenobi-us/agentboard is:open label:"agentboard:ready-for-review" -label:"agentboard:reviewing"'''
+query = '''repo:zenobi-us/agentboard is:open label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:updated-asc'''
 limit = 1
 
 [sources.source.credentials]
