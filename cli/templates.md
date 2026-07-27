@@ -19,6 +19,7 @@ Templates can read:
 * `source`
 * `item`
 * `action`
+* `actions` (preceding named Actions only)
 
 Example values:
 
@@ -35,10 +36,35 @@ Example values:
 {{ item.url }}
 {{ action.uses }}
 {{ action.index }}
+{{ actions.issue_worktree.inputs.root }}
 ```
 
 `source` is the complete configured Source. Adapter settings stay nested under
 `source.source`, and configured Actions stay under `source.actions`.
+
+An Action may declare a Source-scoped `id`. Later Actions can read that named
+Action's final rendered inputs through `actions.<id>.inputs`. Unnamed Actions are
+absent, and missing or forward references fail rendering for that Item.
+
+```toml
+[[sources.actions]]
+id = "issue_worktree"
+uses = "agentboard/worktree"
+[sources.actions.with]
+repo = "~/Projects/MyProject"
+root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+branch = "{{ item.id | slugify }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cwd = "{{ actions.issue_worktree.inputs.root }}"
+cmd = "pwd"
+```
+
+Stored-success skips and dry runs still render each Action in order, so later
+Actions receive freshly rendered named inputs. Action IDs do not change retry
+identity.
 
 Use `item.reference_id` for provider-facing names and messages. `item.id` is the
 stable identity used by the Store and Action retry checks.
@@ -63,23 +89,36 @@ Example:
 "Fix Login!" -> "fix-login"
 ```
 
-## Expansion order [#expansion-order]
+## Rendering and expansion order [#rendering-and-expansion-order]
 
-AgentBoard renders MiniJinja first, then expands configured path variables:
+AgentBoard processes Action inputs in three stages:
 
-* leading `~/`
-* `$VAR`
-* `${VAR}`
-
-Example:
+1. MiniJinja renders every input.
+2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
+   * `agentboard/run-cmd`: `cwd`
+   * `agentboard/worktree`: `repo`, `root`
+3. `agentboard/run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
 
 ```toml
+[[sources.actions]]
+uses = "agentboard/worktree"
+[sources.actions.with]
+repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+branch = "{{ item.id | slugify }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cwd = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+cmd = '''printf '%s: %s\n' "{{ item.reference_id }}" "$PWD"'''
 ```
+
+Here AgentBoard expands `$WORKTREE_ROOT` in path fields, MiniJinja renders item fields, and the spawned shell resolves `$PWD` from its configured `cwd`.
 
 ## Action hash [#action-hash]
 
-AgentBoard hashes the rendered Action inputs. That hash is part of retry identity:
+AgentBoard hashes the final inputs after MiniJinja and AgentBoard-time path expansion. Those exact strings are passed to the Action, so shell variables in `cmd` remain literal in both the hash and the command given to `sh -c`. The hash is part of retry identity:
 
 ```text
 (source_id, item.id, source_action_index, rendered_action_hash)

@@ -183,7 +183,7 @@ Failed Actions retry on the next `run` or `watch` until they succeed.
 
 ## Action Docs [#action-docs]
 
-* [`agentboard/create-worktree`](/actions/worktree)
+* [`agentboard/worktree`](/actions/worktree)
 * [`agentboard/run-cmd`](/actions/run-cmd)
 
 ## Trust Model [#trust-model]
@@ -304,7 +304,7 @@ Checks include:
 * Workspace config validation.
 * Store directory writability.
 * Required Source commands, for example `qmd`.
-* Required Action commands, for example `git` for `agentboard/create-worktree`.
+* Required Action commands, for example `git` for `agentboard/worktree`.
 * Source reachability by collecting items.
 
 ## `schema` [#schema]
@@ -515,6 +515,7 @@ Templates can read:
 * `source`
 * `item`
 * `action`
+* `actions` (preceding named Actions only)
 
 Example values:
 
@@ -531,10 +532,35 @@ Example values:
 {{ item.url }}
 {{ action.uses }}
 {{ action.index }}
+{{ actions.issue_worktree.inputs.root }}
 ```
 
 `source` is the complete configured Source. Adapter settings stay nested under
 `source.source`, and configured Actions stay under `source.actions`.
+
+An Action may declare a Source-scoped `id`. Later Actions can read that named
+Action's final rendered inputs through `actions.<id>.inputs`. Unnamed Actions are
+absent, and missing or forward references fail rendering for that Item.
+
+```toml
+[[sources.actions]]
+id = "issue_worktree"
+uses = "agentboard/worktree"
+[sources.actions.with]
+repo = "~/Projects/MyProject"
+root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+branch = "{{ item.id | slugify }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cwd = "{{ actions.issue_worktree.inputs.root }}"
+cmd = "pwd"
+```
+
+Stored-success skips and dry runs still render each Action in order, so later
+Actions receive freshly rendered named inputs. Action IDs do not change retry
+identity.
 
 Use `item.reference_id` for provider-facing names and messages. `item.id` is the
 stable identity used by the Store and Action retry checks.
@@ -559,23 +585,36 @@ Example:
 "Fix Login!" -> "fix-login"
 ```
 
-## Expansion order [#expansion-order]
+## Rendering and expansion order [#rendering-and-expansion-order]
 
-AgentBoard renders MiniJinja first, then expands configured path variables:
+AgentBoard processes Action inputs in three stages:
 
-* leading `~/`
-* `$VAR`
-* `${VAR}`
-
-Example:
+1. MiniJinja renders every input.
+2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
+   * `agentboard/run-cmd`: `cwd`
+   * `agentboard/worktree`: `repo`, `root`
+3. `agentboard/run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
 
 ```toml
+[[sources.actions]]
+uses = "agentboard/worktree"
+[sources.actions.with]
+repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+branch = "{{ item.id | slugify }}"
+
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cwd = "$WORKTREE_ROOT/{{ item.id | slugify }}"
+cmd = '''printf '%s: %s\n' "{{ item.reference_id }}" "$PWD"'''
 ```
+
+Here AgentBoard expands `$WORKTREE_ROOT` in path fields, MiniJinja renders item fields, and the spawned shell resolves `$PWD` from its configured `cwd`.
 
 ## Action hash [#action-hash]
 
-AgentBoard hashes the rendered Action inputs. That hash is part of retry identity:
+AgentBoard hashes the final inputs after MiniJinja and AgentBoard-time path expansion. Those exact strings are passed to the Action, so shell variables in `cmd` remain literal in both the hash and the command given to `sh -c`. The hash is part of retry identity:
 
 ```text
 (source_id, item.id, source_action_index, rendered_action_hash)
@@ -637,7 +676,7 @@ Fix: install QMD or remove the QMD Source from the Workspace.
 
 ## `required command git not found` [#required-command-git-not-found]
 
-The Workspace uses `agentboard/create-worktree`, but `git` is not on `PATH`.
+The Workspace uses `agentboard/worktree`, but `git` is not on `PATH`.
 
 Fix: install Git or remove that Action.
 
@@ -651,21 +690,27 @@ AgentBoard retries failed Actions until one succeeds for the same retry identity
 
 Fix the command, credentials, paths, or Source item data. Then run again.
 
-## Worktree path already exists [#worktree-path-already-exists]
+## Worktree Action refused an existing root [#worktree-action-refused-an-existing-root]
 
-`agentboard/create-worktree` fails when `root` exists but is not the intended worktree for the configured branch.
+`agentboard/worktree` only manages an exact worktree root from the configured `repo`. It reuses the requested branch, but refuses to switch dirty worktrees or a branch checked out in another worktree.
 
-Fix: choose a different `root`, remove the bad directory, or repair the existing worktree.
+Fix the `repo` or `root`, commit or remove tracked and untracked changes, or release the requested branch from its other worktree. The Action never forces, resets, or cleans a worktree.
 
 ## Environment variable did not expand [#environment-variable-did-not-expand]
 
-AgentBoard expands variables after template rendering:
+First identify where expansion belongs.
 
-* `$VAR`
-* `${VAR}`
-* leading `~/`
+AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
 
-Check that the variable exists in the environment of the `agentboard` process, not just your interactive shell startup file.
+* `agentboard/run-cmd.cwd`
+* `agentboard/worktree.repo`
+* `agentboard/worktree.root`
+
+For these fields, check that the variable exists in the environment of the `agentboard` process, not only an interactive shell startup file.
+
+Variables in `agentboard/run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
+
+MiniJinja expressions such as `{{ item.reference_id }}` always render before either kind of environment expansion.
 
 ## Jira credentials fail [#jira-credentials-fail]
 
@@ -777,12 +822,13 @@ Source-specific fields are documented by source crates:
 
 Action-specific inputs are documented by action crates:
 
-* [`agentboard/create-worktree`](/actions/worktree)
+* [`agentboard/worktree`](/actions/worktree)
 * [`agentboard/run-cmd`](/actions/run-cmd)
 
 ## CLI validation rules [#cli-validation-rules]
 
 * Source ids must be non-empty and unique.
+* Action ids are optional, unique within one Source, and match `[A-Za-z_][A-Za-z0-9_]*`.
 * Unknown Actions fail validation.
 * Unknown Workspace, Source, and typed Action input fields fail validation.
 
@@ -1008,19 +1054,38 @@ cwd = "/home/me/dev/myrepo"
 cmd = "pi --prompt '{{ item.title }}'"
 ```
 
+For asynchronous launch commands, set `healthcheck` to a shell probe that
+reports readiness with exit status `0`. AgentBoard runs the probe immediately
+after a successful launch, then polls until it passes or times out.
 
-# Create worktree action (/actions/worktree)
+```toml
+[sources.actions.with]
+cwd = "worktrees/issue-{{ item.reference_id }}"
+cmd = "npx --yes open-terminal ..."
+healthcheck = "test -f .agent-ready"
+healthcheck_interval = "1s"
+healthcheck_timeout = "30s"
+```
+
+The interval defaults to `1s`; the timeout defaults to `30s`. Both accept
+human-readable durations such as `250ms`, `5s`, or `2m`. The healthcheck uses
+the same `cwd` and AgentBoard environment variables as `cmd`. A launch failure
+skips the healthcheck. A timeout fails the action, so a later run retries it.
+
+
+# Worktree action (/actions/worktree)
 
 
 
-# Create worktree action [#create-worktree-action]
+# Worktree action [#worktree-action]
 
-Use `agentboard/create-worktree` to create or reuse a Git worktree for each
-item.
+Use `agentboard/worktree` to ensure each item has a Git worktree on its
+requested branch. The Action creates an absent worktree, reuses a matching
+worktree, or safely switches a clean managed worktree.
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/create-worktree"
+uses = "agentboard/worktree"
 
 [sources.actions.with]
 repo = "/home/me/dev/myrepo"
@@ -1028,8 +1093,10 @@ root = "/home/me/dev/myrepo.trees/{{ item.id }}"
 branch = "feat/{{ item.id }}-{{ item.title | slugify }}"
 ```
 
-`repo` is the source repository. `root` is the worktree path. `branch` is the
-branch name to create or check out for the item.
+`repo` is the source repository. `root` is a separate worktree path. `branch`
+is a local branch name to create or switch to for the item. Existing roots must
+be exact worktree roots from `repo`; switching refuses tracked or untracked
+changes and branches already checked out elsewhere.
 
 Pair it with `agentboard/run-cmd` when you want to open the new worktree in a
 terminal or agent session.

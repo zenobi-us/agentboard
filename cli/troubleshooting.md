@@ -32,7 +32,7 @@ Fix: install QMD or remove the QMD Source from the Workspace.
 
 ## `required command git not found` [#required-command-git-not-found]
 
-The Workspace uses `agentboard/create-worktree`, but `git` is not on `PATH`.
+The Workspace uses `agentboard/worktree`, but `git` is not on `PATH`.
 
 Fix: install Git or remove that Action.
 
@@ -46,21 +46,27 @@ AgentBoard retries failed Actions until one succeeds for the same retry identity
 
 Fix the command, credentials, paths, or Source item data. Then run again.
 
-## Worktree path already exists [#worktree-path-already-exists]
+## Worktree Action refused an existing root [#worktree-action-refused-an-existing-root]
 
-`agentboard/create-worktree` fails when `root` exists but is not the intended worktree for the configured branch.
+`agentboard/worktree` only manages an exact worktree root from the configured `repo`. It reuses the requested branch, but refuses to switch dirty worktrees or a branch checked out in another worktree.
 
-Fix: choose a different `root`, remove the bad directory, or repair the existing worktree.
+Fix the `repo` or `root`, commit or remove tracked and untracked changes, or release the requested branch from its other worktree. The Action never forces, resets, or cleans a worktree.
 
 ## Environment variable did not expand [#environment-variable-did-not-expand]
 
-AgentBoard expands variables after template rendering:
+First identify where expansion belongs.
 
-* `$VAR`
-* `${VAR}`
-* leading `~/`
+AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
 
-Check that the variable exists in the environment of the `agentboard` process, not just your interactive shell startup file.
+* `agentboard/run-cmd.cwd`
+* `agentboard/worktree.repo`
+* `agentboard/worktree.root`
+
+For these fields, check that the variable exists in the environment of the `agentboard` process, not only an interactive shell startup file.
+
+Variables in `agentboard/run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
+
+MiniJinja expressions such as `{{ item.reference_id }}` always render before either kind of environment expansion.
 
 ## Jira credentials fail [#jira-credentials-fail]
 

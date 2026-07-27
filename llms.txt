@@ -19,4 +19,4 @@
 
 - **Actions**
 - [Run command action](/actions/run-cmd)
-- [Create worktree action](/actions/worktree)
+- [Worktree action](/actions/worktree)
