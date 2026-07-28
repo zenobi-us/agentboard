@@ -347,7 +347,10 @@ mod tests {
         let spawn_run = run(&action);
 
         assert!(!spawn_run.success);
-        assert!(!spawn_run.stderr.is_empty());
+        assert!(spawn_run.stderr.contains("run shell command in cwd"));
+        assert!(spawn_run
+            .stderr
+            .contains("/agentboard/path/that/does/not/exist"));
         assert!(spawn_run.message.is_some());
     }
 

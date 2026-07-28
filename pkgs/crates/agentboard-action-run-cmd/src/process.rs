@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use command_group::{CommandGroup, GroupChild};
 
 use agentboard_core::registry::ActionContext;
@@ -18,7 +18,10 @@ pub(super) enum Run {
 pub(super) fn run(cmd: &str, cwd: Option<&str>, context: &ActionContext<'_>) -> Result<Output> {
     shell_command(cmd, cwd, context)
         .output()
-        .map_err(Into::into)
+        .with_context(|| match cwd {
+            Some(cwd) => format!("run shell command in cwd {cwd}"),
+            None => "run shell command".into(),
+        })
 }
 
 pub(super) fn run_until(
