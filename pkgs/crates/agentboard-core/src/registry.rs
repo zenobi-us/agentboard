@@ -86,6 +86,14 @@ pub trait Source: Send + Sync {
 
 /// Runtime behavior every registered Action exposes after Item template rendering.
 pub trait Action: Send + Sync {
+    /// Confirm that a stored successful result still satisfies external state.
+    ///
+    /// Most Actions are permanently complete for one rendered input. Actions that
+    /// provision mutable external state can override this to request re-execution.
+    fn cached_success_is_valid(&self, _context: &ActionContext<'_>) -> bool {
+        true
+    }
+
     /// Execute for one Item. Callers convert errors into failed, Item-scoped attempts.
     fn execute(&self, context: &ActionContext<'_>) -> RuntimeResult<ActionRun>;
 }

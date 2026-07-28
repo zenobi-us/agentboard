@@ -43,6 +43,10 @@ impl ActionDefinition for WorktreeDefinition {
 }
 
 impl Action for WorktreeAction {
+    fn cached_success_is_valid(&self, _context: &ActionContext<'_>) -> bool {
+        worktree_is_current(&self.config).unwrap_or(false)
+    }
+
     fn execute(&self, _context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
         Ok(execute_worktree(&self.config))
     }
@@ -53,6 +57,23 @@ fn execute_worktree(config: &WorktreeConfig) -> ActionRun {
         Ok((stdout, stderr)) => successful_run(stdout, stderr),
         Err(error) => failed_run(error),
     }
+}
+
+fn worktree_is_current(config: &WorktreeConfig) -> Result<bool> {
+    if !Path::new(&config.root).exists() {
+        return Ok(false);
+    }
+
+    let repo_top_level = git_top_level(&config.repo)?;
+    let root = fs::canonicalize(&config.root)?;
+    if root != git_top_level(&config.root)? || root == repo_top_level {
+        return Ok(false);
+    }
+    if git_common_dir(&config.repo)? != git_common_dir(&config.root)? {
+        return Ok(false);
+    }
+
+    Ok(git_text(&config.root, &["branch", "--show-current"])? == config.branch)
 }
 
 fn ensure_worktree(config: &WorktreeConfig) -> Result<(String, String)> {
@@ -365,6 +386,28 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(run.success, "{:?} {:?}", run.stderr, run.message);
+    }
+
+    #[test]
+    fn cached_success_requires_current_worktree_state() {
+        let dir = tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        let root = dir.path().join("worktree");
+        init_repo(&repo);
+        let item = item();
+        let context = ActionContext {
+            workspace_id: "workspace",
+            source_id: "issues",
+            item: &item,
+        };
+        let action = WorktreeDefinition::build(config(&repo, &root, "feature")).unwrap();
+
+        assert!(!action.cached_success_is_valid(&context));
+        assert!(action.execute(&context).unwrap().success);
+        assert!(action.cached_success_is_valid(&context));
+
+        git(&repo, &["worktree", "remove", root.to_str().unwrap()]);
+        assert!(!action.cached_success_is_valid(&context));
     }
 
     #[test]

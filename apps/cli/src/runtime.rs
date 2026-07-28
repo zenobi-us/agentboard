@@ -7,7 +7,6 @@ use std::{
 use agentboard_core::{
     model::{ActionAttempt, ActionConfig, Item, Workspace, WorkspaceSource},
     registry::{ActionContext, Registry, SourceContext},
-    RenderedAction,
 };
 use anyhow::{bail, Result};
 use chrono::Utc;
@@ -281,7 +280,17 @@ async fn run_source(
                 actions.insert(id.clone(), rendered.inputs.clone());
             }
             let key = action_key(source_id, &item.id, idx, &rendered.hash);
-            if successes.contains(&key) {
+            let built_action = registry.build_action(&action.uses, rendered.inputs.clone());
+            let context = ActionContext {
+                workspace_id: &ws.id,
+                source_id,
+                item: &item,
+            };
+            if successes.contains(&key)
+                && built_action
+                    .as_ref()
+                    .is_ok_and(|action| action.cached_success_is_valid(&context))
+            {
                 summary.skipped += 1;
                 output.detail(
                     "action.skipped",
@@ -307,8 +316,15 @@ async fn run_source(
                 )?;
                 continue;
             }
-            let attempt =
-                execute_action_attempt(registry, &ws.id, source_id, &item, idx, action, rendered);
+            let attempt = execute_action_attempt(
+                built_action,
+                &context,
+                source_id,
+                &item,
+                idx,
+                action,
+                rendered.hash,
+            );
             append_action(ws, source, &attempt)?;
             if attempt.success {
                 summary.succeeded += 1;
@@ -383,25 +399,20 @@ fn failed_action_attempt(
 }
 
 fn execute_action_attempt(
-    registry: &Registry,
-    workspace_id: &str,
+    action_runtime: Result<
+        Box<dyn agentboard_core::registry::Action>,
+        agentboard_core::registry::RegistryError,
+    >,
+    context: &ActionContext<'_>,
     source_id: &str,
     item: &Item,
     idx: usize,
     action: &ActionConfig,
-    rendered: RenderedAction,
+    hash: String,
 ) -> ActionAttempt {
-    let hash = rendered.hash;
-    let run = registry
-        .build_action(&action.uses, rendered.inputs)
+    let run = action_runtime
         .map_err(anyhow::Error::from)
-        .and_then(|action| {
-            action.execute(&ActionContext {
-                workspace_id,
-                source_id,
-                item,
-            })
-        });
+        .and_then(|action| action.execute(context));
     let (success, stdout, stderr, message) = match run {
         Ok(run) => (run.success, run.stdout, run.stderr, run.message),
         Err(error) => (
@@ -443,7 +454,7 @@ mod tests {
             Action, ActionDefinition, RuntimeResult, Source, SourceCollection, SourceDefinition,
             SourceFuture,
         },
-        ActionRun,
+        ActionRun, RenderedAction,
     };
     use schemars::JsonSchema;
     use serde::{Deserialize, Serialize};
@@ -520,6 +531,10 @@ mod tests {
     }
 
     impl Action for TestAction {
+        fn cached_success_is_valid(&self, _context: &ActionContext<'_>) -> bool {
+            self.outcome != "stale"
+        }
+
         fn execute(&self, _context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
             if self.outcome == "fail" {
                 anyhow::bail!(self.message.clone());
@@ -561,13 +576,17 @@ mod tests {
         };
 
         let attempt = execute_action_attempt(
-            &registry,
-            "workspace",
+            registry.build_action(&action.uses, rendered.inputs),
+            &ActionContext {
+                workspace_id: "workspace",
+                source_id: "source",
+                item: &item,
+            },
             "source",
             &item,
             0,
             &action,
-            rendered,
+            rendered.hash,
         );
 
         assert!(!attempt.success);
@@ -743,6 +762,70 @@ mod tests {
         assert_eq!(skipped.attempted, 0);
         assert_eq!(skipped.skipped, 4);
         assert_eq!(skipped.failed, 0);
+
+        fs::remove_dir_all(store_root(&ws)).unwrap();
+    }
+
+    #[tokio::test]
+    async fn invalid_cached_success_reexecutes_action() {
+        let mut registry = Registry::new();
+        registry.add_source::<ItemSourceDefinition>().unwrap();
+        registry.add_action::<TestActionDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/items"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "reconcile-{{ item.id }}"
+                outcome = "stale"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: format!(
+                "runtime-invalid-cache-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            None,
+        )
+        .unwrap();
+
+        let first = run_source(&ws, &ws.sources[0], &registry, false, "first", &output)
+            .await
+            .unwrap();
+        assert_eq!(first.attempted, 2);
+        assert_eq!(first.succeeded, 2);
+
+        let reconciled = run_source(&ws, &ws.sources[0], &registry, false, "reconciled", &output)
+            .await
+            .unwrap();
+        assert_eq!(reconciled.attempted, 2);
+        assert_eq!(reconciled.skipped, 0);
+        assert_eq!(reconciled.succeeded, 2);
+
+        let attempts = fs::read_to_string(actions_path(&ws, &ws.sources[0]))
+            .unwrap()
+            .lines()
+            .count();
+        assert_eq!(attempts, 4);
 
         fs::remove_dir_all(store_root(&ws)).unwrap();
     }
