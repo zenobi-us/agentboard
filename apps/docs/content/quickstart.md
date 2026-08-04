@@ -7,16 +7,16 @@ title: Quickstart
 This demo copies the repository's `apps/demo` fixture into a private throwaway GitHub repository, creates twelve coding issues, and runs three GitHub Sources through one AgentBoard Watch:
 
 ```text
-ready-for-agent -> implementation terminal -> ready-for-review -> review terminal
-       ^                                                    |
-       |                                    changes requested|
-       +----------------------------------------------------+
-                                                            |
-                                              review complete + manual merge
-                                                            |
-                                                   cleanup approval
-                                                            |
-                                                   remove worktree
+ready-for-agent
+    -> implementation terminal
+    -> ready-for-review
+    -> review terminal
+          |
+          +--> changes requested --> ready-for-agent
+          |
+          +--> review complete + manual merge
+                    -> cleanup approval
+                    -> remove worktree
 ```
 
 AgentBoard records successful actions. GitHub labels, PR state, and your explicit merge and cleanup approval record lifecycle completion.
