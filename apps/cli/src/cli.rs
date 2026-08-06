@@ -5,7 +5,7 @@
 
 use agentboard_action_run_cmd::RunCmdDefinition;
 use agentboard_action_worktree::WorktreeDefinition;
-use agentboard_core::registry::Registry;
+use agentboard_core::{registry::Registry, CancellationToken};
 use agentboard_source_github::GithubSourceDefinition;
 use agentboard_source_jira::JiraSourceDefinition;
 use agentboard_source_qmd::QmdSourceDefinition;
@@ -20,7 +20,7 @@ use crate::{
         validate_workspace_name,
     },
     output::{ColorChoice, Output, Verbosity},
-    runtime::{parse_duration, run_once, watch},
+    runtime::{is_cancelled, parse_duration, run_once, watch, InvocationCancelled},
     schema::workspace_schema,
     store::{doctor, list_items, show_item},
 };
@@ -159,10 +159,24 @@ pub fn register_builtins() -> Result<Registry> {
     Ok(registry)
 }
 
+fn start_signal_handler(cancellation: CancellationToken) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_err() {
+            return;
+        }
+        cancellation.cancel();
+        if tokio::signal::ctrl_c().await.is_ok() {
+            std::process::exit(130);
+        }
+    })
+}
+
 /// Parse CLI arguments and dispatch the requested user command.
 pub async fn run() -> Result<()> {
+    let cancellation = CancellationToken::new();
     let registry = Arc::new(register_builtins()?);
     let cli = Cli::parse();
+    let _signal_handler = start_signal_handler(cancellation.clone());
     let verbosity = if cli.quiet {
         Verbosity::Quiet
     } else if cli.verbose > 0 {
@@ -173,7 +187,7 @@ pub async fn run() -> Result<()> {
     // Delay output construction until after Workspace loading. Opening a diagnostic
     // log is a side effect, so invalid config must fail before this closure is called.
     let create_output = || Output::new(verbosity, cli.color, cli.log_file.as_deref());
-    match cli.command {
+    let result = match cli.command {
         Command::Workspace { command } => match command {
             WorkspaceCommand::List => print_workspaces(),
             WorkspaceCommand::Init { name } => {
@@ -186,7 +200,14 @@ pub async fn run() -> Result<()> {
         Command::Run { workspace, dry_run } => {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
             let output = create_output()?;
-            run_once(&workspace, Arc::clone(&registry), dry_run, &output).await
+            run_once(
+                &workspace,
+                Arc::clone(&registry),
+                dry_run,
+                &output,
+                cancellation.clone(),
+            )
+            .await
         }
         Command::Watch {
             workspace,
@@ -195,7 +216,14 @@ pub async fn run() -> Result<()> {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
             let interval = parse_duration(&interval)?;
             let output = create_output()?;
-            watch(workspace, Arc::clone(&registry), interval, &output).await
+            watch(
+                workspace,
+                Arc::clone(&registry),
+                interval,
+                &output,
+                cancellation.clone(),
+            )
+            .await
         }
         Command::List { workspace, json } => {
             list_items(&load_workspace(workspace.as_deref(), &registry)?, json)
@@ -214,7 +242,7 @@ pub async fn run() -> Result<()> {
         Command::Doctor { workspace } => {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
             let output = create_output()?;
-            doctor(&workspace, &registry, &output).await
+            doctor(&workspace, &registry, &output, cancellation.clone()).await
         }
         Command::Schema => {
             println!(
@@ -223,6 +251,11 @@ pub async fn run() -> Result<()> {
             );
             Ok(())
         }
+    };
+    if cancellation.is_cancelled() && !result.as_ref().is_err_and(is_cancelled) {
+        Err(InvocationCancelled.into())
+    } else {
+        result
     }
 }
 

@@ -1,16 +1,21 @@
 use std::{
     fs,
+    io::Read,
     path::{Path, PathBuf},
     process::{Command as ProcessCommand, Output, Stdio},
+    thread,
+    time::Duration,
 };
 
 use anyhow::{anyhow, bail, Result};
+use command_group::{CommandGroup, GroupChild};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
 use agentboard_core::{
     cap,
-    registry::{Action, ActionContext, ActionDefinition, RuntimeResult},
+    model::ActionOutcome,
+    registry::{Action, ActionContext, ActionDefinition, HealthCheckContext, RuntimeResult},
     ActionRun,
 };
 
@@ -37,55 +42,65 @@ impl ActionDefinition for WorktreeDefinition {
         Ok(WorktreeAction { config })
     }
 
-    fn health_check() -> RuntimeResult<()> {
-        check_command("git", &["--version"])
+    fn health_check(context: &HealthCheckContext<'_>) -> RuntimeResult<()> {
+        check_command_with_cancellation("git", &["--version"], &context.cancellation)
     }
 }
 
 impl Action for WorktreeAction {
-    fn cached_success_is_valid(&self, _context: &ActionContext<'_>) -> bool {
-        worktree_is_current(&self.config).unwrap_or(false)
+    fn cached_success_is_valid(&self, context: &ActionContext<'_>) -> bool {
+        worktree_is_current(&self.config, &context.cancellation).unwrap_or(false)
     }
 
-    fn execute(&self, _context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
-        Ok(execute_worktree(&self.config))
+    fn execute(&self, context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
+        Ok(execute_worktree(&self.config, &context.cancellation))
     }
 }
 
-fn execute_worktree(config: &WorktreeConfig) -> ActionRun {
-    match ensure_worktree(config) {
+fn execute_worktree(
+    config: &WorktreeConfig,
+    cancellation: &agentboard_core::CancellationToken,
+) -> ActionRun {
+    match ensure_worktree(config, cancellation) {
         Ok((stdout, stderr)) => successful_run(stdout, stderr),
+        Err(error) if cancellation.is_cancelled() => cancelled_run(error),
         Err(error) => failed_run(error),
     }
 }
 
-fn worktree_is_current(config: &WorktreeConfig) -> Result<bool> {
+fn worktree_is_current(
+    config: &WorktreeConfig,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<bool> {
     if !Path::new(&config.root).exists() {
         return Ok(false);
     }
 
-    let repo_top_level = git_top_level(&config.repo)?;
+    let repo_top_level = git_top_level(&config.repo, cancellation)?;
     let root = fs::canonicalize(&config.root)?;
-    if root != git_top_level(&config.root)? || root == repo_top_level {
+    if root != git_top_level(&config.root, cancellation)? || root == repo_top_level {
         return Ok(false);
     }
-    if git_common_dir(&config.repo)? != git_common_dir(&config.root)? {
+    if git_common_dir(&config.repo, cancellation)? != git_common_dir(&config.root, cancellation)? {
         return Ok(false);
     }
 
-    Ok(git_text(&config.root, &["branch", "--show-current"])? == config.branch)
+    Ok(git_text(&config.root, &["branch", "--show-current"], cancellation)? == config.branch)
 }
 
-fn ensure_worktree(config: &WorktreeConfig) -> Result<(String, String)> {
-    let repo_top_level = git_top_level(&config.repo)?;
-    validate_local_branch(&config.repo, &config.branch)?;
+fn ensure_worktree(
+    config: &WorktreeConfig,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<(String, String)> {
+    let repo_top_level = git_top_level(&config.repo, cancellation)?;
+    validate_local_branch(&config.repo, &config.branch, cancellation)?;
 
     if !Path::new(&config.root).exists() {
-        return create_worktree(config);
+        return create_worktree(config, cancellation);
     }
 
     let root = fs::canonicalize(&config.root)?;
-    if root != git_top_level(&config.root)? {
+    if root != git_top_level(&config.root, cancellation)? {
         bail!("{} is not the worktree root", config.root);
     }
     if root == repo_top_level {
@@ -95,7 +110,7 @@ fn ensure_worktree(config: &WorktreeConfig) -> Result<(String, String)> {
             config.repo
         );
     }
-    if git_common_dir(&config.repo)? != git_common_dir(&config.root)? {
+    if git_common_dir(&config.repo, cancellation)? != git_common_dir(&config.root, cancellation)? {
         bail!(
             "{} belongs to a different repository than {}",
             config.root,
@@ -103,40 +118,63 @@ fn ensure_worktree(config: &WorktreeConfig) -> Result<(String, String)> {
         );
     }
 
-    if git_text(&config.root, &["branch", "--show-current"])? == config.branch {
+    if git_text(&config.root, &["branch", "--show-current"], cancellation)? == config.branch {
         return Ok((format!("reused {}\n", config.root), String::new()));
     }
-    if !git_text(&config.root, &["status", "--porcelain"])?.is_empty() {
+    if !git_text(&config.root, &["status", "--porcelain"], cancellation)?.is_empty() {
         bail!("{} is dirty and cannot switch branches", config.root);
     }
 
-    if local_branch_exists(&config.repo, &config.branch)? {
-        run_git(&config.root, &["switch", &config.branch])
+    if local_branch_exists(&config.repo, &config.branch, cancellation)? {
+        run_git(&config.root, &["switch", &config.branch], cancellation)
     } else {
-        let head = git_text(&config.repo, &["rev-parse", "--verify", "HEAD"])?;
-        run_git(&config.root, &["switch", "-c", &config.branch, &head])
+        let head = git_text(
+            &config.repo,
+            &["rev-parse", "--verify", "HEAD"],
+            cancellation,
+        )?;
+        run_git(
+            &config.root,
+            &["switch", "-c", &config.branch, &head],
+            cancellation,
+        )
     }
 }
 
-fn create_worktree(config: &WorktreeConfig) -> Result<(String, String)> {
-    if local_branch_exists(&config.repo, &config.branch)? {
+fn create_worktree(
+    config: &WorktreeConfig,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<(String, String)> {
+    if local_branch_exists(&config.repo, &config.branch, cancellation)? {
         run_git(
             &config.repo,
             &["worktree", "add", &config.root, &config.branch],
+            cancellation,
         )
     } else {
-        let head = git_text(&config.repo, &["rev-parse", "--verify", "HEAD"])?;
+        let head = git_text(
+            &config.repo,
+            &["rev-parse", "--verify", "HEAD"],
+            cancellation,
+        )?;
         run_git(
             &config.repo,
             &["worktree", "add", "-b", &config.branch, &config.root, &head],
+            cancellation,
         )
     }
 }
 
-fn validate_local_branch(repo: &str, branch: &str) -> Result<()> {
-    let output = ProcessCommand::new("git")
-        .args(["-C", repo, "check-ref-format", "--branch", branch])
-        .output()?;
+fn validate_local_branch(
+    repo: &str,
+    branch: &str,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<()> {
+    let output = git_output(
+        repo,
+        &["check-ref-format", "--branch", branch],
+        cancellation,
+    )?;
     let normalized = String::from_utf8_lossy(&output.stdout).trim().to_string();
     if !output.status.success() || normalized != branch {
         bail!("{branch} is not a valid local branch name");
@@ -144,88 +182,193 @@ fn validate_local_branch(repo: &str, branch: &str) -> Result<()> {
     Ok(())
 }
 
-fn local_branch_exists(repo: &str, branch: &str) -> Result<bool> {
+fn local_branch_exists(
+    repo: &str,
+    branch: &str,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<bool> {
     let branch_ref = format!("refs/heads/{branch}");
-    let status = ProcessCommand::new("git")
-        .args(["-C", repo, "show-ref", "--verify", "--quiet", &branch_ref])
-        .status()?;
-    match status.code() {
+    let output = git_output(
+        repo,
+        &["show-ref", "--verify", "--quiet", &branch_ref],
+        cancellation,
+    )?;
+    match output.status.code() {
         Some(0) => Ok(true),
         Some(1) => Ok(false),
-        _ => bail!("git show-ref failed with {status}"),
+        _ => bail!("git show-ref failed with {}", output.status),
     }
 }
 
-fn git_top_level(path: &str) -> Result<PathBuf> {
+fn git_top_level(path: &str, cancellation: &agentboard_core::CancellationToken) -> Result<PathBuf> {
     Ok(fs::canonicalize(git_text(
         path,
         &["rev-parse", "--show-toplevel"],
+        cancellation,
     )?)?)
 }
 
-fn git_common_dir(path: &str) -> Result<PathBuf> {
+fn git_common_dir(
+    path: &str,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<PathBuf> {
     Ok(fs::canonicalize(git_text(
         path,
         &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cancellation,
     )?)?)
 }
 
-fn git_text(path: &str, args: &[&str]) -> Result<String> {
-    let output = git_output(path, args)?;
+fn git_text(
+    path: &str,
+    args: &[&str],
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<String> {
+    let output = git_output(path, args, cancellation)?;
+    if !output.status.success() {
+        return Err(git_failure(args, &output));
+    }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-fn run_git(path: &str, args: &[&str]) -> Result<(String, String)> {
-    let output = git_output(path, args)?;
+fn run_git(
+    path: &str,
+    args: &[&str],
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<(String, String)> {
+    let output = git_output(path, args, cancellation)?;
+    if !output.status.success() {
+        return Err(git_failure(args, &output));
+    }
     Ok((cap(&output.stdout), cap(&output.stderr)))
 }
 
-fn git_output(path: &str, args: &[&str]) -> Result<Output> {
-    let output = ProcessCommand::new("git")
+fn git_failure(args: &[&str], output: &Output) -> anyhow::Error {
+    let stderr = cap(&output.stderr);
+    if stderr.is_empty() {
+        anyhow!("git {} failed with {}", args.join(" "), output.status)
+    } else {
+        anyhow!("{stderr}")
+    }
+}
+
+fn git_output(
+    path: &str,
+    args: &[&str],
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<Output> {
+    let mut command = ProcessCommand::new("git");
+    command
         .arg("-C")
         .arg(path)
         .args(args)
-        .output()?;
-    if !output.status.success() {
-        let stderr = cap(&output.stderr);
-        if stderr.is_empty() {
-            bail!("git {} failed with {}", args.join(" "), output.status);
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child: GroupChild = command.group_spawn()?;
+    let stdout = child
+        .inner()
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("git stdout was not captured"))?;
+    let stderr = child
+        .inner()
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("git stderr was not captured"))?;
+    let stdout_reader = thread::spawn(move || read_output(stdout));
+    let stderr_reader = thread::spawn(move || read_output(stderr));
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let output = Output {
+                status,
+                stdout: join_output(stdout_reader)?,
+                stderr: join_output(stderr_reader)?,
+            };
+            return Ok(output);
         }
-        bail!("{stderr}");
+        if cancellation.is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("worktree action cancelled");
+        }
+        thread::sleep(Duration::from_millis(5));
     }
+}
+
+fn read_output(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
+    let mut output = Vec::new();
+    pipe.read_to_end(&mut output)?;
     Ok(output)
+}
+
+fn join_output(reader: thread::JoinHandle<std::io::Result<Vec<u8>>>) -> Result<Vec<u8>> {
+    reader
+        .join()
+        .map_err(|_| anyhow!("git output reader panicked"))?
+        .map_err(Into::into)
 }
 
 fn successful_run(stdout: String, stderr: String) -> ActionRun {
     ActionRun {
-        success: true,
+        outcome: ActionOutcome::Success,
         stdout,
         stderr,
         message: None,
     }
 }
 
-fn failed_run(error: anyhow::Error) -> ActionRun {
+fn cancelled_run(error: anyhow::Error) -> ActionRun {
     ActionRun {
-        success: false,
+        outcome: ActionOutcome::Cancelled,
         stdout: String::new(),
         stderr: cap(format!("{error:#}").as_bytes()),
         message: Some(error.to_string()),
     }
 }
 
+fn failed_run(error: anyhow::Error) -> ActionRun {
+    ActionRun {
+        outcome: ActionOutcome::Failure,
+        stdout: String::new(),
+        stderr: cap(format!("{error:#}").as_bytes()),
+        message: Some(error.to_string()),
+    }
+}
+
+#[cfg(test)]
 fn check_command(command: &str, args: &[&str]) -> Result<()> {
-    let status = ProcessCommand::new(command)
+    check_command_with_cancellation(command, args, &agentboard_core::CancellationToken::new())
+}
+
+fn check_command_with_cancellation(
+    command: &str,
+    args: &[&str],
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<()> {
+    if cancellation.is_cancelled() {
+        bail!("required command {command} health check cancelled");
+    }
+    let mut child = ProcessCommand::new(command)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .group_spawn()
         .map_err(|error| anyhow!("required command {command} not found: {error}"))?;
-    if !status.success() {
-        bail!("required command {command} returned {status}");
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if !status.success() {
+                bail!("required command {command} returned {status}");
+            }
+            return Ok(());
+        }
+        if cancellation.is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("required command {command} health check cancelled");
+        }
+        thread::sleep(Duration::from_millis(5));
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -234,6 +377,7 @@ mod tests {
     use agentboard_core::{
         model::Item,
         registry::{Action, ActionContext, ActionDefinition, Registry},
+        CancellationToken,
     };
     use serde_json::json;
     use std::{collections::BTreeMap, fs};
@@ -361,13 +505,19 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let run = WorktreeDefinition::build(config(&repo, &created, "feature"))
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(run.success, "{:?} {:?}", run.stderr, run.message);
+        assert!(
+            run.outcome == ActionOutcome::Success,
+            "{:?} {:?}",
+            run.stderr,
+            run.message
+        );
         assert_eq!(
             fs::read_to_string(created.join("README.md")).unwrap(),
             "test\n"
@@ -378,14 +528,19 @@ mod tests {
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(run.success);
+        assert!(run.outcome == ActionOutcome::Success);
         assert_eq!(run.stdout, format!("reused {}\n", created.display()));
 
         let run = WorktreeDefinition::build(config(&repo, &attached, "existing"))
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(run.success, "{:?} {:?}", run.stderr, run.message);
+        assert!(
+            run.outcome == ActionOutcome::Success,
+            "{:?} {:?}",
+            run.stderr,
+            run.message
+        );
     }
 
     #[test]
@@ -399,11 +554,12 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
         let action = WorktreeDefinition::build(config(&repo, &root, "feature")).unwrap();
 
         assert!(!action.cached_success_is_valid(&context));
-        assert!(action.execute(&context).unwrap().success);
+        assert!(action.execute(&context).unwrap().outcome == ActionOutcome::Success);
         assert!(action.cached_success_is_valid(&context));
 
         git(&repo, &["worktree", "remove", root.to_str().unwrap()]);
@@ -422,6 +578,7 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let created = WorktreeDefinition::build(config(&repo, &root, "feature"))
@@ -429,9 +586,10 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            created.success,
+            created.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            created.stderr, created.message
+            created.stderr,
+            created.message
         );
 
         let switched = WorktreeDefinition::build(config(&repo, &root, "existing"))
@@ -439,9 +597,10 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            switched.success,
+            switched.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            switched.stderr, switched.message
+            switched.stderr,
+            switched.message
         );
         assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "existing");
     }
@@ -457,6 +616,7 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let created = WorktreeDefinition::build(config(&repo, &root, "old"))
@@ -464,9 +624,10 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            created.success,
+            created.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            created.stderr, created.message
+            created.stderr,
+            created.message
         );
 
         fs::write(repo.join("main.txt"), "main\n").unwrap();
@@ -479,9 +640,10 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            switched.success,
+            switched.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            switched.stderr, switched.message
+            switched.stderr,
+            switched.message
         );
         assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "new");
         assert_eq!(git_stdout(&root, &["rev-parse", "HEAD"]), expected_head);
@@ -499,6 +661,7 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let created = WorktreeDefinition::build(config(&repo, &root, "feature"))
@@ -506,9 +669,10 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            created.success,
+            created.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            created.stderr, created.message
+            created.stderr,
+            created.message
         );
         let nested = root.join("nested");
         fs::create_dir(&nested).unwrap();
@@ -517,7 +681,7 @@ mod tests {
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(!switched.success);
+        assert!(switched.outcome == ActionOutcome::Failure);
         assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "feature");
     }
 
@@ -534,6 +698,7 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let created = WorktreeDefinition::build(config(&other_repo, &root, "feature"))
@@ -541,16 +706,17 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            created.success,
+            created.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            created.stderr, created.message
+            created.stderr,
+            created.message
         );
 
         let reused = WorktreeDefinition::build(config(&repo, &root, "feature"))
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(!reused.success);
+        assert!(reused.outcome == ActionOutcome::Failure);
         assert!(reused.stderr.contains("different repository"));
     }
 
@@ -565,13 +731,14 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let run = WorktreeDefinition::build(config(&repo, &repo, &branch))
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(!run.success);
+        assert!(run.outcome == ActionOutcome::Failure);
         assert!(run.stderr.contains("separate from repository"));
     }
 
@@ -587,6 +754,7 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let created = WorktreeDefinition::build(config(&repo, &root, "feature"))
@@ -594,9 +762,10 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            created.success,
+            created.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            created.stderr, created.message
+            created.stderr,
+            created.message
         );
 
         fs::write(root.join("untracked.txt"), "local\n").unwrap();
@@ -604,7 +773,7 @@ mod tests {
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(!untracked.success);
+        assert!(untracked.outcome == ActionOutcome::Failure);
         assert!(untracked.stderr.contains("dirty"));
         assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "feature");
 
@@ -614,7 +783,7 @@ mod tests {
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(!tracked.success);
+        assert!(tracked.outcome == ActionOutcome::Failure);
         assert!(tracked.stderr.contains("dirty"));
         assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "feature");
     }
@@ -634,6 +803,7 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let created = WorktreeDefinition::build(config(&repo, &root, "feature"))
@@ -641,9 +811,10 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            created.success,
+            created.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            created.stderr, created.message
+            created.stderr,
+            created.message
         );
         fs::write(root.join("ignored.txt"), "local\n").unwrap();
 
@@ -652,9 +823,10 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            switched.success,
+            switched.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            switched.stderr, switched.message
+            switched.stderr,
+            switched.message
         );
         assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "target");
     }
@@ -671,13 +843,19 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let run = WorktreeDefinition::build(config(&repo, &root, "release"))
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(run.success, "{:?} {:?}", run.stderr, run.message);
+        assert!(
+            run.outcome == ActionOutcome::Success,
+            "{:?} {:?}",
+            run.stderr,
+            run.message
+        );
         assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "release");
         git(&repo, &["show-ref", "--verify", "refs/heads/release"]);
     }
@@ -699,6 +877,7 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let created = WorktreeDefinition::build(config(&repo, &root, "feature"))
@@ -706,16 +885,17 @@ mod tests {
             .execute(&context)
             .unwrap();
         assert!(
-            created.success,
+            created.outcome == ActionOutcome::Success,
             "{:?} {:?}",
-            created.stderr, created.message
+            created.stderr,
+            created.message
         );
 
         let switched = WorktreeDefinition::build(config(&repo, &root, "target"))
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(!switched.success);
+        assert!(switched.outcome == ActionOutcome::Failure);
         assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "feature");
     }
 
@@ -730,13 +910,14 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         let run = WorktreeDefinition::build(config(&repo, &root, "bad..branch"))
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(!run.success);
+        assert!(run.outcome == ActionOutcome::Failure);
         assert!(run.stderr.contains("valid local branch"));
         assert!(!root.exists());
     }
@@ -752,6 +933,7 @@ mod tests {
             workspace_id: "workspace",
             source_id: "issues",
             item: &item,
+            cancellation: CancellationToken::new(),
         };
 
         fs::create_dir(&root).unwrap();
@@ -759,7 +941,7 @@ mod tests {
             .unwrap()
             .execute(&context)
             .unwrap();
-        assert!(!invalid_root.success);
+        assert!(invalid_root.outcome == ActionOutcome::Failure);
         assert!(!invalid_root.stderr.is_empty());
         assert!(invalid_root.message.is_some());
 
@@ -771,14 +953,18 @@ mod tests {
         .unwrap()
         .execute(&context)
         .unwrap();
-        assert!(!missing_repo.success);
+        assert!(missing_repo.outcome == ActionOutcome::Failure);
         assert!(!missing_repo.stderr.is_empty());
         assert!(missing_repo.message.is_some());
     }
 
     #[test]
     fn checks_required_git_through_testable_boundary() {
-        WorktreeDefinition::health_check().unwrap();
+        WorktreeDefinition::health_check(&agentboard_core::registry::HealthCheckContext {
+            source_id: "source",
+            cancellation: CancellationToken::new(),
+        })
+        .unwrap();
 
         let error = check_command("git", &["--agentboard-invalid-option"]).unwrap_err();
         assert!(error.to_string().contains("required command git returned"));

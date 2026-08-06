@@ -1,12 +1,16 @@
 use std::collections::BTreeMap;
 
+pub use tokio_util::sync::CancellationToken;
+
 pub mod model;
 pub mod registry;
+
+use model::ActionOutcome;
 
 pub const STDOUT_LIMIT: usize = 64 * 1024;
 
 pub struct ActionRun {
-    pub success: bool,
+    pub outcome: ActionOutcome,
     pub stdout: String,
     pub stderr: String,
     pub message: Option<String>,

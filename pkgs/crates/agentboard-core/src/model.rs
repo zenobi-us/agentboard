@@ -1,6 +1,6 @@
 //! Shared serializable domain records used across CLI, Source, and Action crates.
 
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{collections::BTreeMap, fmt, path::PathBuf};
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,25 @@ pub struct Item {
     pub raw: Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActionOutcome {
+    Success,
+    Failure,
+    Cancelled,
+}
+
+impl fmt::Display for ActionOutcome {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::Success => "success",
+            Self::Failure => "failure",
+            Self::Cancelled => "cancelled",
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct ActionAttempt {
     pub ts: String,
     pub source_id: String,
@@ -47,10 +65,53 @@ pub struct ActionAttempt {
     pub source_action_index: usize,
     pub uses: String,
     pub rendered_action_hash: String,
-    pub success: bool,
+    pub outcome: ActionOutcome,
     pub stdout: String,
     pub stderr: String,
     pub message: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ActionAttempt {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct StoredActionAttempt {
+            ts: String,
+            source_id: String,
+            item_id: String,
+            source_action_index: usize,
+            uses: String,
+            rendered_action_hash: String,
+            outcome: Option<ActionOutcome>,
+            success: Option<bool>,
+            stdout: String,
+            stderr: String,
+            message: Option<String>,
+        }
+
+        let stored = StoredActionAttempt::deserialize(deserializer)?;
+        let outcome = stored.outcome.unwrap_or_else(|| {
+            if stored.success.unwrap_or(false) {
+                ActionOutcome::Success
+            } else {
+                ActionOutcome::Failure
+            }
+        });
+        Ok(Self {
+            ts: stored.ts,
+            source_id: stored.source_id,
+            item_id: stored.item_id,
+            source_action_index: stored.source_action_index,
+            uses: stored.uses,
+            rendered_action_hash: stored.rendered_action_hash,
+            outcome,
+            stdout: stored.stdout,
+            stderr: stored.stderr,
+            message: stored.message,
+        })
+    }
 }
 
 /// Keeps one configured Source inseparable from the runtime built from it.
@@ -66,4 +127,64 @@ pub struct Workspace {
     pub id: String,
     pub path: PathBuf,
     pub sources: Vec<WorkspaceSource>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_legacy_success_boolean_and_writes_explicit_outcome() {
+        let attempt: ActionAttempt = serde_json::from_str(
+            r#"{"ts":"2026-01-01T00:00:00Z","source_id":"source","item_id":"item","source_action_index":0,"uses":"action","rendered_action_hash":"hash","success":true,"stdout":"out","stderr":"","message":null}"#,
+        )
+        .unwrap();
+        assert_eq!(attempt.outcome, ActionOutcome::Success);
+        let stored = serde_json::to_value(attempt).unwrap();
+        assert_eq!(stored["outcome"], "success");
+        assert!(stored.get("success").is_none());
+    }
+
+    #[test]
+    fn reads_legacy_failure_boolean() {
+        let attempt: ActionAttempt = serde_json::from_str(
+            r#"{"ts":"2026-01-01T00:00:00Z","source_id":"source","item_id":"item","source_action_index":0,"uses":"action","rendered_action_hash":"hash","success":false,"stdout":"","stderr":"error","message":"failed"}"#,
+        )
+        .unwrap();
+        assert_eq!(attempt.outcome, ActionOutcome::Failure);
+        assert_eq!(serde_json::to_value(attempt).unwrap()["outcome"], "failure");
+    }
+
+    #[test]
+    fn reads_explicit_failure_outcome() {
+        let attempt: ActionAttempt = serde_json::from_str(
+            r#"{"ts":"2026-01-01T00:00:00Z","source_id":"source","item_id":"item","source_action_index":0,"uses":"action","rendered_action_hash":"hash","outcome":"failure","stdout":"","stderr":"error","message":"failed"}"#,
+        )
+        .unwrap();
+        assert_eq!(attempt.outcome, ActionOutcome::Failure);
+        assert!(serde_json::to_value(attempt)
+            .unwrap()
+            .get("success")
+            .is_none());
+    }
+
+    #[test]
+    fn cancelled_attempt_is_not_successful() {
+        let attempt = ActionAttempt {
+            ts: "2026-01-01T00:00:00Z".into(),
+            source_id: "source".into(),
+            item_id: "item".into(),
+            source_action_index: 0,
+            uses: "action".into(),
+            rendered_action_hash: "hash".into(),
+            outcome: ActionOutcome::Cancelled,
+            stdout: "partial".into(),
+            stderr: String::new(),
+            message: Some("cancelled".into()),
+        };
+        assert_eq!(
+            serde_json::to_value(attempt).unwrap()["outcome"],
+            "cancelled"
+        );
+    }
 }

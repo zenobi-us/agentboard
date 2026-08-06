@@ -5,12 +5,14 @@ use std::{
 };
 
 use anyhow::{anyhow, bail, Result};
+use command_group::CommandGroup;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
 use agentboard_core::{
     cap,
-    registry::{Action, ActionContext, ActionDefinition, RuntimeResult},
+    model::ActionOutcome,
+    registry::{Action, ActionContext, ActionDefinition, HealthCheckContext, RuntimeResult},
     ActionRun, STDOUT_LIMIT,
 };
 
@@ -75,8 +77,8 @@ impl ActionDefinition for RunCmdDefinition {
         })
     }
 
-    fn health_check() -> RuntimeResult<()> {
-        check_command("sh", &["-c", ":"])
+    fn health_check(context: &HealthCheckContext<'_>) -> RuntimeResult<()> {
+        check_command_with_cancellation("sh", &["-c", ":"], &context.cancellation)
     }
 }
 
@@ -89,10 +91,20 @@ impl Action for RunCmdAction {
 fn execute_command(action: &RunCmdAction, context: &ActionContext<'_>) -> ActionRun {
     let launch = match process::run(&action.cmd, action.cwd.as_deref(), context) {
         Ok(output) => output,
-        Err(error) => return failed_run(error),
+        Err(error) => {
+            return if context.cancellation.is_cancelled() {
+                cancelled_run(error)
+            } else {
+                failed_run(error)
+            };
+        }
     };
     if !launch.status.success() {
-        return output_run(launch);
+        return if context.cancellation.is_cancelled() {
+            cancelled_output_run(launch)
+        } else {
+            output_run(launch)
+        };
     }
     let Some(healthcheck) = &action.healthcheck else {
         return output_run(launch);
@@ -120,11 +132,23 @@ fn poll_healthcheck(
                 return healthcheck_timeout_run(healthcheck.timeout, launch, probe)
             }
             process::Run::Finished(probe) => {
+                if context.cancellation.is_cancelled() {
+                    return cancelled_output_run(probe);
+                }
                 let elapsed = started.elapsed();
                 if elapsed >= healthcheck.timeout {
                     return healthcheck_timeout_run(healthcheck.timeout, launch, probe);
                 }
-                thread::sleep(healthcheck.interval.min(healthcheck.timeout - elapsed));
+                let sleep_for = healthcheck.interval.min(healthcheck.timeout - elapsed);
+                let sleep_started = Instant::now();
+                while sleep_started.elapsed() < sleep_for {
+                    if context.cancellation.is_cancelled() {
+                        return cancelled_run(anyhow!("action cancelled"));
+                    }
+                    thread::sleep(
+                        Duration::from_millis(5).min(sleep_for - sleep_started.elapsed()),
+                    );
+                }
                 if started.elapsed() >= healthcheck.timeout {
                     return healthcheck_timeout_run(healthcheck.timeout, launch, probe);
                 }
@@ -136,16 +160,29 @@ fn poll_healthcheck(
 fn output_run(output: Output) -> ActionRun {
     let success = output.status.success();
     ActionRun {
-        success,
+        outcome: if success {
+            ActionOutcome::Success
+        } else {
+            ActionOutcome::Failure
+        },
         stdout: cap(&output.stdout),
         stderr: cap(&output.stderr),
         message: (!success).then(|| format!("command exited with {}", output.status)),
     }
 }
 
+fn cancelled_output_run(output: Output) -> ActionRun {
+    ActionRun {
+        outcome: ActionOutcome::Cancelled,
+        stdout: cap(&output.stdout),
+        stderr: cap(&output.stderr),
+        message: Some("action cancelled".into()),
+    }
+}
+
 fn healthcheck_timeout_run(timeout: Duration, launch: Output, probe: Output) -> ActionRun {
     ActionRun {
-        success: false,
+        outcome: ActionOutcome::Failure,
         stdout: combined_output(&launch.stdout, &probe.stdout),
         stderr: combined_output(&launch.stderr, &probe.stderr),
         message: Some(format!(
@@ -179,27 +216,58 @@ fn parse_duration(name: &str, value: &str) -> Result<Duration> {
     Ok(duration)
 }
 
-fn failed_run(error: anyhow::Error) -> ActionRun {
+fn cancelled_run(error: anyhow::Error) -> ActionRun {
     ActionRun {
-        success: false,
+        outcome: ActionOutcome::Cancelled,
         stdout: String::new(),
         stderr: cap(format!("{error:#}").as_bytes()),
         message: Some(error.to_string()),
     }
 }
 
+fn failed_run(error: anyhow::Error) -> ActionRun {
+    ActionRun {
+        outcome: ActionOutcome::Failure,
+        stdout: String::new(),
+        stderr: cap(format!("{error:#}").as_bytes()),
+        message: Some(error.to_string()),
+    }
+}
+
+#[cfg(test)]
 fn check_command(command: &str, args: &[&str]) -> Result<()> {
-    let status = ProcessCommand::new(command)
+    check_command_with_cancellation(command, args, &agentboard_core::CancellationToken::new())
+}
+
+fn check_command_with_cancellation(
+    command: &str,
+    args: &[&str],
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<()> {
+    if cancellation.is_cancelled() {
+        bail!("required command {command} health check cancelled");
+    }
+    let mut child = ProcessCommand::new(command)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .group_spawn()
         .map_err(|error| anyhow!("required command {command} not found: {error}"))?;
-    if !status.success() {
-        bail!("required command {command} returned {status}");
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if !status.success() {
+                bail!("required command {command} returned {status}");
+            }
+            return Ok(());
+        }
+        if cancellation.is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("required command {command} health check cancelled");
+        }
+        thread::sleep(Duration::from_millis(5));
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -208,6 +276,7 @@ mod tests {
     use agentboard_core::{
         model::Item,
         registry::{Action, ActionContext, ActionDefinition, Registry},
+        CancellationToken,
     };
     use serde_json::json;
     use std::collections::BTreeMap;
@@ -243,6 +312,7 @@ mod tests {
                 workspace_id: "workspace",
                 source_id: "issues",
                 item: &item,
+                cancellation: CancellationToken::new(),
             })
             .unwrap()
     }
@@ -321,7 +391,7 @@ mod tests {
         let action = RunCmdDefinition::build(config).unwrap();
         let run = run(&action);
 
-        assert!(run.success);
+        assert_eq!(run.outcome, ActionOutcome::Success);
         assert_eq!(
             run.stdout,
             format!("workspace|issues|AB-22|{}", dir.path().display())
@@ -336,7 +406,7 @@ mod tests {
 
         let command_run = run(&action);
 
-        assert!(!command_run.success);
+        assert_eq!(command_run.outcome, ActionOutcome::Failure);
         assert_eq!(command_run.stdout, "out");
         assert_eq!(command_run.stderr, "err");
         assert!(command_run.message.unwrap().contains('7'));
@@ -346,7 +416,7 @@ mod tests {
         let action = RunCmdDefinition::build(config).unwrap();
         let spawn_run = run(&action);
 
-        assert!(!spawn_run.success);
+        assert_eq!(spawn_run.outcome, ActionOutcome::Failure);
         assert!(spawn_run.stderr.contains("run shell command in cwd"));
         assert!(spawn_run
             .stderr
@@ -363,7 +433,7 @@ mod tests {
         let action = RunCmdDefinition::build(config).unwrap();
         let run = run(&action);
 
-        assert!(!run.success);
+        assert_eq!(run.outcome, ActionOutcome::Failure);
         assert!(!marker.exists());
     }
 
@@ -380,10 +450,13 @@ mod tests {
         let action = RunCmdDefinition::build(config).unwrap();
         let run = run(&action);
 
-        assert!(
-            run.success,
+        assert_eq!(
+            run.outcome,
+            ActionOutcome::Success,
             "stdout={:?} stderr={:?} message={:?}",
-            run.stdout, run.stderr, run.message
+            run.stdout,
+            run.stderr,
+            run.message
         );
         assert_eq!(
             std::fs::read_to_string(marker).unwrap(),
@@ -405,7 +478,7 @@ mod tests {
         let action = RunCmdDefinition::build(config).unwrap();
         let run = run(&action);
 
-        assert!(run.success);
+        assert_eq!(run.outcome, ActionOutcome::Success);
         assert_eq!(std::fs::read_to_string(attempts).unwrap().trim(), "3");
     }
 
@@ -418,7 +491,7 @@ mod tests {
         let action = RunCmdDefinition::build(config).unwrap();
         let run = run(&action);
 
-        assert!(!run.success);
+        assert_eq!(run.outcome, ActionOutcome::Failure);
         assert!(run.stdout.contains("launch-out"));
         assert!(run.stdout.contains("probe-out"));
         assert!(run.stderr.contains("launch-err"));
@@ -436,11 +509,36 @@ mod tests {
         let started = Instant::now();
         let run = run(&action);
 
-        assert!(!run.success);
+        assert_eq!(run.outcome, ActionOutcome::Failure);
         assert!(started.elapsed() < Duration::from_millis(500));
         assert!(run.stdout.contains("started"));
         assert!(!run.stdout.contains("late"));
         assert!(run.message.unwrap().contains("timed out after 30ms"));
+    }
+
+    #[test]
+    fn cancellation_terminates_owned_command_group() {
+        let action = RunCmdDefinition::build(config("sleep 5; printf late")).unwrap();
+        let item = item();
+        let cancellation = CancellationToken::new();
+        let cancel = cancellation.clone();
+        let started = Instant::now();
+        let handle = thread::spawn(move || {
+            action
+                .execute(&ActionContext {
+                    workspace_id: "workspace",
+                    source_id: "issues",
+                    item: &item,
+                    cancellation,
+                })
+                .unwrap()
+        });
+        thread::sleep(Duration::from_millis(30));
+        cancel.cancel();
+        let run = handle.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(1));
+        assert_eq!(run.outcome, ActionOutcome::Cancelled);
+        assert!(!run.stdout.contains("late"));
     }
 
     #[test]
@@ -453,7 +551,7 @@ mod tests {
         let started = Instant::now();
         let run = run(&action);
 
-        assert!(!run.success);
+        assert_eq!(run.outcome, ActionOutcome::Failure);
         assert!(started.elapsed() < Duration::from_millis(500));
         assert!(run.stdout.contains("probe"));
         assert!(run.message.unwrap().contains("timed out after 30ms"));
@@ -461,7 +559,11 @@ mod tests {
 
     #[test]
     fn checks_required_shell_through_testable_boundary() {
-        RunCmdDefinition::health_check().unwrap();
+        RunCmdDefinition::health_check(&agentboard_core::registry::HealthCheckContext {
+            source_id: "source",
+            cancellation: CancellationToken::new(),
+        })
+        .unwrap();
 
         let error = check_command("sh", &["-c", "exit 9"]).unwrap_err();
         assert!(error.to_string().contains("required command sh returned"));

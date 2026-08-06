@@ -3,13 +3,16 @@
 use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
+    hash::{Hash, Hasher},
     io::{BufRead, BufReader, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
+    sync::atomic::{AtomicU64, Ordering},
 };
 
 use agentboard_core::{
-    model::{ActionAttempt, Item, Workspace, WorkspaceSource},
-    registry::{Registry, SourceCollection, SourceContext},
+    model::{ActionAttempt, ActionOutcome, Item, Workspace, WorkspaceSource},
+    registry::{HealthCheckContext, Registry, SourceCollection},
+    CancellationToken,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use fs4::{FileExt, TryLockError};
@@ -24,7 +27,13 @@ use crate::{
 struct StoredItem {
     slug: String,
     item: Item,
+    snapshot_key: Option<String>,
+    snapshot_id: Option<String>,
 }
+
+const SNAPSHOT_KEY_FIELD: &str = "_agentboard_snapshot_key";
+const SNAPSHOT_ID_FIELD: &str = "_agentboard_snapshot_id";
+static SNAPSHOT_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 struct StoredAction {
     slug: String,
@@ -61,13 +70,110 @@ pub fn acquire_lock(ws: &Workspace) -> Result<Lock> {
     }
 }
 
-/// Append item observations for one source to its JSONL store.
+/// Append one complete Source Snapshot to the source Item Store.
 pub fn append_items(ws: &Workspace, source: &WorkspaceSource, items: &[Item]) -> Result<()> {
-    let mut f = append_file(items_path(ws, source))?;
-    for item in items {
-        writeln!(f, "{}", serde_json::to_string(item)?)?;
+    append_items_with_cancellation(ws, source, items, &CancellationToken::new())
+}
+
+/// Publish item observations and their completion boundary as one Store update.
+pub(crate) fn append_items_with_cancellation(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    items: &[Item],
+    cancellation: &CancellationToken,
+) -> Result<()> {
+    let path = items_path(ws, source);
+    let snapshots = snapshot_path(&path);
+    let snapshot_key = source_snapshot_key(source);
+    let snapshot_id = next_snapshot_id();
+    fs::create_dir_all(path.parent().unwrap())?;
+    let temp = path.with_extension("jsonl.tmp");
+    let snapshots_temp = snapshots.with_extension("snapshots.tmp");
+    let result = (|| -> Result<()> {
+        check_store_cancellation(cancellation)?;
+        let mut file = File::create(&temp)?;
+        if path.exists() {
+            let mut previous = File::open(&path)?;
+            std::io::copy(&mut previous, &mut file)?;
+        }
+        for item in items {
+            check_store_cancellation(cancellation)?;
+            let mut value = serde_json::to_value(item)?;
+            let record = value
+                .as_object_mut()
+                .ok_or_else(|| anyhow!("serialized Item is not an object"))?;
+            record.insert(
+                SNAPSHOT_KEY_FIELD.into(),
+                serde_json::Value::String(snapshot_key.clone()),
+            );
+            record.insert(
+                SNAPSHOT_ID_FIELD.into(),
+                serde_json::Value::String(snapshot_id.clone()),
+            );
+            writeln!(file, "{value}")?;
+        }
+        file.sync_all()?;
+        check_store_cancellation(cancellation)?;
+
+        let mut boundaries = File::create(&snapshots_temp)?;
+        if snapshots.exists() {
+            let mut previous = File::open(&snapshots)?;
+            std::io::copy(&mut previous, &mut boundaries)?;
+        }
+        writeln!(
+            boundaries,
+            "{}",
+            serde_json::json!({"snapshot_key": snapshot_key, "snapshot_id": snapshot_id})
+        )?;
+        boundaries.sync_all()?;
+        check_store_cancellation(cancellation)?;
+
+        replace_file(&temp, &path)?;
+        replace_file(&snapshots_temp, &snapshots)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp);
+        let _ = fs::remove_file(&snapshots_temp);
     }
+    result
+}
+
+fn replace_file(temp: &Path, destination: &Path) -> Result<()> {
+    #[cfg(windows)]
+    if destination.exists() {
+        fs::remove_file(destination)?;
+    }
+    fs::rename(temp, destination)?;
     Ok(())
+}
+
+fn check_store_cancellation(cancellation: &CancellationToken) -> Result<()> {
+    if cancellation.is_cancelled() {
+        Err(crate::runtime::InvocationCancelled.into())
+    } else {
+        Ok(())
+    }
+}
+
+fn snapshot_path(path: &Path) -> PathBuf {
+    path.with_extension("snapshots")
+}
+
+fn source_snapshot_key(source: &WorkspaceSource) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    source.configured.id.hash(&mut hasher);
+    source.built.registration_id().hash(&mut hasher);
+    source.built.config_json().hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn next_snapshot_id() -> String {
+    format!(
+        "{}-{}",
+        chrono::Utc::now().timestamp_nanos_opt().unwrap_or_default(),
+        SNAPSHOT_COUNTER.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// Append one action attempt to the source action JSONL store.
@@ -96,46 +202,120 @@ pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
 
 fn latest_item_records(ws: &Workspace) -> Result<HashMap<String, StoredItem>> {
     let mut map = HashMap::new();
-    let mut seen_paths = HashSet::new();
+    let mut records_by_path = HashMap::<PathBuf, Vec<StoredItem>>::new();
+    let mut boundaries_by_path = HashMap::<PathBuf, HashMap<String, String>>::new();
+
     for source in &ws.sources {
         let path = items_path(ws, source);
-        if !seen_paths.insert(path.clone()) || !path.exists() {
+        if !path.exists() {
             continue;
         }
+        if !records_by_path.contains_key(&path) {
+            records_by_path.insert(path.clone(), load_item_records(ws, &path)?);
+            boundaries_by_path.insert(path.clone(), load_snapshot_boundaries(&path)?);
+        }
+
         let slug = source_slug(source);
-        let file =
-            File::open(&path).with_context(|| format!("open item Store {}", path.display()))?;
-        for (index, line) in BufReader::new(file).lines().enumerate() {
-            let line_number = index + 1;
-            let line = line.with_context(|| {
-                format!("read item Store {} line {line_number}", path.display())
-            })?;
-            let value: Value = serde_json::from_str(&line).with_context(|| {
-                format!("parse item Store {} line {line_number}", path.display())
-            })?;
-            if let Some(record) = value.as_object() {
-                if !record.contains_key("reference_id") {
-                    bail!(
-                        "load item Store {} line {line_number}; item records now require reference_id. Remove {} and run `agentboard run {}` to rebuild the affected Store",
-                        path.display(),
-                        path.display(),
-                        ws.path.display()
-                    );
-                }
+        let snapshot_key = source_snapshot_key(source);
+        let Some(snapshot_id) = boundaries_by_path
+            .get(&path)
+            .and_then(|boundaries| boundaries.get(&snapshot_key))
+        else {
+            continue;
+        };
+        for stored in records_by_path.get(&path).into_iter().flatten() {
+            if stored.snapshot_key.as_deref() == Some(snapshot_key.as_str())
+                && stored.snapshot_id.as_deref() == Some(snapshot_id.as_str())
+            {
+                map.insert(
+                    item_key(&slug, &stored.item.id),
+                    StoredItem {
+                        slug: slug.clone(),
+                        item: stored.item.clone(),
+                        snapshot_key: stored.snapshot_key.clone(),
+                        snapshot_id: stored.snapshot_id.clone(),
+                    },
+                );
             }
-            let item: Item = serde_json::from_value(value).with_context(|| {
-                format!("load item Store {} line {line_number}", path.display())
-            })?;
-            map.insert(
-                item_key(&slug, &item.id),
-                StoredItem {
-                    slug: slug.clone(),
-                    item,
-                },
-            );
         }
     }
     Ok(map)
+}
+
+fn load_item_records(ws: &Workspace, path: &Path) -> Result<Vec<StoredItem>> {
+    let file = File::open(path).with_context(|| format!("open item Store {}", path.display()))?;
+    let mut records = Vec::new();
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line_number = index + 1;
+        let line =
+            line.with_context(|| format!("read item Store {} line {line_number}", path.display()))?;
+        let value: Value = serde_json::from_str(&line)
+            .with_context(|| format!("parse item Store {} line {line_number}", path.display()))?;
+        let Some(record) = value.as_object() else {
+            bail!(
+                "load item Store {} line {line_number}; Item record must be an object",
+                path.display()
+            );
+        };
+        if !record.contains_key("reference_id") {
+            bail!(
+                "load item Store {} line {line_number}; item records now require reference_id. Remove {} and run `agentboard run {}` to rebuild the affected Store",
+                path.display(),
+                path.display(),
+                ws.path.display()
+            );
+        }
+        let snapshot_key = record
+            .get(SNAPSHOT_KEY_FIELD)
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let snapshot_id = record
+            .get(SNAPSHOT_ID_FIELD)
+            .and_then(Value::as_str)
+            .map(str::to_owned);
+        let item: Item = serde_json::from_value(value)
+            .with_context(|| format!("load item Store {} line {line_number}", path.display()))?;
+        records.push(StoredItem {
+            slug: String::new(),
+            item,
+            snapshot_key,
+            snapshot_id,
+        });
+    }
+    Ok(records)
+}
+
+fn load_snapshot_boundaries(path: &Path) -> Result<HashMap<String, String>> {
+    let snapshots = snapshot_path(path);
+    if !snapshots.exists() {
+        return Ok(HashMap::new());
+    }
+    let file = File::open(&snapshots).with_context(|| {
+        format!(
+            "open item Store snapshot boundaries {}",
+            snapshots.display()
+        )
+    })?;
+    let mut latest = HashMap::new();
+    for (index, line) in BufReader::new(file).lines().enumerate() {
+        let line_number = index + 1;
+        let value: Value = serde_json::from_str(&line?).with_context(|| {
+            format!(
+                "parse item Store snapshot boundary {} line {line_number}",
+                snapshots.display()
+            )
+        })?;
+        let key = value
+            .get("snapshot_key")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("snapshot boundary missing snapshot_key"))?;
+        let id = value
+            .get("snapshot_id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("snapshot boundary missing snapshot_id"))?;
+        latest.insert(key.to_string(), id.to_string());
+    }
+    Ok(latest)
 }
 
 /// Return every stored action attempt for the workspace.
@@ -171,19 +351,23 @@ pub fn successful_actions(ws: &Workspace, source: &WorkspaceSource) -> Result<Ha
     if !path.exists() {
         return Ok(HashSet::new());
     }
-    let mut out = HashSet::new();
+    let mut latest = HashMap::new();
     for line in BufReader::new(File::open(path)?).lines() {
         let a: ActionAttempt = serde_json::from_str(&line?)?;
-        if a.success {
-            out.insert(action_key(
+        latest.insert(
+            action_key(
                 &a.source_id,
                 &a.item_id,
                 a.source_action_index,
                 &a.rendered_action_hash,
-            ));
-        }
+            ),
+            a.outcome,
+        );
     }
-    Ok(out)
+    Ok(latest
+        .into_iter()
+        .filter_map(|(key, outcome)| (outcome == ActionOutcome::Success).then_some(key))
+        .collect())
 }
 
 /// Print latest stored items with derived action state.
@@ -213,15 +397,27 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
 
 // Derive display state from action attempts for one item.
 fn action_state(actions: &[StoredAction], item: &StoredItem) -> &'static str {
-    let mut saw_action = false;
-    let mut saw_failure = false;
+    let mut latest = HashMap::new();
     for action in actions.iter().filter(|a| action_matches_item(a, item)) {
-        saw_action = true;
-        saw_failure |= !action.attempt.success;
+        latest.insert(
+            (
+                action.attempt.source_action_index,
+                action.attempt.rendered_action_hash.as_str(),
+            ),
+            action.attempt.outcome,
+        );
     }
-    if saw_failure {
+    if latest
+        .values()
+        .any(|outcome| *outcome == ActionOutcome::Failure)
+    {
         "failed"
-    } else if saw_action {
+    } else if latest
+        .values()
+        .any(|outcome| *outcome == ActionOutcome::Cancelled)
+    {
+        "pending"
+    } else if !latest.is_empty() {
         "succeeded"
     } else {
         "pending"
@@ -250,8 +446,8 @@ pub fn show_item(ws: &Workspace, item_ref: &str, as_json: bool) -> Result<()> {
         );
         for a in actions {
             println!(
-                "action#{} {} success={}",
-                a.source_action_index, a.uses, a.success
+                "action#{} {} outcome={}",
+                a.source_action_index, a.uses, a.outcome
             );
         }
     }
@@ -288,13 +484,27 @@ fn resolve_item(ws: &Workspace, item_ref: &str) -> Result<StoredItem> {
 }
 
 /// Validate the Store, registered Source reachability, and registered Action health.
-pub async fn doctor(ws: &Workspace, registry: &Registry, output: &Output) -> Result<()> {
+pub async fn doctor(
+    ws: &Workspace,
+    registry: &Registry,
+    output: &Output,
+    cancellation: CancellationToken,
+) -> Result<()> {
     output.info(
         "doctor.start",
         &format!("doctor {} starting", ws.id),
         json!({"workspace": ws.id}),
     )?;
     let mut failures = 0_usize;
+
+    if cancellation.is_cancelled() {
+        output.info(
+            "doctor.cancelled",
+            &format!("doctor {} cancellation observed between work units", ws.id),
+            json!({"workspace": ws.id, "outcome": "cancelled"}),
+        )?;
+        return Err(crate::runtime::InvocationCancelled.into());
+    }
 
     // Registry loading already completed strict config validation before diagnostics.
     report_check(output, ws, "config", Ok(()), &mut failures)?;
@@ -311,9 +521,29 @@ pub async fn doctor(ws: &Workspace, registry: &Registry, output: &Output) -> Res
     report_check(output, ws, "store", store, &mut failures)?;
 
     for source in &ws.sources {
+        if cancellation.is_cancelled() {
+            output.info(
+                "doctor.cancelled",
+                &format!("doctor {} cancellation observed between work units", ws.id),
+                json!({"workspace": ws.id, "outcome": "cancelled"}),
+            )?;
+            return Err(crate::runtime::InvocationCancelled.into());
+        }
         let source_id = &source.configured.id;
-        let context = SourceContext { source_id };
-        match source.built.runtime().health_check(&context).await {
+        let context = HealthCheckContext {
+            source_id,
+            cancellation: cancellation.clone(),
+        };
+        let health = source.built.runtime().health_check(&context).await;
+        if cancellation.is_cancelled() {
+            output.info(
+                "doctor.cancelled",
+                &format!("doctor {} cancellation observed between work units", ws.id),
+                json!({"workspace": ws.id, "outcome": "cancelled"}),
+            )?;
+            return Err(crate::runtime::InvocationCancelled.into());
+        }
+        match health {
             Ok(collection) => output.success(
                 "doctor.check",
                 &source_reachable_message(source_id, &collection),
@@ -336,13 +566,29 @@ pub async fn doctor(ws: &Workspace, registry: &Registry, output: &Output) -> Res
                 )?;
             }
         }
+        if cancellation.is_cancelled() {
+            output.info(
+                "doctor.cancelled",
+                &format!("doctor {} cancellation observed between work units", ws.id),
+                json!({"workspace": ws.id, "outcome": "cancelled"}),
+            )?;
+            return Err(crate::runtime::InvocationCancelled.into());
+        }
         output.info(
             "doctor.actions",
             &format!("actions [{}]", source.configured.actions.len()),
             json!({"workspace": ws.id, "source": source_id, "actions": source.configured.actions.len()}),
         )?;
         for (index, action) in source.configured.actions.iter().enumerate() {
-            match registry.check_action(&action.uses) {
+            if cancellation.is_cancelled() {
+                output.info(
+                    "doctor.cancelled",
+                    &format!("doctor {} cancellation observed between work units", ws.id),
+                    json!({"workspace": ws.id, "outcome": "cancelled"}),
+                )?;
+                return Err(crate::runtime::InvocationCancelled.into());
+            }
+            match registry.check_action(&action.uses, &context) {
                 Ok(()) => output.success(
                     "doctor.action",
                     &format!("  - {} [ok]", action.uses),
@@ -361,9 +607,34 @@ pub async fn doctor(ws: &Workspace, registry: &Registry, output: &Output) -> Res
                 }
             }
         }
-        for check in source.built.runtime().health_checks() {
-            report_check(output, ws, &check.name, check.result, &mut failures)?;
+        if cancellation.is_cancelled() {
+            output.info(
+                "doctor.cancelled",
+                &format!("doctor {} cancellation observed between work units", ws.id),
+                json!({"workspace": ws.id, "outcome": "cancelled"}),
+            )?;
+            return Err(crate::runtime::InvocationCancelled.into());
         }
+        for check in source.built.runtime().health_checks(&context) {
+            report_check(output, ws, &check.name, check.result, &mut failures)?;
+            if cancellation.is_cancelled() {
+                output.info(
+                    "doctor.cancelled",
+                    &format!("doctor {} cancellation observed between work units", ws.id),
+                    json!({"workspace": ws.id, "outcome": "cancelled"}),
+                )?;
+                return Err(crate::runtime::InvocationCancelled.into());
+            }
+        }
+    }
+
+    if cancellation.is_cancelled() {
+        output.info(
+            "doctor.cancelled",
+            &format!("doctor {} cancellation observed between work units", ws.id),
+            json!({"workspace": ws.id, "outcome": "cancelled"}),
+        )?;
+        return Err(crate::runtime::InvocationCancelled.into());
     }
 
     if failures > 0 {
@@ -582,6 +853,59 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_latest_action_is_pending_and_retryable() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[item("from a", "PROJ-1")]).unwrap();
+        append_action(&ws, &ws.sources[0], &attempt("a", "PROJ-1", true)).unwrap();
+        let mut cancelled = attempt("a", "PROJ-1", true);
+        cancelled.outcome = ActionOutcome::Cancelled;
+        append_action(&ws, &ws.sources[0], &cancelled).unwrap();
+
+        let stored = all_stored_actions(&ws).unwrap();
+        let item = resolve_item(&ws, "PROJ-1").unwrap();
+
+        assert_eq!(action_state(&stored, &item), "pending");
+        assert!(successful_actions(&ws, &ws.sources[0]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn latest_complete_snapshot_defines_current_membership() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[item("old", "PROJ-1")]).unwrap();
+        assert_eq!(latest_items(&ws).unwrap().len(), 1);
+
+        append_items(&ws, &ws.sources[0], &[]).unwrap();
+
+        assert!(latest_items(&ws).unwrap().is_empty());
+    }
+
+    #[test]
+    fn cancelled_snapshot_does_not_replace_previous_snapshot() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[item("old", "PROJ-1")]).unwrap();
+
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let error = append_items_with_cancellation(
+            &ws,
+            &ws.sources[0],
+            &[item("new", "PROJ-1")],
+            &cancellation,
+        )
+        .unwrap_err();
+
+        assert!(error
+            .downcast_ref::<crate::runtime::InvocationCancelled>()
+            .is_some());
+        let stored = latest_items(&ws).unwrap();
+        assert_eq!(stored.len(), 1);
+        assert_eq!(stored.values().next().unwrap().title, "old");
+    }
+
+    #[test]
     fn qualified_item_ref_disambiguates_item_bucket() {
         let ws = workspace(&[
             ("a", "https://team-a.atlassian.net", "project = AB"),
@@ -657,7 +981,11 @@ jql = {jql:?}
             source_action_index: 0,
             uses: "agentboard/run-cmd".into(),
             rendered_action_hash: "abc123".into(),
-            success,
+            outcome: if success {
+                ActionOutcome::Success
+            } else {
+                ActionOutcome::Failure
+            },
             stdout: String::new(),
             stderr: String::new(),
             message: None,

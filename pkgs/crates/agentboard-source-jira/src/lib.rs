@@ -1,11 +1,11 @@
 use std::{
     collections::HashSet,
     env,
-    io::Write,
     process::{Command, Stdio},
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use command_group::AsyncCommandGroup;
 use reqwest::Client;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -92,7 +92,11 @@ impl SourceDefinition for JiraSourceDefinition {
 }
 
 impl JiraSource {
-    async fn collect_jira(&self, source_id: &str) -> Result<SourceCollection> {
+    async fn collect_jira(
+        &self,
+        source_id: &str,
+        cancellation: &agentboard_core::CancellationToken,
+    ) -> Result<SourceCollection> {
         let site = self.request_site.as_str();
         let query = JiraQuery {
             email_env: &self.config.email_env,
@@ -103,7 +107,7 @@ impl JiraSource {
             fields: &self.config.fields,
             field_map: &self.config.field_map,
         };
-        let credential = jira_credential(&query, site)?;
+        let credential = jira_credential(&query, site, cancellation).await?;
         let search = jira_search(
             &format!("{site}/rest/api/3/search/jql"),
             &credential.username,
@@ -112,6 +116,7 @@ impl JiraSource {
             query.limit,
             query.fields,
             query.field_map,
+            cancellation,
         )
         .await?;
         self.collection_from_search(source_id, search)
@@ -148,7 +153,10 @@ impl JiraSource {
 
 impl Source for JiraSource {
     fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
-        Box::pin(async move { self.collect_jira(context.source_id).await })
+        Box::pin(async move {
+            self.collect_jira(context.source_id, &context.cancellation)
+                .await
+        })
     }
 
     fn item_bucket_identity(&self) -> String {
@@ -227,6 +235,7 @@ fn normalize_issue(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn jira_search(
     url: &str,
     email: &str,
@@ -235,10 +244,11 @@ async fn jira_search(
     limit: usize,
     fields: &[String],
     map: &FieldMap,
+    cancellation: &agentboard_core::CancellationToken,
 ) -> Result<Value> {
     let requested_fields = jira_fetch_fields(fields, map);
 
-    let response = Client::new()
+    let request = Client::new()
         .post(url)
         .basic_auth(email, Some(token))
         .json(&json!({
@@ -246,11 +256,16 @@ async fn jira_search(
             "maxResults": limit,
             "fields": requested_fields,
         }))
-        .send()
-        .await
-        .context("send jira search request")?;
+        .send();
+    let response = tokio::select! {
+        response = request => response.context("send jira search request")?,
+        _ = cancellation.cancelled() => bail!("jira search cancelled"),
+    };
     let status = response.status();
-    let text = response.text().await.context("read jira search response")?;
+    let text = tokio::select! {
+        text = response.text() => text.context("read jira search response")?,
+        _ = cancellation.cancelled() => bail!("jira search cancelled"),
+    };
     if !status.is_success() {
         bail!("jira search failed with {status}: {text}");
     }
@@ -262,12 +277,18 @@ struct JiraCredential {
     password: String,
 }
 
-fn jira_credential(query: &JiraQuery<'_>, site: &str) -> Result<JiraCredential> {
+async fn jira_credential(
+    query: &JiraQuery<'_>,
+    site: &str,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<JiraCredential> {
     if let Some(credentials) = query.credentials {
         let output = run_jira_credential_helper(
             &credentials.helper,
             &format!("protocol=https\nhost={}\n\n", site_host(site)),
-        )?;
+            cancellation,
+        )
+        .await?;
         return parse_jira_credential(&output);
     }
 
@@ -279,27 +300,58 @@ fn jira_credential(query: &JiraQuery<'_>, site: &str) -> Result<JiraCredential> 
     })
 }
 
-fn run_jira_credential_helper(helper: &str, stdin: &str) -> Result<String> {
+async fn run_jira_credential_helper(
+    helper: &str,
+    stdin: &str,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<String> {
     if helper.trim().is_empty() {
         bail!("jira credential helper cannot be empty");
     }
 
-    let mut child = shell_command(helper)
+    let mut child = tokio::process::Command::from(shell_command(helper))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped())
+        .group_spawn()
         .with_context(|| format!("run jira credential helper {helper}"))?;
 
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     child
+        .inner()
         .stdin
-        .as_mut()
+        .take()
         .context("open jira credential helper stdin")?
         .write_all(stdin.as_bytes())
+        .await
         .context("write jira credential helper request")?;
-
-    let output = child
-        .wait_with_output()
-        .context("read jira credential helper output")?;
+    let stdout = child
+        .inner()
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("jira helper stdout was not captured"))?;
+    let stderr = child
+        .inner()
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("jira helper stderr was not captured"))?;
+    let output = tokio::select! {
+        result = async {
+            let mut stdout = stdout;
+            let mut stderr = stderr;
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let (status, out_result, err_result) = tokio::join!(child.wait(), stdout.read_to_end(&mut out), stderr.read_to_end(&mut err));
+            out_result?;
+            err_result?;
+            Ok::<_, anyhow::Error>(std::process::Output { status: status?, stdout: out, stderr: err })
+        } => result?,
+        _ = cancellation.cancelled() => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            bail!("jira credential helper cancelled");
+        }
+    };
     if !output.status.success() {
         bail!(
             "jira credential helper failed with {}: {}",
@@ -415,21 +467,10 @@ fn optional_mapped_field(issue: &Value, path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentboard_core::registry::{RawConfig, Registry, Source, SourceContext, SourceDefinition};
-    use std::{
-        future::Future,
-        task::{Context as TaskContext, Poll, Waker},
+    use agentboard_core::{
+        registry::{HealthCheckContext, RawConfig, Registry, Source, SourceDefinition},
+        CancellationToken,
     };
-
-    fn poll_ready<T>(future: impl Future<Output = T>) -> T {
-        let mut context = TaskContext::from_waker(Waker::noop());
-        let mut future = Box::pin(future);
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("future unexpectedly pending"),
-        }
-    }
-
     fn config(site: &str) -> JiraSourceConfig {
         serde_json::from_value(json!({
             "site": site,
@@ -577,16 +618,19 @@ mod tests {
             .is_err());
     }
 
-    #[test]
-    fn jira_health_check_defers_credential_helper_until_runtime() {
+    #[tokio::test]
+    async fn jira_health_check_defers_credential_helper_until_runtime() {
         let mut config = config("https://example.atlassian.net");
         config.credentials = Some(JiraCredentialConfig {
             helper: "exit 7".into(),
         });
         let source = JiraSourceDefinition::build(config).unwrap();
-        let context = SourceContext { source_id: "jira" };
+        let context = HealthCheckContext {
+            source_id: "jira",
+            cancellation: CancellationToken::new(),
+        };
 
-        assert!(poll_ready(source.health_check(&context)).is_err());
+        assert!(source.health_check(&context).await.is_err());
     }
 
     #[test]

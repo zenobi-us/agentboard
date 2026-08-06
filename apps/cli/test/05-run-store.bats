@@ -32,7 +32,7 @@ assert item["title"] == "Stored Item"
 assert action["item_id"] == item_id
 assert action["source_id"] == "md"
 assert action["uses"] == "agentboard/run-cmd"
-assert action["success"] is True
+assert action["outcome"] == "success"
 assert action["rendered_action_hash"]
 assert f"|md|{item_id}" in action["stdout"]
 assert action["ts"]

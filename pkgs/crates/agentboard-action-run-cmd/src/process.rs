@@ -16,12 +16,7 @@ pub(super) enum Run {
 }
 
 pub(super) fn run(cmd: &str, cwd: Option<&str>, context: &ActionContext<'_>) -> Result<Output> {
-    shell_command(cmd, cwd, context)
-        .output()
-        .with_context(|| match cwd {
-            Some(cwd) => format!("run shell command in cwd {cwd}"),
-            None => "run shell command".into(),
-        })
+    capture(cmd, cwd, context, None).map(|(output, _)| output)
 }
 
 pub(super) fn run_until(
@@ -30,9 +25,26 @@ pub(super) fn run_until(
     context: &ActionContext<'_>,
     deadline: Instant,
 ) -> Result<Run> {
+    let (output, timed_out) = capture(cmd, cwd, context, Some(deadline))?;
+    if timed_out {
+        Ok(Run::TimedOut(output))
+    } else {
+        Ok(Run::Finished(output))
+    }
+}
+
+fn capture(
+    cmd: &str,
+    cwd: Option<&str>,
+    context: &ActionContext<'_>,
+    deadline: Option<Instant>,
+) -> Result<(Output, bool)> {
     let mut command = shell_command(cmd, cwd, context);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.group_spawn()?;
+    let mut child = command.group_spawn().with_context(|| match cwd {
+        Some(cwd) => format!("run shell command in cwd {cwd}"),
+        None => "run shell command".to_string(),
+    })?;
     let stdout = child
         .inner()
         .stdout
@@ -48,28 +60,29 @@ pub(super) fn run_until(
 
     let (status, timed_out) = loop {
         if let Some(status) = child.try_wait()? {
-            // A shell can exit while background descendants still hold its capture
-            // pipes. End the remaining probe group before joining the readers.
             let _ = child.kill();
             break (status, false);
         }
+        if context.cancellation.is_cancelled() {
+            terminate_process_group(&mut child)?;
+            break (child.wait()?, false);
+        }
         let now = Instant::now();
-        if now >= deadline {
+        if deadline.is_some_and(|deadline| now >= deadline) {
             terminate_process_group(&mut child)?;
             break (child.wait()?, true);
         }
-        thread::sleep(Duration::from_millis(5).min(deadline - now));
+        let sleep_for = deadline
+            .map(|deadline| Duration::from_millis(5).min(deadline.saturating_duration_since(now)))
+            .unwrap_or_else(|| Duration::from_millis(5));
+        thread::sleep(sleep_for);
     };
     let output = Output {
         status,
         stdout: join_output_reader(stdout_reader)?,
         stderr: join_output_reader(stderr_reader)?,
     };
-    if timed_out {
-        Ok(Run::TimedOut(output))
-    } else {
-        Ok(Run::Finished(output))
-    }
+    Ok((output, timed_out))
 }
 
 fn terminate_process_group(child: &mut GroupChild) -> Result<()> {
@@ -89,7 +102,6 @@ fn process_group_is_gone(error: &io::Error) -> bool {
 
 #[cfg(unix)]
 fn no_such_process(error: &io::Error) -> bool {
-    // POSIX ESRCH means the group exited between try_wait and kill.
     error.raw_os_error() == Some(libc::ESRCH)
 }
 

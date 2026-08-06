@@ -5,8 +5,9 @@ use std::{
 };
 
 use agentboard_core::{
-    model::{ActionAttempt, ActionConfig, Item, Workspace, WorkspaceSource},
+    model::{ActionAttempt, ActionConfig, ActionOutcome, Item, Workspace, WorkspaceSource},
     registry::{ActionContext, Registry, SourceContext},
+    CancellationToken,
 };
 use anyhow::{bail, Result};
 use chrono::Utc;
@@ -14,17 +15,44 @@ use serde_json::json;
 
 use crate::{
     output::Output,
-    store::{acquire_lock, action_key, append_action, append_items, successful_actions},
+    store::{acquire_lock, action_key, append_action, successful_actions},
     template::{render_action, ActionTemplateContext},
 };
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 struct RunSummary {
     items: usize,
     attempted: usize,
     skipped: usize,
     succeeded: usize,
     failed: usize,
+}
+
+#[derive(Debug)]
+pub struct InvocationCancelled;
+
+impl std::fmt::Display for InvocationCancelled {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("invocation cancelled")
+    }
+}
+
+impl std::error::Error for InvocationCancelled {}
+
+pub fn is_cancelled(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<InvocationCancelled>().is_some()
+}
+
+fn cancelled() -> anyhow::Error {
+    InvocationCancelled.into()
+}
+
+fn stop_if_cancelled(token: &CancellationToken) -> Result<()> {
+    if token.is_cancelled() {
+        Err(cancelled())
+    } else {
+        Ok(())
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -41,13 +69,15 @@ pub async fn run_once(
     registry: Arc<Registry>,
     dry_run: bool,
     output: &Output,
+    cancellation: CancellationToken,
 ) -> Result<()> {
+    stop_if_cancelled(&cancellation)?;
     let _lock = if dry_run {
         None
     } else {
         Some(acquire_lock(ws)?)
     };
-    run_sources(ws, registry, dry_run, output).await
+    run_sources(ws, registry, dry_run, output, cancellation).await
 }
 
 /// Repeatedly execute one Workspace Run until Ctrl-C.
@@ -56,21 +86,40 @@ pub async fn watch(
     registry: Arc<Registry>,
     delay: Duration,
     output: &Output,
+    cancellation: CancellationToken,
 ) -> Result<()> {
+    stop_if_cancelled(&cancellation)?;
     let _lock = acquire_lock(&ws)?;
     let mut cycle = 1_u64;
     loop {
+        stop_if_cancelled(&cancellation)?;
         output.info(
             "watch.cycle.start",
             &format!("watch {} cycle {cycle} starting", ws.id),
             json!({"workspace": ws.id, "cycle": cycle}),
         )?;
-        match run_sources(&ws, Arc::clone(&registry), false, output).await {
+        match run_sources(
+            &ws,
+            Arc::clone(&registry),
+            false,
+            output,
+            cancellation.clone(),
+        )
+        .await
+        {
             Ok(()) => output.success(
                 "watch.cycle.complete",
                 &format!("watch {} cycle {cycle} complete", ws.id),
                 json!({"workspace": ws.id, "cycle": cycle, "outcome": "pass"}),
             )?,
+            Err(err) if is_cancelled(&err) => {
+                output.info(
+                    "watch.cycle.cancelled",
+                    &format!("watch {} cycle {cycle} cancelled", ws.id),
+                    json!({"workspace": ws.id, "cycle": cycle, "outcome": "cancelled"}),
+                )?;
+                return Err(err);
+            }
             Err(err) => output.error(
                 "watch.cycle.failed",
                 &format!("watch {} cycle {cycle} failed: {err:#}", ws.id),
@@ -78,7 +127,7 @@ pub async fn watch(
             )?,
         }
         match wait_for_next_cycle(&ws.id, cycle, delay, output, async {
-            let _ = tokio::signal::ctrl_c().await;
+            cancellation.cancelled().await;
         })
         .await?
         {
@@ -86,10 +135,10 @@ pub async fn watch(
             WaitOutcome::Interrupted => {
                 output.success(
                     "watch.stop",
-                    &format!("watch {} stopped", ws.id),
-                    json!({"workspace": ws.id, "cycle": cycle}),
+                    &format!("watch {} stopped by cancellation", ws.id),
+                    json!({"workspace": ws.id, "cycle": cycle, "outcome": "cancelled"}),
                 )?;
-                return Ok(());
+                return Err(cancelled());
             }
         }
     }
@@ -151,6 +200,7 @@ async fn run_sources(
     registry: Arc<Registry>,
     dry_run: bool,
     output: &Output,
+    cancellation: CancellationToken,
 ) -> Result<()> {
     let run_id = output.next_run_id();
     let started = Instant::now();
@@ -162,14 +212,26 @@ async fn run_sources(
     let ws = Arc::new(ws.clone());
     let mut handles = Vec::new();
     for source in ws.sources.clone() {
+        if cancellation.is_cancelled() {
+            break;
+        }
         let ws = Arc::clone(&ws);
         let registry = Arc::clone(&registry);
         let output = output.clone();
         let run_id = run_id.clone();
+        let cancellation = cancellation.clone();
         handles.push(tokio::spawn(async move {
-            run_source(&ws, &source, &registry, dry_run, &run_id, &output)
-                .await
-                .map_err(|err| (source.configured.id, err))
+            run_source_with_cancellation(
+                &ws,
+                &source,
+                &registry,
+                dry_run,
+                &run_id,
+                &output,
+                cancellation,
+            )
+            .await
+            .map_err(|err| (source.configured.id, err))
         }));
     }
 
@@ -183,6 +245,13 @@ async fn run_sources(
                 summary.succeeded += source.succeeded;
                 summary.failed += source.failed;
             }
+            Err((source_id, err)) if is_cancelled(&err) => {
+                output.info(
+                    "source.cancelled",
+                    &format!("source {source_id} cancelled"),
+                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "outcome": "cancelled"}),
+                )?;
+            }
             Err((source_id, err)) => {
                 output.error(
                     "source.failed",
@@ -192,6 +261,14 @@ async fn run_sources(
                 summary.failed += 1;
             }
         }
+    }
+    if cancellation.is_cancelled() {
+        output.info(
+            "run.cancelled",
+            &format!("run {} cancellation observed between work units", ws.id),
+            json!({"workspace": ws.id, "run": run_id, "outcome": "cancelled"}),
+        )?;
+        return Err(cancelled());
     }
     let duration_ms = started.elapsed().as_millis();
     let metadata = json!({
@@ -223,6 +300,7 @@ async fn run_sources(
 }
 
 // Run one Source pipeline: collect, append observations, then execute pending Actions serially.
+#[cfg(test)]
 async fn run_source(
     ws: &Workspace,
     source: &WorkspaceSource,
@@ -231,6 +309,28 @@ async fn run_source(
     run_id: &str,
     output: &Output,
 ) -> Result<RunSummary> {
+    run_source_with_cancellation(
+        ws,
+        source,
+        registry,
+        dry_run,
+        run_id,
+        output,
+        CancellationToken::new(),
+    )
+    .await
+}
+
+async fn run_source_with_cancellation(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    registry: &Registry,
+    dry_run: bool,
+    run_id: &str,
+    output: &Output,
+    cancellation: CancellationToken,
+) -> Result<RunSummary> {
+    stop_if_cancelled(&cancellation)?;
     let source_id = &source.configured.id;
     let started = Instant::now();
     output.detail(
@@ -238,23 +338,46 @@ async fn run_source(
         &format!("source {source_id} collecting"),
         json!({"workspace": ws.id, "run": run_id, "source": source_id}),
     )?;
-    let context = SourceContext { source_id };
-    let mut items = source.built.runtime().collect(&context).await?.items;
+    let context = SourceContext {
+        source_id,
+        cancellation: cancellation.clone(),
+    };
+    let mut items = source
+        .built
+        .runtime()
+        .collect(&context)
+        .await
+        .map_err(|error| {
+            if cancellation.is_cancelled() {
+                cancelled()
+            } else {
+                error
+            }
+        })?
+        .items;
+    stop_if_cancelled(&cancellation)?;
     items.sort_by(|a, b| a.id.cmp(&b.id));
+    stop_if_cancelled(&cancellation)?;
     if !dry_run {
-        append_items(ws, source, &items)?;
+        crate::store::append_items_with_cancellation(ws, source, &items, &cancellation)?;
     }
+    stop_if_cancelled(&cancellation)?;
     let successes = successful_actions(ws, source)?;
     let mut summary = RunSummary {
         items: items.len(),
         ..Default::default()
     };
     for item in items {
+        stop_if_cancelled(&cancellation)?;
         let mut actions = ActionTemplateContext::new();
         for (idx, action) in source.configured.actions.iter().enumerate() {
+            stop_if_cancelled(&cancellation)?;
             let rendered = match render_action(ws, source, &item, idx, action, &actions) {
                 Ok(rendered) => rendered,
                 Err(error) => {
+                    if cancellation.is_cancelled() {
+                        return Err(cancelled());
+                    }
                     summary.attempted += 1;
                     summary.failed += 1;
                     let message = format!("render action inputs: {error:#}");
@@ -276,15 +399,18 @@ async fn run_source(
                     break;
                 }
             };
+            stop_if_cancelled(&cancellation)?;
             if let Some(id) = &action.id {
                 actions.insert(id.clone(), rendered.inputs.clone());
             }
             let key = action_key(source_id, &item.id, idx, &rendered.hash);
             let built_action = registry.build_action(&action.uses, rendered.inputs.clone());
+            stop_if_cancelled(&cancellation)?;
             let context = ActionContext {
                 workspace_id: &ws.id,
                 source_id,
                 item: &item,
+                cancellation: cancellation.clone(),
             };
             if successes.contains(&key)
                 && built_action
@@ -316,17 +442,40 @@ async fn run_source(
                 )?;
                 continue;
             }
-            let attempt = execute_action_attempt(
-                built_action,
-                &context,
-                source_id,
-                &item,
-                idx,
-                action,
-                rendered.hash,
-            );
+            let action_context = context.cancellation.clone();
+            let workspace_id = ws.id.clone();
+            let source_id_owned = source_id.clone();
+            let item_owned = item.clone();
+            let action_owned = action.clone();
+            let rendered_hash = rendered.hash;
+            let attempt = tokio::task::spawn_blocking(move || {
+                let context = ActionContext {
+                    workspace_id: &workspace_id,
+                    source_id: &source_id_owned,
+                    item: &item_owned,
+                    cancellation: action_context,
+                };
+                execute_action_attempt(
+                    built_action,
+                    &context,
+                    &source_id_owned,
+                    &item_owned,
+                    idx,
+                    &action_owned,
+                    rendered_hash,
+                )
+            })
+            .await?;
             append_action(ws, source, &attempt)?;
-            if attempt.success {
+            if attempt.outcome == ActionOutcome::Cancelled {
+                output.info(
+                    "action.cancelled",
+                    &format!("{source_id} {} action#{idx} cancelled", item.id),
+                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "item": item.id, "action_index": idx, "uses": action.uses, "outcome": "cancelled"}),
+                )?;
+                return Err(cancelled());
+            }
+            if attempt.outcome == ActionOutcome::Success {
                 summary.succeeded += 1;
                 output.detail(
                     "action.succeeded",
@@ -356,6 +505,7 @@ async fn run_source(
             }
         }
     }
+    stop_if_cancelled(&cancellation)?;
     output.info(
         "source.complete",
         &format!(
@@ -391,7 +541,7 @@ fn failed_action_attempt(
         source_action_index: idx,
         uses: action.uses.clone(),
         rendered_action_hash: String::new(),
-        success: false,
+        outcome: ActionOutcome::Failure,
         stdout: String::new(),
         stderr: String::new(),
         message: Some(message),
@@ -413,10 +563,14 @@ fn execute_action_attempt(
     let run = action_runtime
         .map_err(anyhow::Error::from)
         .and_then(|action| action.execute(context));
-    let (success, stdout, stderr, message) = match run {
-        Ok(run) => (run.success, run.stdout, run.stderr, run.message),
+    let (outcome, stdout, stderr, message) = match run {
+        Ok(run) => (run.outcome, run.stdout, run.stderr, run.message),
         Err(error) => (
-            false,
+            if context.cancellation.is_cancelled() {
+                ActionOutcome::Cancelled
+            } else {
+                ActionOutcome::Failure
+            },
             String::new(),
             String::new(),
             Some(format!("{error:#}")),
@@ -429,7 +583,7 @@ fn execute_action_attempt(
         source_action_index: idx,
         uses: action.uses.clone(),
         rendered_action_hash: hash,
-        success,
+        outcome,
         stdout,
         stderr,
         message,
@@ -535,12 +689,15 @@ mod tests {
             self.outcome != "stale"
         }
 
-        fn execute(&self, _context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
+        fn execute(&self, context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
             if self.outcome == "fail" {
                 anyhow::bail!(self.message.clone());
             }
+            if self.outcome == "cancel" {
+                context.cancellation.cancel();
+            }
             Ok(ActionRun {
-                success: true,
+                outcome: ActionOutcome::Success,
                 stdout: self.message.clone(),
                 stderr: String::new(),
                 message: None,
@@ -581,6 +738,7 @@ mod tests {
                 workspace_id: "workspace",
                 source_id: "source",
                 item: &item,
+                cancellation: CancellationToken::new(),
             },
             "source",
             &item,
@@ -589,7 +747,7 @@ mod tests {
             rendered.hash,
         );
 
-        assert!(!attempt.success);
+        assert_eq!(attempt.outcome, ActionOutcome::Failure);
         assert_eq!(attempt.rendered_action_hash, "rendered-hash");
         assert_eq!(attempt.message.as_deref(), Some("expected failure"));
     }
@@ -664,7 +822,7 @@ mod tests {
         assert_eq!(attempts[0].item_id, "bad");
         assert_eq!(attempts[0].source_action_index, 0);
         assert!(attempts[0].rendered_action_hash.is_empty());
-        assert!(!attempts[0].success);
+        assert_eq!(attempts[0].outcome, ActionOutcome::Failure);
         assert!(attempts[0]
             .message
             .as_deref()
@@ -672,10 +830,10 @@ mod tests {
             .contains("render action inputs"));
         assert_eq!(attempts[1].item_id, "good");
         assert_eq!(attempts[1].source_action_index, 0);
-        assert!(attempts[1].success);
+        assert_eq!(attempts[1].outcome, ActionOutcome::Success);
         assert_eq!(attempts[2].item_id, "good");
         assert_eq!(attempts[2].source_action_index, 1);
-        assert!(attempts[2].success);
+        assert_eq!(attempts[2].outcome, ActionOutcome::Success);
 
         fs::remove_dir_all(store_root(&ws)).unwrap();
     }
@@ -898,9 +1056,14 @@ mod tests {
         assert_eq!(
             attempts
                 .iter()
-                .map(|attempt| (attempt.source_action_index, attempt.success))
+                .map(|attempt| (attempt.source_action_index, attempt.outcome))
                 .collect::<Vec<_>>(),
-            [(0, true), (1, false), (0, true), (1, false)]
+            [
+                (0, ActionOutcome::Success),
+                (1, ActionOutcome::Failure),
+                (0, ActionOutcome::Success),
+                (1, ActionOutcome::Failure),
+            ]
         );
         assert!(attempts
             .iter()
@@ -973,10 +1136,118 @@ mod tests {
             .map(|line| serde_json::from_str::<ActionAttempt>(line).unwrap())
             .collect::<Vec<_>>();
         assert_eq!(attempts.len(), 2);
-        assert!(attempts
-            .iter()
-            .all(|attempt| attempt.source_action_index == 0 && !attempt.success));
+        assert!(attempts.iter().all(|attempt| {
+            attempt.source_action_index == 0 && attempt.outcome == ActionOutcome::Failure
+        }));
 
+        fs::remove_dir_all(store_root(&ws)).unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelled_invocation_prevents_new_source_work() {
+        let mut registry = Registry::new();
+        registry.add_source::<ItemSourceDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/items"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: "cancelled-source".into(),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            None,
+        )
+        .unwrap();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let error = run_source_with_cancellation(
+            &ws,
+            &ws.sources[0],
+            &registry,
+            false,
+            "cancelled",
+            &output,
+            cancellation,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(is_cancelled(&error));
+    }
+
+    #[tokio::test]
+    async fn cancellation_between_actions_prevents_later_action_work() {
+        let mut registry = Registry::new();
+        registry.add_source::<ItemSourceDefinition>().unwrap();
+        registry.add_action::<TestActionDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/items"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "cancel"
+                outcome = "cancel"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "must not run"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: format!(
+                "cancelled-action-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            None,
+        )
+        .unwrap();
+
+        let error = run_source(&ws, &ws.sources[0], &registry, false, "cancelled", &output)
+            .await
+            .unwrap_err();
+
+        assert!(is_cancelled(&error));
+        let attempts = fs::read_to_string(actions_path(&ws, &ws.sources[0]))
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<ActionAttempt>(line).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(attempts.len(), 1);
+        assert_eq!(attempts[0].outcome, ActionOutcome::Success);
         fs::remove_dir_all(store_root(&ws)).unwrap();
     }
 

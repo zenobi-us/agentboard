@@ -5,14 +5,13 @@
 
 use std::{collections::BTreeMap, error::Error, fmt, future::Future, pin::Pin, sync::Arc};
 
+use crate::{
+    model::{ActionConfig, Item},
+    ActionRun, CancellationToken,
+};
 use schemars::{schema::RootSchema, JsonSchema};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
-
-use crate::{
-    model::{ActionConfig, Item},
-    ActionRun,
-};
 
 pub type RawConfig = BTreeMap<String, Value>;
 pub type ActionInputs = BTreeMap<String, String>;
@@ -55,14 +54,21 @@ pub struct HealthCheck {
     pub result: RuntimeResult<()>,
 }
 
+pub struct HealthCheckContext<'a> {
+    pub source_id: &'a str,
+    pub cancellation: CancellationToken,
+}
+
 pub struct SourceContext<'a> {
     pub source_id: &'a str,
+    pub cancellation: CancellationToken,
 }
 
 pub struct ActionContext<'a> {
     pub workspace_id: &'a str,
     pub source_id: &'a str,
     pub item: &'a Item,
+    pub cancellation: CancellationToken,
 }
 
 /// Runtime behavior every registered Source exposes to CLI orchestration.
@@ -71,12 +77,18 @@ pub trait Source: Send + Sync {
     fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a>;
 
     /// Check reachability. Defaults to collection so diagnostics retain collection metadata.
-    fn health_check<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
-        self.collect(context)
+    fn health_check<'a>(&'a self, context: &'a HealthCheckContext<'a>) -> SourceFuture<'a> {
+        Box::pin(async move {
+            self.collect(&SourceContext {
+                source_id: context.source_id,
+                cancellation: context.cancellation.clone(),
+            })
+            .await
+        })
     }
 
     /// Return extra Source-owned checks that diagnostics should report by name.
-    fn health_checks(&self) -> Vec<HealthCheck> {
+    fn health_checks(&self, _context: &HealthCheckContext<'_>) -> Vec<HealthCheck> {
         vec![]
     }
 
@@ -118,7 +130,7 @@ pub trait ActionDefinition: Sized + 'static {
     fn build(config: Self::Config) -> RuntimeResult<Self::Runtime>;
 
     /// Check external execution requirements without constructing a per-Item runtime.
-    fn health_check() -> RuntimeResult<()> {
+    fn health_check(_context: &HealthCheckContext<'_>) -> RuntimeResult<()> {
         Ok(())
     }
 }
@@ -223,7 +235,7 @@ enum BuildError {
 type SourceFactory = fn(RawConfig) -> Result<BuiltSource, BuildError>;
 type ActionValidator = fn(&ActionInputs) -> Result<(), serde_json::Error>;
 type ActionFactory = fn(ActionInputs) -> Result<Box<dyn Action>, BuildError>;
-type ActionHealthCheck = fn() -> RuntimeResult<()>;
+type ActionHealthCheck = for<'a> fn(&HealthCheckContext<'a>) -> RuntimeResult<()>;
 
 pub struct SourceRegistration {
     id: &'static str,
@@ -399,12 +411,16 @@ impl Registry {
             .map_err(|error| registry_build_error(RegistryCategory::Action, id, error))
     }
 
-    pub fn check_action(&self, id: &str) -> Result<(), RegistryError> {
+    pub fn check_action(
+        &self,
+        id: &str,
+        context: &HealthCheckContext<'_>,
+    ) -> Result<(), RegistryError> {
         let registration = self.actions.get(id).ok_or_else(|| RegistryError::Unknown {
             category: RegistryCategory::Action,
             id: id.to_string(),
         })?;
-        (registration.health_check)().map_err(|source| RegistryError::Health {
+        (registration.health_check)(context).map_err(|source| RegistryError::Health {
             category: RegistryCategory::Action,
             id: id.to_string(),
             source,
@@ -595,7 +611,7 @@ mod tests {
     impl Action for TestAction {
         fn execute(&self, _context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
             Ok(ActionRun {
-                success: true,
+                outcome: crate::model::ActionOutcome::Success,
                 stdout: self.command.clone(),
                 stderr: String::new(),
                 message: None,
@@ -678,7 +694,7 @@ mod tests {
             })
         }
 
-        fn health_check() -> RuntimeResult<()> {
+        fn health_check(_context: &HealthCheckContext<'_>) -> RuntimeResult<()> {
             bail!("action health failed")
         }
     }
@@ -796,8 +812,9 @@ mod tests {
         let action = registry
             .build_action("shared", action_inputs("echo test"))
             .unwrap();
-        let source_context = SourceContext {
+        let source_context = HealthCheckContext {
             source_id: "source-1",
+            cancellation: CancellationToken::new(),
         };
         let collection = poll_source(source.health_check(&source_context)).unwrap();
         let item = sample_item();
@@ -806,10 +823,19 @@ mod tests {
                 workspace_id: "workspace-1",
                 source_id: "source-1",
                 item: &item,
+                cancellation: CancellationToken::new(),
             })
             .unwrap();
 
-        registry.check_action("shared").unwrap();
+        registry
+            .check_action(
+                "shared",
+                &HealthCheckContext {
+                    source_id: "source-1",
+                    cancellation: CancellationToken::new(),
+                },
+            )
+            .unwrap();
         assert_eq!(registry.sources().next().unwrap().id(), "shared");
         assert_eq!(registry.actions().next().unwrap().id(), "shared");
         assert_eq!(source.item_bucket_identity(), "items");
@@ -869,7 +895,13 @@ mod tests {
             }) if id == "missing"
         ));
         assert!(matches!(
-            registry.check_action("missing"),
+            registry.check_action(
+                "missing",
+                &HealthCheckContext {
+                    source_id: "source-1",
+                    cancellation: CancellationToken::new(),
+                },
+            ),
             Err(RegistryError::Unknown {
                 category: RegistryCategory::Action,
                 ref id,
@@ -961,7 +993,13 @@ mod tests {
             .unwrap();
 
         let error = registry
-            .check_action(FailingHealthActionDefinition::ID)
+            .check_action(
+                FailingHealthActionDefinition::ID,
+                &HealthCheckContext {
+                    source_id: "source-1",
+                    cancellation: CancellationToken::new(),
+                },
+            )
             .unwrap_err();
 
         assert!(matches!(

@@ -21,8 +21,9 @@ teardown() { teardown_agentboard_test; }
   [ "$status" -eq 0 ]
 
   kill -INT "$WATCH_PID"
-  wait "$WATCH_PID"
-  [ "$?" -eq 0 ]
+  wait_status=0
+  wait "$WATCH_PID" || wait_status=$?
+  [ "$wait_status" -eq 130 ]
   WATCH_PID=""
   grep -q 'watch .* stopped' "$TMP/watch.err"
   [ "$(grep -c 'next Run in 60s' "$TMP/watch.err")" -eq 1 ]
@@ -42,8 +43,9 @@ teardown() { teardown_agentboard_test; }
   wait_for_pattern "$TMP/watch.jsonl" '"stage":"watch.cycle.complete"' 160
 
   kill -INT "$WATCH_PID"
-  wait "$WATCH_PID"
-  [ "$?" -eq 0 ]
+  wait_status=0
+  wait "$WATCH_PID" || wait_status=$?
+  [ "$wait_status" -eq 130 ]
   WATCH_PID=""
 
   [ "$(cat "$TMP/ran")" = "ok" ]

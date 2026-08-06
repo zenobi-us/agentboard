@@ -1,9 +1,12 @@
 use std::{
     collections::HashSet,
     process::{Command as ProcessCommand, Stdio},
+    thread,
+    time::Duration,
 };
 
 use anyhow::{anyhow, bail, Context, Result};
+use command_group::{AsyncCommandGroup, CommandGroup};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -11,8 +14,8 @@ use serde_json::{json, Value};
 use agentboard_core::{
     model::{FieldMap, Item},
     registry::{
-        HealthCheck, RuntimeResult, Source, SourceCollection, SourceContext, SourceDefinition,
-        SourceFuture,
+        HealthCheck, HealthCheckContext, RuntimeResult, Source, SourceCollection, SourceContext,
+        SourceDefinition, SourceFuture,
     },
 };
 
@@ -55,12 +58,18 @@ impl SourceDefinition for QmdSourceDefinition {
 }
 
 impl QmdSource {
-    fn collect_qmd(&self, source_id: &str) -> Result<SourceCollection> {
+    async fn collect_qmd(
+        &self,
+        source_id: &str,
+        cancellation: &agentboard_core::CancellationToken,
+    ) -> Result<SourceCollection> {
         let results = qmd_query(
             &self.config.collections,
             &self.config.query,
             self.config.limit,
-        )?;
+            cancellation,
+        )
+        .await?;
         self.collection_from_results(source_id, results)
     }
 
@@ -104,13 +113,16 @@ impl QmdSource {
 
 impl Source for QmdSource {
     fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
-        Box::pin(async move { self.collect_qmd(context.source_id) })
+        Box::pin(async move {
+            self.collect_qmd(context.source_id, &context.cancellation)
+                .await
+        })
     }
 
-    fn health_checks(&self) -> Vec<HealthCheck> {
+    fn health_checks(&self, _context: &HealthCheckContext<'_>) -> Vec<HealthCheck> {
         vec![HealthCheck {
             name: "command qmd".into(),
-            result: check_qmd_command(),
+            result: check_qmd_command(&_context.cancellation),
         }]
     }
 
@@ -159,15 +171,54 @@ fn normalize_document(
     })
 }
 
-fn qmd_query(collections: &[String], query: &str, limit: usize) -> Result<Vec<Value>> {
-    let mut cmd = qmd_query_command(collections, query, limit);
-    let out = cmd.output().map_err(|err| {
-        if err.kind() == std::io::ErrorKind::NotFound {
-            anyhow!("qmd command not found; install QMD or remove qmd sources from this workspace")
-        } else {
-            err.into()
+async fn qmd_query(
+    collections: &[String],
+    query: &str,
+    limit: usize,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<Vec<Value>> {
+    let mut command = qmd_query_command(collections, query, limit);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = tokio::process::Command::from(command)
+        .group_spawn()
+        .map_err(|err| {
+            if err.kind() == std::io::ErrorKind::NotFound {
+                anyhow!(
+                    "qmd command not found; install QMD or remove qmd sources from this workspace"
+                )
+            } else {
+                err.into()
+            }
+        })?;
+    let stdout = child
+        .inner()
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("qmd stdout was not captured"))?;
+    let stderr = child
+        .inner()
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("qmd stderr was not captured"))?;
+    use tokio::io::AsyncReadExt;
+    let mut stdout = stdout;
+    let mut stderr = stderr;
+    let output = tokio::select! {
+        result = async {
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let (status, out_result, err_result) = tokio::join!(child.wait(), stdout.read_to_end(&mut out), stderr.read_to_end(&mut err));
+            out_result?;
+            err_result?;
+            Ok::<_, anyhow::Error>(std::process::Output { status: status?, stdout: out, stderr: err })
+        } => result?,
+        _ = cancellation.cancelled() => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            return Err(anyhow!("qmd query cancelled"));
         }
-    })?;
+    };
+    let out = output;
     if !out.status.success() {
         bail!("qmd query failed: {}", String::from_utf8_lossy(&out.stderr));
     }
@@ -189,17 +240,30 @@ fn qmd_query_command(collections: &[String], query: &str, limit: usize) -> Proce
     cmd
 }
 
-fn check_qmd_command() -> Result<()> {
-    let status = ProcessCommand::new("qmd")
+fn check_qmd_command(cancellation: &agentboard_core::CancellationToken) -> Result<()> {
+    if cancellation.is_cancelled() {
+        bail!("qmd health check cancelled");
+    }
+    let mut child = ProcessCommand::new("qmd")
         .arg("--version")
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .status()
+        .group_spawn()
         .with_context(|| "required command qmd not found")?;
-    if !status.success() {
-        bail!("required command qmd returned {status}");
+    loop {
+        if let Some(status) = child.try_wait()? {
+            if !status.success() {
+                bail!("required command qmd returned {status}");
+            }
+            return Ok(());
+        }
+        if cancellation.is_cancelled() {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("qmd health check cancelled");
+        }
+        thread::sleep(Duration::from_millis(5));
     }
-    Ok(())
 }
 
 fn parse_qmd_results(text: &str) -> Result<Vec<Value>> {
@@ -250,7 +314,10 @@ fn optional_mapped_field(frontmatter: &Value, path: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentboard_core::registry::{RawConfig, Registry, Source, SourceContext, SourceDefinition};
+    use agentboard_core::{
+        registry::{HealthCheckContext, RawConfig, Registry, Source, SourceDefinition},
+        CancellationToken,
+    };
     use std::{
         env,
         future::Future,
@@ -408,7 +475,10 @@ mod tests {
         env::set_var("PATH", "");
         let source =
             QmdSourceDefinition::build(config(&["agentboard-health-check-missing"])).unwrap();
-        let context = SourceContext { source_id: "local" };
+        let context = HealthCheckContext {
+            source_id: "local",
+            cancellation: CancellationToken::new(),
+        };
         let result = poll_ready(source.health_check(&context));
         match path {
             Some(path) => env::set_var("PATH", path),

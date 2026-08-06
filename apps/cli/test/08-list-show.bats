@@ -67,11 +67,11 @@ EOF
   run "$AB" show "$TMP/workspace.toml" "$item_id"
   [ "$status" -eq 0 ]
   [[ "$output" == *"$item_id"$'\nShown Item\nready'* ]]
-  [[ "$output" == *"action#0 agentboard/run-cmd success=true"* ]]
+  [[ "$output" == *"action#0 agentboard/run-cmd outcome=success"* ]]
 
   run "$AB" show "$TMP/workspace.toml" "$item_id" --json
   [ "$status" -eq 0 ]
-  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["item"]["id"].endswith("/AB-1.md"); assert value["item"]["reference_id"] == "AB-1"; assert value["actions"][0]["success"] is True; assert value["source_slug"]'
+  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["item"]["id"].endswith("/AB-1.md"); assert value["item"]["reference_id"] == "AB-1"; assert value["actions"][0]["outcome"] == "success"; assert "success" not in value["actions"][0]; assert value["source_slug"]'
 
   run "$AB" show "$TMP/workspace.toml" MISSING
   [ "$status" -ne 0 ]

@@ -7,6 +7,7 @@ use agentboard_core::{
     },
 };
 use anyhow::{anyhow, bail, Context, Result};
+use command_group::AsyncCommandGroup;
 use reqwest::{header, Client};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -75,8 +76,12 @@ impl SourceDefinition for GithubSourceDefinition {
 }
 
 impl GithubSource {
-    async fn collect_github_issues(&self, source_id: &str) -> Result<SourceCollection> {
-        let token = github_token(&self.config.credentials)?;
+    async fn collect_github_issues(
+        &self,
+        source_id: &str,
+        cancellation: &agentboard_core::CancellationToken,
+    ) -> Result<SourceCollection> {
+        let token = github_token(&self.config.credentials, cancellation).await?;
         let client = Client::new();
         let search_query = issue_only_query(&self.config.query);
         eprintln!("github source {source_id} query: {search_query}");
@@ -86,8 +91,15 @@ impl GithubSource {
 
         while items.len() < self.config.limit {
             let page_size = (self.config.limit - items.len()).min(100);
-            let response =
-                github_issue_search(&client, &token, &search_query, page_size, page).await?;
+            let response = github_issue_search(
+                &client,
+                &token,
+                &search_query,
+                page_size,
+                page,
+                cancellation,
+            )
+            .await?;
             let total = response
                 .get("total_count")
                 .and_then(Value::as_u64)
@@ -144,7 +156,10 @@ impl Source for GithubSource {
     fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
         Box::pin(async move {
             match self.config.mode {
-                GithubSourceMode::Issue => self.collect_github_issues(context.source_id).await,
+                GithubSourceMode::Issue => {
+                    self.collect_github_issues(context.source_id, &context.cancellation)
+                        .await
+                }
             }
         })
     }
@@ -164,8 +179,9 @@ async fn github_issue_search(
     query: &str,
     per_page: usize,
     page: usize,
+    cancellation: &agentboard_core::CancellationToken,
 ) -> Result<Value> {
-    let response = client
+    let request = client
         .get(GITHUB_SEARCH_URL)
         .bearer_auth(token)
         .header(header::ACCEPT, "application/vnd.github+json")
@@ -176,14 +192,16 @@ async fn github_issue_search(
             ("per_page", &per_page.to_string()),
             ("page", &page.to_string()),
         ])
-        .send()
-        .await
-        .context("send github issue search request")?;
+        .send();
+    let response = tokio::select! {
+        response = request => response.context("send github issue search request")?,
+        _ = cancellation.cancelled() => bail!("github issue search cancelled"),
+    };
     let status = response.status();
-    let text = response
-        .text()
-        .await
-        .context("read github issue search response")?;
+    let text = tokio::select! {
+        text = response.text() => text.context("read github issue search response")?,
+        _ = cancellation.cancelled() => bail!("github issue search cancelled"),
+    };
     if !status.is_success() {
         bail!("github issue search failed with {status}: {text}");
     }
@@ -286,13 +304,46 @@ fn issue_only_query(query: &str) -> String {
     }
 }
 
-fn github_token(credentials: &GithubCredentialConfig) -> Result<String> {
+async fn github_token(
+    credentials: &GithubCredentialConfig,
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<String> {
     if credentials.helper.trim().is_empty() {
         bail!("github credential helper cannot be empty");
     }
-    let output = shell_command(&credentials.helper)
-        .output()
+    let mut child = tokio::process::Command::from(shell_command(&credentials.helper))
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .group_spawn()
         .with_context(|| format!("run github credential helper {}", credentials.helper))?;
+    let stdout = child
+        .inner()
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("github helper stdout was not captured"))?;
+    let stderr = child
+        .inner()
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("github helper stderr was not captured"))?;
+    let output = tokio::select! {
+        result = async {
+            use tokio::io::AsyncReadExt;
+            let mut stdout = stdout;
+            let mut stderr = stderr;
+            let mut out = Vec::new();
+            let mut err = Vec::new();
+            let (status, out_result, err_result) = tokio::join!(child.wait(), stdout.read_to_end(&mut out), stderr.read_to_end(&mut err));
+            out_result?;
+            err_result?;
+            Ok::<_, anyhow::Error>(std::process::Output { status: status?, stdout: out, stderr: err })
+        } => result?,
+        _ = cancellation.cancelled() => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            bail!("github credential helper cancelled");
+        }
+    };
     if !output.status.success() {
         bail!(
             "github credential helper failed with {}: {}",
@@ -325,21 +376,11 @@ fn shell_command(command: &str) -> Command {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agentboard_core::registry::{RawConfig, Registry, Source, SourceContext, SourceDefinition};
-    use std::collections::BTreeMap;
-    use std::{
-        future::Future,
-        task::{Context as TaskContext, Poll, Waker},
+    use agentboard_core::{
+        registry::{HealthCheckContext, RawConfig, Registry, Source, SourceDefinition},
+        CancellationToken,
     };
-
-    fn poll_ready<T>(future: impl Future<Output = T>) -> T {
-        let mut context = TaskContext::from_waker(Waker::noop());
-        let mut future = Box::pin(future);
-        match future.as_mut().poll(&mut context) {
-            Poll::Ready(value) => value,
-            Poll::Pending => panic!("future unexpectedly pending"),
-        }
-    }
+    use std::collections::BTreeMap;
 
     fn config() -> GithubSourceConfig {
         serde_json::from_value(json!({
@@ -468,14 +509,15 @@ mod tests {
             .is_err());
     }
 
-    #[test]
-    fn github_health_check_defers_credential_helper_until_runtime() {
+    #[tokio::test]
+    async fn github_health_check_defers_credential_helper_until_runtime() {
         let source = GithubSourceDefinition::build(config()).unwrap();
-        let context = SourceContext {
+        let context = HealthCheckContext {
             source_id: "github",
+            cancellation: CancellationToken::new(),
         };
 
-        assert!(poll_ready(source.health_check(&context)).is_err());
+        assert!(source.health_check(&context).await.is_err());
     }
 
     #[test]
