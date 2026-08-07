@@ -81,62 +81,82 @@ pub async fn run_once(
 }
 
 /// Repeatedly execute one Workspace Run until Ctrl-C.
-pub async fn watch(
+pub async fn run_watch(
     ws: Workspace,
     registry: Arc<Registry>,
+    dry_run: bool,
     delay: Duration,
     output: &Output,
     cancellation: CancellationToken,
 ) -> Result<()> {
     stop_if_cancelled(&cancellation)?;
-    let _lock = acquire_lock(&ws)?;
-    let mut cycle = 1_u64;
+    let _lock = if dry_run {
+        None
+    } else {
+        Some(acquire_lock(&ws)?)
+    };
+    let run_workspace = ws.clone();
+    let cycle_cancellation = cancellation.clone();
+    schedule_cycles("run", &ws.id, delay, output, cancellation, move |_| {
+        let ws = run_workspace.clone();
+        let registry = Arc::clone(&registry);
+        let cancellation = cycle_cancellation.clone();
+        async move { run_sources(&ws, registry, dry_run, output, cancellation).await }
+    })
+    .await
+}
+
+async fn schedule_cycles<F, Fut>(
+    command: &str,
+    workspace: &str,
+    delay: Duration,
+    output: &Output,
+    cancellation: CancellationToken,
+    mut cycle: F,
+) -> Result<()>
+where
+    F: FnMut(u64) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    let mut cycle_number = 1_u64;
     loop {
         stop_if_cancelled(&cancellation)?;
         output.info(
-            "watch.cycle.start",
-            &format!("watch {} cycle {cycle} starting", ws.id),
-            json!({"workspace": ws.id, "cycle": cycle}),
+            &format!("{command}.watch.cycle.start"),
+            &format!("{command} {workspace} cycle {cycle_number} starting"),
+            json!({"workspace": workspace, "cycle": cycle_number}),
         )?;
-        match run_sources(
-            &ws,
-            Arc::clone(&registry),
-            false,
-            output,
-            cancellation.clone(),
-        )
-        .await
-        {
+        match cycle(cycle_number).await {
             Ok(()) => output.success(
-                "watch.cycle.complete",
-                &format!("watch {} cycle {cycle} complete", ws.id),
-                json!({"workspace": ws.id, "cycle": cycle, "outcome": "pass"}),
+                &format!("{command}.watch.cycle.complete"),
+                &format!("{command} {workspace} cycle {cycle_number} complete"),
+                json!({"workspace": workspace, "cycle": cycle_number, "outcome": "pass"}),
             )?,
-            Err(err) if is_cancelled(&err) => {
+            Err(error) if is_cancelled(&error) => {
                 output.info(
-                    "watch.cycle.cancelled",
-                    &format!("watch {} cycle {cycle} cancelled", ws.id),
-                    json!({"workspace": ws.id, "cycle": cycle, "outcome": "cancelled"}),
+                    &format!("{command}.watch.cycle.cancelled"),
+                    &format!("{command} {workspace} cycle {cycle_number} cancelled"),
+                    json!({"workspace": workspace, "cycle": cycle_number, "outcome": "cancelled"}),
                 )?;
-                return Err(err);
+                return Err(error);
             }
-            Err(err) => output.error(
-                "watch.cycle.failed",
-                &format!("watch {} cycle {cycle} failed: {err:#}", ws.id),
-                json!({"workspace": ws.id, "cycle": cycle, "outcome": "fail", "error": format!("{err:#}")}),
+            Err(error) => output.error(
+                &format!("{command}.watch.cycle.failed"),
+                &format!("{command} {workspace} cycle {cycle_number} failed: {error:#}"),
+                json!({"workspace": workspace, "cycle": cycle_number, "outcome": "fail", "error": format!("{error:#}")}),
             )?,
         }
-        match wait_for_next_cycle(&ws.id, cycle, delay, output, async {
+        match wait_for_next_cycle(command, workspace, cycle_number, delay, output, async {
             cancellation.cancelled().await;
         })
         .await?
         {
-            WaitOutcome::Elapsed => cycle += 1,
+            WaitOutcome::Elapsed => cycle_number += 1,
             WaitOutcome::Interrupted => {
                 output.success(
-                    "watch.stop",
-                    &format!("watch {} stopped by cancellation", ws.id),
-                    json!({"workspace": ws.id, "cycle": cycle, "outcome": "cancelled"}),
+                    &format!("{command}.watch.stop"),
+                    &format!("{command} {workspace} stopped by cancellation"),
+                    json!({"workspace": workspace, "cycle": cycle_number, "outcome": "cancelled"}),
                 )?;
                 return Err(cancelled());
             }
@@ -145,6 +165,7 @@ pub async fn watch(
 }
 
 async fn wait_for_next_cycle<F>(
+    command: &str,
     workspace: &str,
     cycle: u64,
     delay: Duration,
@@ -157,8 +178,8 @@ where
     let started = tokio::time::Instant::now();
     let deadline = started + delay;
     output.transient_info(
-        "watch.wait",
-        &format!("watch {workspace} next Run in {}s", delay.as_secs()),
+        &format!("{command}.watch.wait"),
+        &format!("{command} {workspace} next Run in {}s", delay.as_secs()),
         json!({"workspace": workspace, "cycle": cycle, "delay_seconds": delay.as_secs()}),
     )?;
 
@@ -175,7 +196,7 @@ where
                     }
                     let remaining = deadline.saturating_duration_since(now);
                     let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() > 0);
-                    output.update_transient(&format!("watch {workspace} next Run in {seconds}s"))?;
+                    output.update_transient(&format!("{command} {workspace} next Run in {seconds}s"))?;
                     next_tick += Duration::from_secs(1);
                     while next_tick <= now {
                         next_tick += Duration::from_secs(1);
@@ -590,9 +611,12 @@ fn execute_action_attempt(
     }
 }
 
-/// Parse an interval string accepted by `watch`.
+/// Parse an interval string accepted by `run --watch`.
 pub fn parse_duration(s: &str) -> Result<Duration> {
-    let secs = s.strip_suffix('s').unwrap_or(s).parse()?;
+    let secs: u64 = s.strip_suffix('s').unwrap_or(s).parse()?;
+    if secs == 0 {
+        bail!("interval must be greater than zero");
+    }
     Ok(Duration::from_secs(secs))
 }
 
@@ -616,6 +640,10 @@ mod tests {
     use std::{
         collections::BTreeMap,
         fs, future,
+        sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc, Mutex,
+        },
         time::{SystemTime, UNIX_EPOCH},
     };
 
@@ -1265,6 +1293,130 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn scheduler_runs_immediately_and_delays_from_completion() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            Some(&dir.path().join("events.jsonl")),
+        )
+        .unwrap();
+        let cancellation = CancellationToken::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let started = Arc::new(Mutex::new(Vec::new()));
+        let task_calls = Arc::clone(&calls);
+        let task_started = Arc::clone(&started);
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            schedule_cycles(
+                "run",
+                "work",
+                Duration::from_secs(5),
+                &output,
+                cancellation,
+                move |_| {
+                    let call = task_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                    task_started
+                        .lock()
+                        .unwrap()
+                        .push(tokio::time::Instant::now());
+                    let cancellation = task_cancellation.clone();
+                    async move {
+                        if call == 1 {
+                            tokio::time::sleep(Duration::from_secs(2)).await;
+                            Ok(())
+                        } else {
+                            cancellation.cancel();
+                            Err(cancelled())
+                        }
+                    }
+                },
+            )
+            .await
+        });
+
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::advance(Duration::from_secs(2)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::advance(Duration::from_secs(4)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(is_cancelled(&task.await.unwrap().unwrap_err()));
+
+        let started = started.lock().unwrap();
+        assert_eq!(started[1] - started[0], Duration::from_secs(7));
+        let events = fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(events.contains("\"stage\":\"run.watch.cycle.start\""));
+        assert!(events.contains("\"stage\":\"run.watch.cycle.complete\""));
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scheduler_reports_failures_retries_and_stops_without_an_extra_cycle() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            Some(&dir.path().join("events.jsonl")),
+        )
+        .unwrap();
+        let cancellation = CancellationToken::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let task_calls = Arc::clone(&calls);
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            schedule_cycles(
+                "run",
+                "work",
+                Duration::from_secs(3),
+                &output,
+                cancellation,
+                move |_| {
+                    let call = task_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                    let cancellation = task_cancellation.clone();
+                    async move {
+                        if call == 1 {
+                            Err(anyhow::anyhow!("cycle failed"))
+                        } else {
+                            cancellation.cancel();
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .await
+        });
+
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::advance(Duration::from_secs(3)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(is_cancelled(&task.await.unwrap().unwrap_err()));
+
+        let events = fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(events.contains("\"stage\":\"run.watch.cycle.failed\""));
+        assert!(events.contains("\"stage\":\"run.watch.cycle.complete\""));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn parse_duration_rejects_zero_and_invalid_values() {
+        assert_eq!(parse_duration("5s").unwrap(), Duration::from_secs(5));
+        assert_eq!(parse_duration("5").unwrap(), Duration::from_secs(5));
+        assert!(parse_duration("0").is_err());
+        assert!(parse_duration("nope").is_err());
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn watch_wait_counts_down_against_one_absolute_deadline() {
         let dir = tempfile::tempdir().unwrap();
         let human = dir.path().join("human.txt");
@@ -1279,6 +1431,7 @@ mod tests {
         let task_output = output.clone();
         let task = tokio::spawn(async move {
             wait_for_next_cycle(
+                "run",
                 "work",
                 1,
                 Duration::from_secs(3),
@@ -1321,6 +1474,7 @@ mod tests {
         .unwrap();
 
         let outcome = wait_for_next_cycle(
+            "run",
             "work",
             4,
             Duration::from_secs(60),

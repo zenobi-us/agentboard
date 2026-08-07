@@ -42,8 +42,7 @@ agentboard workspace list
 agentboard workspace init <name>
 agentboard workspace edit <name> # requires $EDITOR
 agentboard workspaces             # compatibility alias
-agentboard run <workspace> [--dry-run]
-agentboard watch <workspace> [--interval 60s]
+agentboard run <workspace> [--dry-run] [--watch] [--interval 60s]
 agentboard list <workspace> [--json]
 agentboard show <workspace> <item-id> [--json]
 agentboard doctor <workspace>

@@ -81,10 +81,10 @@ Replace `OWNER/REPO` with the repository to watch. The example Action is deliber
 ```bash
 agentboard doctor work
 agentboard run work --dry-run
-agentboard watch work --interval 60s
+agentboard run work --watch --interval 60s
 ```
 
-A dry run collects and renders pending Actions without executing them or writing to the Store. `watch` repeats the Run until you stop it with Ctrl-C.
+A dry run collects and renders pending Actions without executing them or writing to the Store. `run --watch` repeats the Run until you stop it with Ctrl-C.
 
 ## How AgentBoard fits together
 
@@ -94,7 +94,7 @@ A dry run collects and renders pending Actions without executing them or writing
 - **Store** — local append-only JSONL history of Item observations and Action attempts.
 - **Action** — configured side effect, currently a shell command or Git worktree creation.
 - **Run** — one pass that collects Items, updates the Store, and executes pending Actions.
-- **Watch** — repeated Runs for one Workspace.
+- **Watch Mode** — repeated Runs for one Workspace.
 
 The upstream tracker remains the source of truth. Successful Actions are recorded locally and skipped on later Runs unless their rendered inputs change.
 

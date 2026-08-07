@@ -20,7 +20,7 @@ rebuilding if repeating them could cause duplicate side effects.
 
 ## `workspace lock is held`
 
-Another `run` or `watch` is active for the same Workspace.
+Another `run` or non-dry `run --watch` is active for the same Workspace.
 
 Fix: stop the other process. Do not delete `run.lock` while a process is running.
 

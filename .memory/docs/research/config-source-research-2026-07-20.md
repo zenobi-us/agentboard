@@ -6,7 +6,7 @@ AgentBoard reads one TOML Workspace. When an operational command omits its Works
 
 ## Selection rules
 
-1. **No Workspace argument** — `run`, `watch`, `list`, and `doctor` accept no positional Workspace. `show ITEM_ID` also omits it. The loader selects the relative path `.agentboard.toml`, so filesystem resolution is against the process current directory. [`apps/cli/src/cli.rs:48-75`](../../../apps/cli/src/cli.rs#L48-L75) [`apps/cli/src/cli.rs:126-135`](../../../apps/cli/src/cli.rs#L126-L135) [`apps/cli/src/config.rs:101-108`](../../../apps/cli/src/config.rs#L101-L108)
+1. **No Workspace argument** — `run`, `list`, and `doctor` accept no positional Workspace. The watch mode uses `run --watch`. `show ITEM_ID` also omits it. The loader selects the relative path `.agentboard.toml`, so filesystem resolution is against the process current directory. [`apps/cli/src/cli.rs:48-75`](../../../apps/cli/src/cli.rs#L48-L75) [`apps/cli/src/cli.rs:126-135`](../../../apps/cli/src/cli.rs#L126-L135) [`apps/cli/src/config.rs:101-108`](../../../apps/cli/src/config.rs#L101-L108)
 
 2. **Explicit path** — an argument ending in `.toml` or containing `/` is expanded and read directly. Relative paths resolve from the current directory. Leading `~/`, `$VAR`, and `${VAR}` expansion remains supported by `expand_path`. [`apps/cli/src/config.rs:101-108`](../../../apps/cli/src/config.rs#L101-L108) [`apps/cli/src/config.rs:310-330`](../../../apps/cli/src/config.rs#L310-L330)
 
@@ -20,7 +20,7 @@ AgentBoard reads one TOML Workspace. When an operational command omits its Works
 
 ```text
 agentboard run [WORKSPACE]
-agentboard watch [WORKSPACE]
+agentboard run [WORKSPACE] --watch
 agentboard list [WORKSPACE]
 agentboard doctor [WORKSPACE]
 agentboard show ITEM_ID

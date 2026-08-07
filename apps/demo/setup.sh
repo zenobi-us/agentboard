@@ -209,7 +209,7 @@ Start a Zellij session:
   zellij --session agentboard-demo
 
 Then start AgentBoard inside that Zellij session:
-  agentboard watch .agentboard.toml --interval 15s
+  agentboard run .agentboard.toml --watch --interval 15s
 
 Queue an issue from another terminal:
   gh issue edit <number> --repo $REPO --add-label agentboard:ready-for-agent

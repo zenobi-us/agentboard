@@ -313,23 +313,21 @@ mod tests {
 
         output
             .transient_info(
-                "watch.wait",
-                "watch work next Run in 60s",
+                "run.watch.wait",
+                "run work next Run in 60s",
                 json!({"workspace":"work","cycle":1,"delay_seconds":60}),
             )
             .unwrap();
-        output
-            .update_transient("watch work next Run in 59s")
-            .unwrap();
+        output.update_transient("run work next Run in 59s").unwrap();
         output.finish_transient().unwrap();
 
         assert_eq!(
             fs::read_to_string(human).unwrap(),
-            "\r\x1b[2Kwatch work next Run in 60s\r\x1b[2Kwatch work next Run in 59s\r\x1b[2K"
+            "\r\x1b[2Krun work next Run in 60s\r\x1b[2Krun work next Run in 59s\r\x1b[2K"
         );
         let events = fs::read_to_string(log).unwrap();
         assert_eq!(events.lines().count(), 1);
-        assert!(events.contains("\"stage\":\"watch.wait\""));
+        assert!(events.contains("\"stage\":\"run.watch.wait\""));
     }
 
     #[test]
@@ -348,19 +346,17 @@ mod tests {
 
         output
             .transient_info(
-                "watch.wait",
-                "watch work next Run in 60s",
+                "run.watch.wait",
+                "run work next Run in 60s",
                 json!({"workspace":"work","cycle":1,"delay_seconds":60}),
             )
             .unwrap();
-        output
-            .update_transient("watch work next Run in 59s")
-            .unwrap();
+        output.update_transient("run work next Run in 59s").unwrap();
         output.finish_transient().unwrap();
 
         assert_eq!(
             fs::read_to_string(human).unwrap(),
-            "watch work next Run in 60s\n"
+            "run work next Run in 60s\n"
         );
         assert!(!fs::read_to_string(dir.path().join("human.txt"))
             .unwrap()
@@ -382,7 +378,7 @@ mod tests {
         .unwrap();
 
         output
-            .transient_info("watch.wait", "wait 60s", json!({}))
+            .transient_info("run.watch.wait", "wait 60s", json!({}))
             .unwrap();
         output.update_transient("wait 59s").unwrap();
         output.finish_transient().unwrap();

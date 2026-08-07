@@ -20,7 +20,7 @@ use crate::{
         validate_workspace_name,
     },
     output::{ColorChoice, Output, Verbosity},
-    runtime::{is_cancelled, parse_duration, run_once, watch, InvocationCancelled},
+    runtime::{is_cancelled, parse_duration, run_once, run_watch, InvocationCancelled},
     schema::workspace_schema,
     store::{doctor, list_items, show_item},
 };
@@ -61,12 +61,10 @@ enum Command {
         workspace: Option<String>,
         #[arg(long)]
         dry_run: bool,
-    },
-    /// Repeatedly run one workspace.
-    Watch {
-        workspace: Option<String>,
-        #[arg(long, default_value = "60s")]
-        interval: String,
+        #[arg(long)]
+        watch: bool,
+        #[arg(long, requires = "watch")]
+        interval: Option<String>,
     },
     /// List latest stored items.
     List {
@@ -197,33 +195,35 @@ pub async fn run() -> Result<()> {
             WorkspaceCommand::Edit { name } => edit_workspace(&name),
         },
         Command::Workspaces => print_workspaces(),
-        Command::Run { workspace, dry_run } => {
-            let workspace = load_workspace(workspace.as_deref(), &registry)?;
-            let output = create_output()?;
-            run_once(
-                &workspace,
-                Arc::clone(&registry),
-                dry_run,
-                &output,
-                cancellation.clone(),
-            )
-            .await
-        }
-        Command::Watch {
+        Command::Run {
             workspace,
+            dry_run,
+            watch,
             interval,
         } => {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
-            let interval = parse_duration(&interval)?;
             let output = create_output()?;
-            watch(
-                workspace,
-                Arc::clone(&registry),
-                interval,
-                &output,
-                cancellation.clone(),
-            )
-            .await
+            if watch {
+                let interval = parse_duration(interval.as_deref().unwrap_or("60s"))?;
+                run_watch(
+                    workspace,
+                    Arc::clone(&registry),
+                    dry_run,
+                    interval,
+                    &output,
+                    cancellation.clone(),
+                )
+                .await
+            } else {
+                run_once(
+                    &workspace,
+                    Arc::clone(&registry),
+                    dry_run,
+                    &output,
+                    cancellation.clone(),
+                )
+                .await
+            }
         }
         Command::List { workspace, json } => {
             list_items(&load_workspace(workspace.as_deref(), &registry)?, json)
@@ -269,9 +269,23 @@ mod tests {
             Cli::try_parse_from(["agentboard", "run"]).unwrap().command,
             Command::Run {
                 workspace: None,
-                dry_run: false
+                dry_run: false,
+                watch: false,
+                interval: None,
             }
         ));
+        assert!(matches!(
+            Cli::try_parse_from(["agentboard", "run", "--watch"])
+                .unwrap()
+                .command,
+            Command::Run {
+                workspace: None,
+                dry_run: false,
+                watch: true,
+                interval: None,
+            }
+        ));
+        assert!(Cli::try_parse_from(["agentboard", "run", "--interval", "5s"]).is_err());
         assert!(matches!(
             Cli::try_parse_from(["agentboard", "doctor"])
                 .unwrap()

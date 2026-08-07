@@ -27,10 +27,11 @@ Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl`
 
 ## Workspace lock
 
-`run` and `watch` acquire `run.lock` for the Workspace.
+Normal `run` and non-dry `run --watch` acquire `run.lock` for the Workspace.
 
 - `run --dry-run` skips the lock and does not write Store files.
-- `watch` holds the lock until it exits.
+- `run --watch --dry-run` skips the lock and does not write Store files.
+- A non-dry watched Run holds the lock until it exits.
 - Overlapping normal Runs for the same Workspace fail.
 
 ## `items-<source.slug>.jsonl`

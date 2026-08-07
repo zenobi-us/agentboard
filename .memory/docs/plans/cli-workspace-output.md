@@ -15,7 +15,7 @@ Status: implemented and verified
 ## Output contract
 
 - Human progress MUST be written to stderr. Command results and machine-readable output remain on stdout.
-- `doctor`, `run`, and `watch` MUST show concise progress by default.
+- `doctor` and `run` MUST show concise progress by default.
 - Global `-v` MUST enable detailed progress, including successful Action output.
 - Global `-q` MUST suppress non-error progress.
 - Failed Actions MUST show captured stdout/stderr without requiring `-v`.
@@ -48,7 +48,7 @@ Status: implemented and verified
 ## Run and watch
 
 - `run` SHOULD report Workspace start/end, Source collection outcomes and item counts, Action attempted/skipped/succeeded/failed counts, and duration.
-- `watch` SHOULD additionally report cycle identity, cycle outcome, next scheduled run, and clean Ctrl-C shutdown.
+- Watch Mode (`run --watch`) SHOULD additionally report cycle identity, cycle outcome, next scheduled run, and clean Ctrl-C shutdown.
 - Detailed mode SHOULD report per-Item and per-Action progress.
 
 ## Documentation decision

@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-02: Mark the watch command copy control","body":"Target: `pages/task-02.html`\n\n## Acceptance criteria\n\n- Add `data-copy-command=\"agentboard watch\"` to the button.\n- Preserve the accessible label."}
+{"title":"AB-DEMO-02: Mark the watch command copy control","body":"Target: `pages/task-02.html`\n\n## Acceptance criteria\n\n- Add `data-copy-command=\"agentboard run --watch\"` to the button.\n- Preserve the accessible label."}

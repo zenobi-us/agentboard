@@ -9,14 +9,14 @@ teardown() { teardown_agentboard_test; }
   run "$AB" --help
 
   [ "$status" -eq 0 ]
-  for command in workspace run watch list show doctor schema; do
+  for command in workspace run list show doctor schema; do
     [[ "$output" == *"$command"* ]]
   done
   [[ "$output" != *"workspaces"* ]]
 }
 
 @test "every public command has help" {
-  for command in workspace run watch list show doctor schema; do
+  for command in workspace run list show doctor schema; do
     run "$AB" "$command" --help
     [ "$status" -eq 0 ]
     [[ "$output" == *"Usage:"* ]]
@@ -41,12 +41,28 @@ teardown() { teardown_agentboard_test; }
   [ "$status" -eq 0 ]
 }
 
-@test "invalid commands and invalid watch intervals fail" {
+@test "run exposes Watch Mode and standalone watch is removed" {
+  run "$AB" run --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--watch"* ]]
+  [[ "$output" == *"--interval"* ]]
+
+  run "$AB" watch
+  [ "$status" -ne 0 ]
+
   run "$AB" unsupported
   [ "$status" -ne 0 ]
   [[ "$output" == *"unrecognized subcommand"* ]]
+}
 
+@test "invalid commands and run intervals fail" {
   printf 'sources = []\n' > "$TMP/empty.toml"
-  run "$AB" watch "$TMP/empty.toml" --interval nope
+  run "$AB" run "$TMP/empty.toml" --watch --interval nope
+  [ "$status" -ne 0 ]
+
+  run "$AB" run "$TMP/empty.toml" --interval 5s
+  [ "$status" -ne 0 ]
+
+  run "$AB" run "$TMP/empty.toml" --watch --interval 0s
   [ "$status" -ne 0 ]
 }

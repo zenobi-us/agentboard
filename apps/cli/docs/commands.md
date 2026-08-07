@@ -46,19 +46,17 @@ Dry run collects and renders pending Actions without writing Store files or exec
 agentboard run ./work.toml --dry-run
 ```
 
-## `watch`
-
-Repeatedly run one Workspace until Ctrl-C.
-
-```bash
-agentboard watch
-agentboard watch work
-agentboard watch work --interval 30s
-```
-
+Watch Mode repeats the Run until Ctrl-C. The default interval is 60 seconds.
 Intervals are seconds with or without a trailing `s`.
 
-`watch` holds the Workspace lock until it exits.
+```bash
+agentboard run work --watch
+agentboard run work --watch --interval 30s
+agentboard run work --watch --dry-run
+```
+
+A non-dry watched Run holds the Workspace lock until it exits. A watched dry
+Run does not acquire the lock or write Store files.
 
 ## `list`
 

@@ -71,12 +71,12 @@ The generated Workspace contains three configured GitHub Sources:
 2. **review** — open issues labelled `agentboard:ready-for-review`;
 3. **cleanup** — closed issues labelled both `agentboard:review-complete` and `agentboard:cleanup-approved`.
 
-## 2. Start Watch and release two issues
+## 2. Start Watch Mode and release two issues
 
 Start AgentBoard from the standalone repository:
 
 ```sh
-agentboard watch .agentboard.toml --interval 15s
+agentboard run .agentboard.toml --watch --interval 15s
 ```
 
 From another terminal, list the seeded issues and release two of them:
