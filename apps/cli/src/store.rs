@@ -399,13 +399,7 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
 fn action_state(actions: &[StoredAction], item: &StoredItem) -> &'static str {
     let mut latest = HashMap::new();
     for action in actions.iter().filter(|a| action_matches_item(a, item)) {
-        latest.insert(
-            (
-                action.attempt.source_action_index,
-                action.attempt.rendered_action_hash.as_str(),
-            ),
-            action.attempt.outcome,
-        );
+        latest.insert(action.attempt.source_action_index, action.attempt.outcome);
     }
     if latest
         .values()
@@ -867,6 +861,27 @@ mod tests {
 
         assert_eq!(action_state(&stored, &item), "pending");
         assert!(successful_actions(&ws, &ws.sources[0]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn cancelled_latest_attempt_overrides_an_older_failure_with_another_hash() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[item("from a", "PROJ-1")]).unwrap();
+
+        let mut failed = attempt("a", "PROJ-1", false);
+        failed.rendered_action_hash = "hash-a".into();
+        append_action(&ws, &ws.sources[0], &failed).unwrap();
+
+        let mut cancelled = attempt("a", "PROJ-1", true);
+        cancelled.rendered_action_hash = "hash-b".into();
+        cancelled.outcome = ActionOutcome::Cancelled;
+        append_action(&ws, &ws.sources[0], &cancelled).unwrap();
+
+        let stored = all_stored_actions(&ws).unwrap();
+        let item = resolve_item(&ws, "PROJ-1").unwrap();
+
+        assert_eq!(action_state(&stored, &item), "pending");
     }
 
     #[test]

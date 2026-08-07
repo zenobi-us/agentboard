@@ -23,6 +23,42 @@ teardown() { teardown_agentboard_test; }
   ! grep -q '"stage":"action.succeeded"' "$TMP/run.jsonl"
 }
 
+@test "cancelled Action attempts retry on the next Run" {
+  write_item AB-1
+  write_workspace "if [ ! -e '$TMP/allow' ]; then echo started >> '$TMP/started'; trap '' INT; sleep 5; else echo retried >> '$TMP/retried'; fi"
+
+  "$AB" --color never run "$TMP/workspace.toml" >"$TMP/run.out" 2>"$TMP/run.err" &
+  RUN_PID=$!
+  for _ in {1..100}; do
+    [ -e "$TMP/started" ] && break
+    sleep 0.05
+  done
+  [ -e "$TMP/started" ]
+
+  kill -INT "$RUN_PID"
+  wait_status=0
+  wait "$RUN_PID" || wait_status=$?
+  [ "$wait_status" -eq 130 ]
+
+  /usr/bin/python3 - "$(actions_store_file)" <<'PY'
+import json, pathlib, sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert len(records) == 1
+assert records[0]["outcome"] == "cancelled"
+PY
+
+  touch "$TMP/allow"
+  run "$AB" --color never run "$TMP/workspace.toml"
+  [ "$status" -eq 0 ]
+  [ -e "$TMP/retried" ]
+
+  /usr/bin/python3 - "$(actions_store_file)" <<'PY'
+import json, pathlib, sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert [record["outcome"] for record in records] == ["cancelled", "success"]
+PY
+}
+
 @test "second Ctrl-C force-exits while running work cleans up" {
   write_item AB-1
   write_workspace "trap '' INT; echo started >> '$TMP/started'; sleep 5"

@@ -78,6 +78,27 @@ EOF
   [[ "$output" == *"item MISSING not found"* ]]
 }
 
+@test "show reads legacy boolean Action records" {
+  write_item AB-1 "Legacy Action Item"
+  write_workspace "true"
+
+  run "$AB" run "$TMP/workspace.toml"
+  [ "$status" -eq 0 ]
+
+  /usr/bin/python3 - "$(actions_store_file)" <<'PY'
+import json, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+record = json.loads(path.read_text().splitlines()[0])
+record.pop("outcome")
+record["success"] = True
+path.write_text(json.dumps(record) + "\n")
+PY
+
+  run "$AB" show "$TMP/workspace.toml" "$QMD_ITEMS/AB-1.md" --json
+  [ "$status" -eq 0 ]
+  printf '%s' "$output" | /usr/bin/python3 -c 'import json,sys; value=json.load(sys.stdin); assert value["actions"][0]["outcome"] == "success"; assert "success" not in value["actions"][0]'
+}
+
 @test "duplicate reference IDs remain distinct by QMD document identity" {
   write_collection_item one SAME-1 "First Bucket"
   write_collection_item two SAME-1 "Second Bucket"
