@@ -7,16 +7,16 @@
 This demo copies the repository's `apps/demo` fixture into a private throwaway GitHub repository, creates twelve coding issues, and runs three GitHub Sources through one AgentBoard Watch:
 
 ```text
-ready-for-agent -> implementation terminal -> ready-for-review -> review terminal
-       ^                                                    |
-       |                                    changes requested|
-       +----------------------------------------------------+
-                                                            |
-                                              review complete + manual merge
-                                                            |
-                                                   cleanup approval
-                                                            |
-                                                   remove worktree
+ready-for-agent
+    -> implementation terminal
+    -> ready-for-review
+    -> review terminal
+          |
+          +--> changes requested --> ready-for-agent
+          |
+          +--> review complete + manual merge
+                    -> cleanup approval
+                    -> remove worktree
 ```
 
 AgentBoard records successful actions. GitHub labels, PR state, and your explicit merge and cleanup approval record lifecycle completion.
@@ -71,12 +71,12 @@ The generated Workspace contains three configured GitHub Sources:
 2. **review** — open issues labelled `agentboard:ready-for-review`;
 3. **cleanup** — closed issues labelled both `agentboard:review-complete` and `agentboard:cleanup-approved`.
 
-## 2. Start Watch and release two issues [#2-start-watch-and-release-two-issues]
+## 2. Start Watch Mode and release two issues [#2-start-watch-mode-and-release-two-issues]
 
 Start AgentBoard from the standalone repository:
 
 ```sh
-agentboard watch .agentboard.toml --interval 15s
+agentboard run .agentboard.toml --watch --interval 15s
 ```
 
 From another terminal, list the seeded issues and release two of them:
@@ -179,7 +179,7 @@ An Action runs when no previous successful attempt exists for:
 
 Changing the rendered inputs changes the hash and makes the Action eligible to run again.
 
-Failed Actions retry on the next `run` or `watch` until they succeed.
+Failed Actions retry on the next `run`, including `run --watch`, until they succeed.
 
 ## Action Docs [#action-docs]
 
@@ -239,19 +239,17 @@ Dry run collects and renders pending Actions without writing Store files or exec
 agentboard run ./work.toml --dry-run
 ```
 
-## `watch` [#watch]
-
-Repeatedly run one Workspace until Ctrl-C.
-
-```bash
-agentboard watch
-agentboard watch work
-agentboard watch work --interval 30s
-```
-
+Watch Mode repeats the Run until Ctrl-C. The default interval is 60 seconds.
 Intervals are seconds with or without a trailing `s`.
 
-`watch` holds the Workspace lock until it exits.
+```bash
+agentboard run work --watch
+agentboard run work --watch --interval 30s
+agentboard run work --watch --dry-run
+```
+
+A non-dry watched Run holds the Workspace lock until it exits. A watched dry
+Run does not acquire the lock or write Store files.
 
 ## `list` [#list]
 
@@ -424,10 +422,11 @@ Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl`
 
 ## Workspace lock [#workspace-lock]
 
-`run` and `watch` acquire `run.lock` for the Workspace.
+Normal `run` and non-dry `run --watch` acquire `run.lock` for the Workspace.
 
 * `run --dry-run` skips the lock and does not write Store files.
-* `watch` holds the lock until it exits.
+* `run --watch --dry-run` skips the lock and does not write Store files.
+* A non-dry watched Run holds the lock until it exits.
 * Overlapping normal Runs for the same Workspace fail.
 
 ## `items-<source.slug>.jsonl` [#items-sourceslugjsonl]
@@ -455,7 +454,7 @@ Action attempts include:
 * source Action index
 * Action name
 * rendered Action hash
-* success flag
+* outcome (`success`, `failure`, or `cancelled`)
 * stdout
 * stderr
 * message
@@ -466,9 +465,11 @@ Successful attempts are used to skip completed work on later Runs.
 
 `list` shows a derived state for each item:
 
-* `pending` — no Action attempt exists for that item.
-* `succeeded` — at least one attempt exists and no attempt failed.
-* `failed` — at least one attempt failed.
+* `pending` — no Action attempt exists, or the latest attempt was cancelled.
+* `succeeded` — the latest attempt for every Action succeeded.
+* `failed` — the latest attempt for an Action failed.
+
+Cancelled attempts remain eligible for retry on the next Run.
 
 This is display state, not tracker state.
 
@@ -664,7 +665,7 @@ rebuilding if repeating them could cause duplicate side effects.
 
 ## `workspace lock is held` [#workspace-lock-is-held]
 
-Another `run` or `watch` is active for the same Workspace.
+Another `run` or non-dry `run --watch` is active for the same Workspace.
 
 Fix: stop the other process. Do not delete `run.lock` while a process is running.
 

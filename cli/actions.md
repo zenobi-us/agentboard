@@ -40,7 +40,7 @@ An Action runs when no previous successful attempt exists for:
 
 Changing the rendered inputs changes the hash and makes the Action eligible to run again.
 
-Failed Actions retry on the next `run` or `watch` until they succeed.
+Failed Actions retry on the next `run`, including `run --watch`, until they succeed.
 
 ## Action Docs [#action-docs]
 

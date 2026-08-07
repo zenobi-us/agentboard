@@ -27,10 +27,11 @@ Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl`
 
 ## Workspace lock [#workspace-lock]
 
-`run` and `watch` acquire `run.lock` for the Workspace.
+Normal `run` and non-dry `run --watch` acquire `run.lock` for the Workspace.
 
 * `run --dry-run` skips the lock and does not write Store files.
-* `watch` holds the lock until it exits.
+* `run --watch --dry-run` skips the lock and does not write Store files.
+* A non-dry watched Run holds the lock until it exits.
 * Overlapping normal Runs for the same Workspace fail.
 
 ## `items-<source.slug>.jsonl` [#items-sourceslugjsonl]
@@ -58,7 +59,7 @@ Action attempts include:
 * source Action index
 * Action name
 * rendered Action hash
-* success flag
+* outcome (`success`, `failure`, or `cancelled`)
 * stdout
 * stderr
 * message
@@ -69,9 +70,11 @@ Successful attempts are used to skip completed work on later Runs.
 
 `list` shows a derived state for each item:
 
-* `pending` — no Action attempt exists for that item.
-* `succeeded` — at least one attempt exists and no attempt failed.
-* `failed` — at least one attempt failed.
+* `pending` — no Action attempt exists, or the latest attempt was cancelled.
+* `succeeded` — the latest attempt for every Action succeeded.
+* `failed` — the latest attempt for an Action failed.
+
+Cancelled attempts remain eligible for retry on the next Run.
 
 This is display state, not tracker state.
 

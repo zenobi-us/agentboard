@@ -7,16 +7,16 @@
 This demo copies the repository's `apps/demo` fixture into a private throwaway GitHub repository, creates twelve coding issues, and runs three GitHub Sources through one AgentBoard Watch:
 
 ```text
-ready-for-agent -> implementation terminal -> ready-for-review -> review terminal
-       ^                                                    |
-       |                                    changes requested|
-       +----------------------------------------------------+
-                                                            |
-                                              review complete + manual merge
-                                                            |
-                                                   cleanup approval
-                                                            |
-                                                   remove worktree
+ready-for-agent
+    -> implementation terminal
+    -> ready-for-review
+    -> review terminal
+          |
+          +--> changes requested --> ready-for-agent
+          |
+          +--> review complete + manual merge
+                    -> cleanup approval
+                    -> remove worktree
 ```
 
 AgentBoard records successful actions. GitHub labels, PR state, and your explicit merge and cleanup approval record lifecycle completion.
@@ -71,12 +71,12 @@ The generated Workspace contains three configured GitHub Sources:
 2. **review** — open issues labelled `agentboard:ready-for-review`;
 3. **cleanup** — closed issues labelled both `agentboard:review-complete` and `agentboard:cleanup-approved`.
 
-## 2. Start Watch and release two issues [#2-start-watch-and-release-two-issues]
+## 2. Start Watch Mode and release two issues [#2-start-watch-mode-and-release-two-issues]
 
 Start AgentBoard from the standalone repository:
 
 ```sh
-agentboard watch .agentboard.toml --interval 15s
+agentboard run .agentboard.toml --watch --interval 15s
 ```
 
 From another terminal, list the seeded issues and release two of them:
