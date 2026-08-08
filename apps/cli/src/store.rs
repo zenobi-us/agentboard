@@ -159,14 +159,12 @@ fn append_items_inner(
         )?;
         staged_boundary.sync_all()?;
         check_store_cancellation(cancellation)?;
-
-        // Publish the complete item file before the boundary. Partial observations stay historical.
-        replace_file(&temp, &path)?;
-
         hook(AppendPoint::BeforeBoundaryPublication);
         check_store_cancellation(cancellation)?;
 
-        // The boundary is the commit marker.
+        // Start publication only after the final cancellation check.
+        // Once it starts, replace the item file and boundary without a cancellable gap.
+        replace_file(&temp, &path)?;
         replace_file(&snapshots_temp, &snapshots)
     })();
     let _ = fs::remove_file(&temp);
@@ -1177,7 +1175,7 @@ mod tests {
     }
 
     #[test]
-    fn cancelled_during_observation_append_keeps_previous_snapshot() {
+    fn cancelled_during_append_after_completed_snapshot_keeps_previous_snapshot() {
         let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
         let _cleanup = StoreCleanup::new(&ws);
         append_items(&ws, &ws.sources[0], &[item("old", "PROJ-1")]).unwrap();
@@ -1261,11 +1259,22 @@ mod tests {
         let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
         let _cleanup = StoreCleanup::new(&ws);
         let path = items_path(&ws, &ws.sources[0]);
-        let snapshots_temp = snapshot_path(&path).with_extension("snapshots.tmp");
-        fs::create_dir_all(&snapshots_temp).unwrap();
+        let snapshots = snapshot_path(&path);
+        let cancellation = CancellationToken::new();
 
-        assert!(append_items(&ws, &ws.sources[0], &[item("new", "PROJ-1")]).is_err());
-        assert!(!path.with_extension("jsonl.tmp").exists());
+        assert!(append_items_with_hook(
+            &ws,
+            &ws.sources[0],
+            &[item("new", "PROJ-1")],
+            &cancellation,
+            |point| {
+                if matches!(point, AppendPoint::BeforeBoundaryPublication) {
+                    fs::create_dir(&snapshots).unwrap();
+                }
+            },
+        )
+        .is_err());
+        assert_temp_files_are_clean(&ws, &ws.sources[0]);
     }
 
     #[test]

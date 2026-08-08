@@ -379,7 +379,7 @@ async fn run_sources(
                 output.error(
                     "source.failed",
                     &format!("source {source_id} failed: {err:#}"),
-                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "outcome": "fail", "error": format!("{err:#}")}),
+                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "error": format!("{err:#}")}),
                 )?;
                 summary.failed += 1;
             }
@@ -403,7 +403,6 @@ async fn run_sources(
         "succeeded": summary.succeeded,
         "failed": summary.failed,
         "duration_ms": duration_ms,
-        "outcome": if summary.failed > 0 { "fail" } else { "pass" },
     });
     let message = format!(
         "run {} complete: {} items, {} attempted, {} skipped, {} succeeded, {} failed, {}ms",
@@ -530,7 +529,14 @@ async fn run_source_with_store_hook(
     items.sort_by(|a, b| a.id.cmp(&b.id));
     stop_if_cancelled(&cancellation)?;
     if !dry_run {
-        crate::store::append_items_with_cancellation(ws, source, &items, &cancellation)?;
+        let ws = ws.clone();
+        let source = source.clone();
+        let items = items.clone();
+        let append_cancellation = cancellation.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::store::append_items_with_cancellation(&ws, &source, &items, &append_cancellation)
+        })
+        .await??;
         if let Some(after_store_publication) = after_store_publication {
             after_store_publication(&cancellation);
         }
