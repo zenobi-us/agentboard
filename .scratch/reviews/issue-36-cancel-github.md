@@ -1,0 +1,24 @@
+# Review: Issue 36 — Cancel GitHub collection end-to-end
+
+- Verdict: SUCCESS
+- Timestamp: 2026-08-08T05:59:48Z
+- Worktree: `/run/media/zenobius/Store/Projects/Mine/Github/AgentBoard.worktrees/agentboard-issue-36-cancel-github`
+- Source branch: `agentboard/issue-36-cancel-github`
+- Pull request: none found for the source branch
+- Base branch: `main`
+- Base commit: `c479035a5097f59eea9ba5f908f0d947661d33a3` (merge-base)
+- Reviewed commit: `c479035a5097f59eea9ba5f908f0d947661d33a3` plus the current uncommitted worktree diff
+- Issue: #36, “Cancel GitHub collection end-to-end”
+- Diff scope: `pkgs/crates/agentboard-source-github/src/lib.rs`
+
+## Findings
+
+None. The current diff adds cancellation-aware request and body races, cooperative response parsing and normalization, prompt delayed-response coverage, valid page-completion synchronization, deterministic client-completion race coverage, bounded test waits, and credential-helper process-group cleanup. Existing GitHub authentication, query construction, pagination, normalization, limits, and errors remain unchanged.
+
+## Validation
+
+- `cargo test -p agentboard-source-github`: passed, 16 tests
+- `for run in 1 2 3; do cargo test -p agentboard-source-github completed_response_wins_before_cancellation -- --exact; done`: passed, 3 runs with 100 iterations each
+- `git diff --check`: passed
+
+Review made no source-code changes.
