@@ -277,7 +277,7 @@ async fn run_sources(
                 output.error(
                     "source.failed",
                     &format!("source {source_id} failed: {err:#}"),
-                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "error": format!("{err:#}")}),
+                    json!({"workspace": ws.id, "run": run_id, "source": source_id, "outcome": "fail", "error": format!("{err:#}")}),
                 )?;
                 summary.failed += 1;
             }
@@ -301,6 +301,7 @@ async fn run_sources(
         "succeeded": summary.succeeded,
         "failed": summary.failed,
         "duration_ms": duration_ms,
+        "outcome": if summary.failed > 0 { "fail" } else { "pass" },
     });
     let message = format!(
         "run {} complete: {} items, {} attempted, {} skipped, {} succeeded, {} failed, {}ms",
@@ -351,6 +352,53 @@ async fn run_source_with_cancellation(
     output: &Output,
     cancellation: CancellationToken,
 ) -> Result<RunSummary> {
+    run_source_with_store_hook(
+        ws,
+        source,
+        registry,
+        dry_run,
+        run_id,
+        output,
+        cancellation,
+        None,
+    )
+    .await
+}
+
+#[cfg(test)]
+async fn run_source_with_store_publication_cancellation(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    registry: &Registry,
+    dry_run: bool,
+    run_id: &str,
+    output: &Output,
+    cancellation: CancellationToken,
+) -> Result<RunSummary> {
+    run_source_with_store_hook(
+        ws,
+        source,
+        registry,
+        dry_run,
+        run_id,
+        output,
+        cancellation,
+        Some(|cancellation| cancellation.cancel()),
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_source_with_store_hook(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    registry: &Registry,
+    dry_run: bool,
+    run_id: &str,
+    output: &Output,
+    cancellation: CancellationToken,
+    after_store_publication: Option<fn(&CancellationToken)>,
+) -> Result<RunSummary> {
     stop_if_cancelled(&cancellation)?;
     let source_id = &source.configured.id;
     let started = Instant::now();
@@ -381,6 +429,9 @@ async fn run_source_with_cancellation(
     stop_if_cancelled(&cancellation)?;
     if !dry_run {
         crate::store::append_items_with_cancellation(ws, source, &items, &cancellation)?;
+        if let Some(after_store_publication) = after_store_publication {
+            after_store_publication(&cancellation);
+        }
     }
     stop_if_cancelled(&cancellation)?;
     let successes = successful_actions(ws, source)?;
@@ -626,6 +677,7 @@ mod tests {
     use crate::{
         config::{actions_path, parse_workspace, store_root},
         output::{ColorChoice, Verbosity},
+        store::latest_items,
     };
     use agentboard_core::{
         registry::{
@@ -654,6 +706,84 @@ mod tests {
     struct ItemSourceDefinition;
 
     struct ItemSource;
+
+    static COLLECTION_PROBE_CALLS: AtomicUsize = AtomicUsize::new(0);
+    static CANCELLING_SOURCE_COLLECTIONS: AtomicUsize = AtomicUsize::new(0);
+    static TEST_ACTION_INVOCATIONS: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+    fn action_invocation_count(workspace_id: &str, message: &str) -> usize {
+        TEST_ACTION_INVOCATIONS
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(invocation_workspace, invocation_message)| {
+                invocation_workspace == workspace_id && invocation_message == message
+            })
+            .count()
+    }
+
+    struct CollectionProbeSourceDefinition;
+
+    struct CollectionProbeSource;
+
+    impl SourceDefinition for CollectionProbeSourceDefinition {
+        const ID: &'static str = "test/collection-probe";
+        type Config = ItemSourceConfig;
+        type Runtime = CollectionProbeSource;
+
+        fn build(_config: Self::Config) -> RuntimeResult<Self::Runtime> {
+            Ok(CollectionProbeSource)
+        }
+    }
+
+    impl Source for CollectionProbeSource {
+        fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
+            Box::pin(async move {
+                COLLECTION_PROBE_CALLS.fetch_add(1, Ordering::SeqCst);
+                Ok(SourceCollection {
+                    items: vec![test_item(context.source_id, "probe", json!({}))],
+                    available: None,
+                    limit: 1,
+                })
+            })
+        }
+
+        fn item_bucket_identity(&self) -> String {
+            "collection-probe".into()
+        }
+    }
+
+    struct CancellingSourceDefinition;
+
+    struct CancellingSource;
+
+    impl SourceDefinition for CancellingSourceDefinition {
+        const ID: &'static str = "test/cancelling-source";
+        type Config = ItemSourceConfig;
+        type Runtime = CancellingSource;
+
+        fn build(_config: Self::Config) -> RuntimeResult<Self::Runtime> {
+            Ok(CancellingSource)
+        }
+    }
+
+    impl Source for CancellingSource {
+        fn collect<'a>(&'a self, context: &'a SourceContext<'a>) -> SourceFuture<'a> {
+            Box::pin(async move {
+                CANCELLING_SOURCE_COLLECTIONS.fetch_add(1, Ordering::SeqCst);
+                context.cancellation.cancel();
+                Ok(SourceCollection {
+                    items: vec![test_item(context.source_id, "cancelled", json!({}))],
+                    available: None,
+                    limit: 1,
+                })
+            })
+        }
+
+        fn item_bucket_identity(&self) -> String {
+            "cancelling-source".into()
+        }
+    }
 
     impl SourceDefinition for ItemSourceDefinition {
         const ID: &'static str = "test/items";
@@ -718,6 +848,10 @@ mod tests {
         }
 
         fn execute(&self, context: &ActionContext<'_>) -> RuntimeResult<ActionRun> {
+            TEST_ACTION_INVOCATIONS
+                .lock()
+                .unwrap()
+                .push((context.workspace_id.into(), self.message.clone()));
             if self.outcome == "fail" {
                 anyhow::bail!(self.message.clone());
             }
@@ -1173,14 +1307,17 @@ mod tests {
 
     #[tokio::test]
     async fn cancelled_invocation_prevents_new_source_work() {
+        COLLECTION_PROBE_CALLS.store(0, Ordering::SeqCst);
         let mut registry = Registry::new();
-        registry.add_source::<ItemSourceDefinition>().unwrap();
+        registry
+            .add_source::<CollectionProbeSourceDefinition>()
+            .unwrap();
         let parsed = parse_workspace(
             r#"
                 [[sources]]
                 id = "source"
                 [sources.source]
-                kind = "test/items"
+                kind = "test/collection-probe"
             "#,
             &registry,
         )
@@ -1215,6 +1352,119 @@ mod tests {
         .unwrap_err();
 
         assert!(is_cancelled(&error));
+        assert_eq!(COLLECTION_PROBE_CALLS.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn cancelled_collection_stops_before_store_and_reports_cancellation() {
+        CANCELLING_SOURCE_COLLECTIONS.store(0, Ordering::SeqCst);
+        let mut registry = Registry::new();
+        registry.add_source::<CancellingSourceDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/cancelling-source"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: format!(
+                "cancelled-collection-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            Some(&events),
+        )
+        .unwrap();
+        let cancellation = CancellationToken::new();
+
+        let error = run_sources(&ws, Arc::new(registry), false, &output, cancellation)
+            .await
+            .unwrap_err();
+
+        assert!(is_cancelled(&error));
+        assert_eq!(CANCELLING_SOURCE_COLLECTIONS.load(Ordering::SeqCst), 1);
+        assert!(!store_root(&ws).exists());
+        let events = fs::read_to_string(events).unwrap();
+        assert!(events.contains("\"stage\":\"source.cancelled\""));
+        assert!(events.contains("\"stage\":\"run.cancelled\""));
+        assert!(!events.contains("\"stage\":\"source.failed\""));
+    }
+
+    #[tokio::test]
+    async fn cancellation_after_store_publication_keeps_snapshot_and_starts_no_actions() {
+        let mut registry = Registry::new();
+        registry.add_source::<ItemSourceDefinition>().unwrap();
+        registry.add_action::<TestActionDefinition>().unwrap();
+        let parsed = parse_workspace(
+            r#"
+                [[sources]]
+                id = "source"
+                [sources.source]
+                kind = "test/items"
+
+                [[sources.actions]]
+                uses = "test/action"
+                [sources.actions.with]
+                message = "must not run"
+            "#,
+            &registry,
+        )
+        .unwrap();
+        let ws = Workspace {
+            id: format!(
+                "cancelled-after-store-{}",
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            None,
+        )
+        .unwrap();
+        let cancellation = CancellationToken::new();
+
+        let error = run_source_with_store_publication_cancellation(
+            &ws,
+            &ws.sources[0],
+            &registry,
+            false,
+            "cancelled",
+            &output,
+            cancellation,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(is_cancelled(&error));
+        assert_eq!(action_invocation_count(&ws.id, "must not run"), 0);
+        assert!(!actions_path(&ws, &ws.sources[0]).exists());
+        assert_eq!(latest_items(&ws).unwrap().len(), 2);
+        fs::remove_dir_all(store_root(&ws)).unwrap();
     }
 
     #[tokio::test]
@@ -1269,6 +1519,8 @@ mod tests {
             .unwrap_err();
 
         assert!(is_cancelled(&error));
+        assert_eq!(action_invocation_count(&ws.id, "cancel"), 1);
+        assert_eq!(action_invocation_count(&ws.id, "must not run"), 0);
         let attempts = fs::read_to_string(actions_path(&ws, &ws.sources[0]))
             .unwrap()
             .lines()
@@ -1276,6 +1528,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(attempts.len(), 1);
         assert_eq!(attempts[0].outcome, ActionOutcome::Success);
+        assert_eq!(latest_items(&ws).unwrap().len(), 2);
         fs::remove_dir_all(store_root(&ws)).unwrap();
     }
 
