@@ -23,6 +23,26 @@ teardown() { teardown_agentboard_test; }
   ! grep -q '"stage":"action.succeeded"' "$TMP/run.jsonl"
 }
 
+@test "cancelled QMD collection reports cancellation and writes no snapshot" {
+  write_item AB-1
+  write_workspace "echo ran >> '$TMP/ran'"
+  export QMD_QUERY_SLEEP=5
+  export QMD_LOG="$TMP/qmd.log"
+
+  "$AB" --color never --log-file "$TMP/run.jsonl" run "$TMP/workspace.toml" >"$TMP/run.out" 2>"$TMP/run.err" &
+  RUN_PID=$!
+  wait_for_pattern "$TMP/qmd.log" 'query status:ready'
+
+  kill -INT "$RUN_PID"
+  wait_status=0
+  wait "$RUN_PID" || wait_status=$?
+  [ "$wait_status" -eq 130 ]
+  [ -z "$(items_store_file)" ]
+  [ ! -e "$TMP/ran" ]
+  grep -q '"stage":"source.cancelled"' "$TMP/run.jsonl"
+  ! grep -q '"stage":"source.failed"' "$TMP/run.jsonl"
+}
+
 @test "cancelled Action attempts retry on the next Run" {
   write_item AB-1
   write_workspace "if [ ! -e '$TMP/allow' ]; then echo started >> '$TMP/started'; trap '' INT; sleep 5; else echo retried >> '$TMP/retried'; fi"

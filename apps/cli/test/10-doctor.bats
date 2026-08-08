@@ -20,6 +20,25 @@ teardown() { teardown_agentboard_test; }
   [[ "$output" == *"ok command qmd"* ]]
 }
 
+@test "doctor stops later checks when QMD collection is cancelled" {
+  write_item AB-1
+  write_workspace "true"
+  export QMD_QUERY_SLEEP=5
+  export QMD_LOG="$TMP/qmd.log"
+
+  "$AB" --color never --log-file "$TMP/doctor.jsonl" doctor "$TMP/workspace.toml" >"$TMP/doctor.out" 2>"$TMP/doctor.err" &
+  DOCTOR_PID=$!
+  wait_for_pattern "$TMP/qmd.log" 'query status:ready'
+
+  kill -INT "$DOCTOR_PID"
+  wait_status=0
+  wait "$DOCTOR_PID" || wait_status=$?
+  [ "$wait_status" -eq 130 ]
+  grep -q '"stage":"doctor.cancelled"' "$TMP/doctor.jsonl"
+  ! grep -q '"stage":"doctor.actions"' "$TMP/doctor.jsonl"
+  ! grep -q '"stage":"doctor.action"' "$TMP/doctor.jsonl"
+}
+
 @test "doctor reports independent source failures together" {
   cat > "$TMP/workspace.toml" <<'EOF'
 [[sources]]

@@ -17,6 +17,7 @@ use agentboard_core::{
         HealthCheck, HealthCheckContext, RuntimeResult, Source, SourceCollection, SourceContext,
         SourceDefinition, SourceFuture,
     },
+    CancellationToken,
 };
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -61,8 +62,11 @@ impl QmdSource {
     async fn collect_qmd(
         &self,
         source_id: &str,
-        cancellation: &agentboard_core::CancellationToken,
+        cancellation: &CancellationToken,
     ) -> Result<SourceCollection> {
+        if cancellation.is_cancelled() {
+            return Err(qmd_cancelled());
+        }
         let results = qmd_query(
             &self.config.collections,
             &self.config.query,
@@ -70,18 +74,35 @@ impl QmdSource {
             cancellation,
         )
         .await?;
-        self.collection_from_results(source_id, results)
+        self.collection_from_results_with_cancellation(source_id, results, cancellation)
     }
 
+    #[cfg(test)]
     fn collection_from_results(
         &self,
         source_id: &str,
         results: Vec<Value>,
     ) -> Result<SourceCollection> {
+        self.collection_from_results_with_cancellation(
+            source_id,
+            results,
+            &CancellationToken::new(),
+        )
+    }
+
+    fn collection_from_results_with_cancellation(
+        &self,
+        source_id: &str,
+        results: Vec<Value>,
+        cancellation: &CancellationToken,
+    ) -> Result<SourceCollection> {
         let mut ids = HashSet::new();
         let mut items = Vec::new();
 
         for result in results {
+            if cancellation.is_cancelled() {
+                return Err(qmd_cancelled());
+            }
             let doc_ref = doc_ref(&result)?;
             let doc = result
                 .get("body")
@@ -89,6 +110,9 @@ impl QmdSource {
                 .ok_or_else(|| anyhow!("qmd result {doc_ref} missing string body"))?;
             let (frontmatter, body) =
                 parse_frontmatter(doc).with_context(|| format!("parse qmd document {doc_ref}"))?;
+            if cancellation.is_cancelled() {
+                return Err(qmd_cancelled());
+            }
             let item = normalize_document(
                 source_id,
                 result,
@@ -97,6 +121,9 @@ impl QmdSource {
                 body,
                 &self.config.map,
             )?;
+            if cancellation.is_cancelled() {
+                return Err(qmd_cancelled());
+            }
             if !ids.insert(item.id.clone()) {
                 bail!("duplicate item id {} in source {source_id}", item.id);
             }
@@ -119,10 +146,10 @@ impl Source for QmdSource {
         })
     }
 
-    fn health_checks(&self, _context: &HealthCheckContext<'_>) -> Vec<HealthCheck> {
+    fn health_checks(&self, context: &HealthCheckContext<'_>) -> Vec<HealthCheck> {
         vec![HealthCheck {
             name: "command qmd".into(),
-            result: check_qmd_command(&_context.cancellation),
+            result: check_qmd_command(context),
         }]
     }
 
@@ -171,12 +198,19 @@ fn normalize_document(
     })
 }
 
+fn qmd_cancelled() -> anyhow::Error {
+    anyhow!("qmd operation cancelled")
+}
+
 async fn qmd_query(
     collections: &[String],
     query: &str,
     limit: usize,
-    cancellation: &agentboard_core::CancellationToken,
+    cancellation: &CancellationToken,
 ) -> Result<Vec<Value>> {
+    if cancellation.is_cancelled() {
+        return Err(qmd_cancelled());
+    }
     let mut command = qmd_query_command(collections, query, limit);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = tokio::process::Command::from(command)
@@ -215,14 +249,21 @@ async fn qmd_query(
         _ = cancellation.cancelled() => {
             let _ = child.kill().await;
             let _ = child.wait().await;
-            return Err(anyhow!("qmd query cancelled"));
+            return Err(qmd_cancelled());
         }
     };
     let out = output;
+    if cancellation.is_cancelled() {
+        return Err(qmd_cancelled());
+    }
     if !out.status.success() {
         bail!("qmd query failed: {}", String::from_utf8_lossy(&out.stderr));
     }
-    parse_qmd_results(&String::from_utf8_lossy(&out.stdout))
+    let results = parse_qmd_results(&String::from_utf8_lossy(&out.stdout))?;
+    if cancellation.is_cancelled() {
+        return Err(qmd_cancelled());
+    }
+    Ok(results)
 }
 
 fn qmd_query_command(collections: &[String], query: &str, limit: usize) -> ProcessCommand {
@@ -240,9 +281,9 @@ fn qmd_query_command(collections: &[String], query: &str, limit: usize) -> Proce
     cmd
 }
 
-fn check_qmd_command(cancellation: &agentboard_core::CancellationToken) -> Result<()> {
-    if cancellation.is_cancelled() {
-        bail!("qmd health check cancelled");
+fn check_qmd_command(context: &HealthCheckContext<'_>) -> Result<()> {
+    if context.cancellation.is_cancelled() {
+        return Err(qmd_cancelled());
     }
     let mut child = ProcessCommand::new("qmd")
         .arg("--version")
@@ -257,10 +298,10 @@ fn check_qmd_command(cancellation: &agentboard_core::CancellationToken) -> Resul
             }
             return Ok(());
         }
-        if cancellation.is_cancelled() {
+        if context.cancellation.is_cancelled() {
             let _ = child.kill();
             let _ = child.wait();
-            bail!("qmd health check cancelled");
+            return Err(qmd_cancelled());
         }
         thread::sleep(Duration::from_millis(5));
     }
@@ -315,14 +356,17 @@ fn optional_mapped_field(frontmatter: &Value, path: &str) -> Option<String> {
 mod tests {
     use super::*;
     use agentboard_core::{
-        registry::{HealthCheckContext, RawConfig, Registry, Source, SourceDefinition},
+        registry::{
+            HealthCheckContext, RawConfig, Registry, Source, SourceContext, SourceDefinition,
+        },
         CancellationToken,
     };
     use std::{
-        env,
+        env, fs,
         future::Future,
-        sync::Mutex,
+        sync::{Arc, Mutex},
         task::{Context as TaskContext, Poll, Waker},
+        time::{SystemTime, UNIX_EPOCH},
     };
 
     static PATH_LOCK: Mutex<()> = Mutex::new(());
@@ -400,6 +444,146 @@ mod tests {
         .unwrap();
 
         assert!(QmdSourceDefinition::build(config).is_ok());
+    }
+
+    #[tokio::test]
+    async fn qmd_query_does_not_start_when_cancelled() {
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let error = qmd_query(&["tasks".into()], "status:ready", 50, &cancellation)
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "qmd operation cancelled");
+    }
+
+    #[cfg(unix)]
+    #[allow(clippy::await_holding_lock)]
+    #[tokio::test]
+    async fn qmd_query_cancellation_kills_process_group_descendants() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _guard = PATH_LOCK.lock().unwrap();
+        let root = env::temp_dir().join(format!(
+            "agentboard-qmd-test-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let qmd = root.join("qmd");
+        let child_pid = root.join("child.pid");
+        fs::write(
+            &qmd,
+            "#!/bin/sh\n/bin/sh -c 'sleep 30' &\necho \"$!\" > \"$QMD_CHILD_PID\"\nwait\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&qmd).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&qmd, permissions).unwrap();
+
+        let original_path = env::var_os("PATH");
+        let mut paths = vec![root.clone()];
+        if let Some(path) = &original_path {
+            paths.extend(env::split_paths(path));
+        }
+        env::set_var("PATH", env::join_paths(paths).unwrap());
+        env::set_var("QMD_CHILD_PID", &child_pid);
+
+        let source = Arc::new(QmdSourceDefinition::build(config(&["tasks"])).unwrap());
+        let cancellation = CancellationToken::new();
+        let task_source = Arc::clone(&source);
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            task_source
+                .collect(&SourceContext {
+                    source_id: "local",
+                    cancellation: task_cancellation,
+                })
+                .await
+        });
+
+        for _ in 0..1_000 {
+            if child_pid.exists() {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(child_pid.exists(), "QMD descendant did not start");
+
+        cancellation.cancel();
+        let error = task.await.unwrap().unwrap_err();
+        assert_eq!(error.to_string(), "qmd operation cancelled");
+
+        let pid = fs::read_to_string(&child_pid).unwrap();
+        let pid = pid.trim();
+        for _ in 0..100 {
+            let alive = ProcessCommand::new("/bin/kill")
+                .args(["-0", pid])
+                .stderr(Stdio::null())
+                .status()
+                .unwrap()
+                .success();
+            if !alive {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(!ProcessCommand::new("/bin/kill")
+            .args(["-0", pid])
+            .stderr(Stdio::null())
+            .status()
+            .unwrap()
+            .success());
+
+        match original_path {
+            Some(path) => env::set_var("PATH", path),
+            None => env::remove_var("PATH"),
+        }
+        env::remove_var("QMD_CHILD_PID");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn qmd_health_check_does_not_start_when_cancelled() {
+        let source = QmdSourceDefinition::build(config(&["tasks"])).unwrap();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let context = HealthCheckContext {
+            source_id: "local",
+            cancellation,
+        };
+
+        let checks = source.health_checks(&context);
+
+        assert_eq!(checks.len(), 1);
+        assert_eq!(
+            checks[0].result.as_ref().unwrap_err().to_string(),
+            "qmd operation cancelled"
+        );
+    }
+
+    #[test]
+    fn cancelled_collection_does_not_normalize_results() {
+        let source = QmdSourceDefinition::build(config(&["tasks"])).unwrap();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let error = source
+            .collection_from_results_with_cancellation(
+                "local",
+                vec![json!({
+                    "path": "/notes/AB-1.md",
+                    "body": "---\nid: AB-1\ntitle: Do it\nstatus: ready\n---\nBody"
+                })],
+                &cancellation,
+            )
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "qmd operation cancelled");
     }
 
     #[test]
