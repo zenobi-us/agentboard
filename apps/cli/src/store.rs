@@ -82,6 +82,33 @@ pub(crate) fn append_items_with_cancellation(
     items: &[Item],
     cancellation: &CancellationToken,
 ) -> Result<()> {
+    append_items_inner(ws, source, items, cancellation, |_| {})
+}
+
+#[derive(Clone, Copy)]
+enum AppendPoint {
+    ObservationAppended,
+    BeforeBoundaryPublication,
+}
+
+#[cfg(test)]
+fn append_items_with_hook(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    items: &[Item],
+    cancellation: &CancellationToken,
+    hook: impl FnMut(AppendPoint),
+) -> Result<()> {
+    append_items_inner(ws, source, items, cancellation, hook)
+}
+
+fn append_items_inner(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    items: &[Item],
+    cancellation: &CancellationToken,
+    mut hook: impl FnMut(AppendPoint),
+) -> Result<()> {
     let path = items_path(ws, source);
     let snapshots = snapshot_path(&path);
     let snapshot_key = source_snapshot_key(source);
@@ -91,10 +118,10 @@ pub(crate) fn append_items_with_cancellation(
     let snapshots_temp = snapshots.with_extension("snapshots.tmp");
     let result = (|| -> Result<()> {
         check_store_cancellation(cancellation)?;
-        let mut file = File::create(&temp)?;
+        let mut staged_items = File::create(&temp)?;
         if path.exists() {
             let mut previous = File::open(&path)?;
-            std::io::copy(&mut previous, &mut file)?;
+            std::io::copy(&mut previous, &mut staged_items)?;
         }
         for item in items {
             check_store_cancellation(cancellation)?;
@@ -110,42 +137,82 @@ pub(crate) fn append_items_with_cancellation(
                 SNAPSHOT_ID_FIELD.into(),
                 serde_json::Value::String(snapshot_id.clone()),
             );
-            writeln!(file, "{value}")?;
+            writeln!(staged_items, "{value}")?;
+            hook(AppendPoint::ObservationAppended);
+            check_store_cancellation(cancellation)?;
         }
-        file.sync_all()?;
-        check_store_cancellation(cancellation)?;
+        staged_items.sync_all()?;
 
-        let mut boundaries = File::create(&snapshots_temp)?;
+        check_store_cancellation(cancellation)?;
+        let mut staged_boundary = File::create(&snapshots_temp)?;
         if snapshots.exists() {
             let mut previous = File::open(&snapshots)?;
-            std::io::copy(&mut previous, &mut boundaries)?;
+            std::io::copy(&mut previous, &mut staged_boundary)?;
         }
         writeln!(
-            boundaries,
+            staged_boundary,
             "{}",
             serde_json::json!({"snapshot_key": snapshot_key, "snapshot_id": snapshot_id})
         )?;
-        boundaries.sync_all()?;
+        staged_boundary.sync_all()?;
         check_store_cancellation(cancellation)?;
 
+        // Publish the complete item file before the boundary. Partial observations stay historical.
         replace_file(&temp, &path)?;
-        replace_file(&snapshots_temp, &snapshots)?;
-        Ok(())
+
+        hook(AppendPoint::BeforeBoundaryPublication);
+        check_store_cancellation(cancellation)?;
+
+        // The boundary is the commit marker.
+        replace_file(&snapshots_temp, &snapshots)
     })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp);
-        let _ = fs::remove_file(&snapshots_temp);
-    }
+    let _ = fs::remove_file(&temp);
+    let _ = fs::remove_file(&snapshots_temp);
     result
 }
 
 fn replace_file(temp: &Path, destination: &Path) -> Result<()> {
     #[cfg(windows)]
-    if destination.exists() {
-        fs::remove_file(destination)?;
+    {
+        use std::os::windows::ffi::OsStrExt;
+
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn MoveFileExW(
+                existing_file_name: *const u16,
+                new_file_name: *const u16,
+                flags: u32,
+            ) -> i32;
+        }
+
+        let temp: Vec<u16> = temp
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        let destination: Vec<u16> = destination
+            .as_os_str()
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect();
+        if unsafe {
+            MoveFileExW(
+                temp.as_ptr(),
+                destination.as_ptr(),
+                0x0000_0001 | 0x0000_0008,
+            )
+        } == 0
+        {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        return Ok(());
     }
-    fs::rename(temp, destination)?;
-    Ok(())
+
+    #[cfg(not(windows))]
+    {
+        fs::rename(temp, destination)?;
+        Ok(())
+    }
 }
 
 fn check_store_cancellation(cancellation: &CancellationToken) -> Result<()> {
@@ -211,8 +278,10 @@ fn latest_item_records(ws: &Workspace) -> Result<HashMap<String, StoredItem>> {
             continue;
         }
         if !records_by_path.contains_key(&path) {
-            records_by_path.insert(path.clone(), load_item_records(ws, &path)?);
+            // Read the boundary first. Publication replaces Items before the boundary, so this
+            // order prevents a reader from pairing old Items with a new Snapshot ID.
             boundaries_by_path.insert(path.clone(), load_snapshot_boundaries(&path)?);
+            records_by_path.insert(path.clone(), load_item_records(ws, &path)?);
         }
 
         let slug = source_slug(source);
@@ -704,7 +773,8 @@ mod tests {
     use super::*;
     use crate::config::parse_workspace;
     use serde_json::json;
-    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static TEST_WORKSPACE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn doctor_source_message_distinguishes_available_from_fetched() {
@@ -894,6 +964,7 @@ mod tests {
         append_items(&ws, &ws.sources[0], &[]).unwrap();
 
         assert!(latest_items(&ws).unwrap().is_empty());
+        assert!(snapshot_path(&items_path(&ws, &ws.sources[0])).exists());
     }
 
     #[test]
@@ -918,6 +989,105 @@ mod tests {
         let stored = latest_items(&ws).unwrap();
         assert_eq!(stored.len(), 1);
         assert_eq!(stored.values().next().unwrap().title, "old");
+        assert_temp_files_are_clean(&ws, &ws.sources[0]);
+
+        append_items(&ws, &ws.sources[0], &[item("new", "PROJ-1")]).unwrap();
+        assert_eq!(
+            latest_items(&ws).unwrap().values().next().unwrap().title,
+            "new"
+        );
+    }
+
+    #[test]
+    fn cancelled_during_observation_append_keeps_previous_snapshot() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[item("old", "PROJ-1")]).unwrap();
+
+        let cancellation = CancellationToken::new();
+        let error = append_items_with_hook(
+            &ws,
+            &ws.sources[0],
+            &[item("new", "PROJ-1"), item("newer", "PROJ-2")],
+            &cancellation,
+            |point| {
+                if matches!(point, AppendPoint::ObservationAppended) {
+                    cancellation.cancel();
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert!(is_store_cancelled(&error));
+        assert_eq!(
+            latest_items(&ws).unwrap().values().next().unwrap().title,
+            "old"
+        );
+        assert_eq!(snapshot_boundary_count(&ws, &ws.sources[0]), 1);
+        assert_temp_files_are_clean(&ws, &ws.sources[0]);
+    }
+
+    #[test]
+    fn cancelled_before_boundary_publication_keeps_previous_snapshot() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[item("old", "PROJ-1")]).unwrap();
+
+        let cancellation = CancellationToken::new();
+        let error = append_items_with_hook(
+            &ws,
+            &ws.sources[0],
+            &[item("new", "PROJ-1")],
+            &cancellation,
+            |point| {
+                if matches!(point, AppendPoint::BeforeBoundaryPublication) {
+                    cancellation.cancel();
+                }
+            },
+        )
+        .unwrap_err();
+
+        assert!(is_store_cancelled(&error));
+        assert_eq!(
+            latest_items(&ws).unwrap().values().next().unwrap().title,
+            "old"
+        );
+        assert_eq!(snapshot_boundary_count(&ws, &ws.sources[0]), 1);
+        assert_temp_files_are_clean(&ws, &ws.sources[0]);
+    }
+
+    #[test]
+    fn completed_snapshot_remains_authoritative_after_later_cancellation() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        let cancellation = CancellationToken::new();
+
+        append_items_with_cancellation(
+            &ws,
+            &ws.sources[0],
+            &[item("new", "PROJ-1")],
+            &cancellation,
+        )
+        .unwrap();
+        cancellation.cancel();
+
+        assert_eq!(
+            latest_items(&ws).unwrap().values().next().unwrap().title,
+            "new"
+        );
+        assert_eq!(snapshot_boundary_count(&ws, &ws.sources[0]), 1);
+    }
+
+    #[test]
+    fn append_failure_cleans_staged_files() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        let path = items_path(&ws, &ws.sources[0]);
+        let snapshots_temp = snapshot_path(&path).with_extension("snapshots.tmp");
+        fs::create_dir_all(&snapshots_temp).unwrap();
+
+        assert!(append_items(&ws, &ws.sources[0], &[item("new", "PROJ-1")]).is_err());
+        assert!(!path.with_extension("jsonl.tmp").exists());
     }
 
     #[test]
@@ -944,6 +1114,27 @@ mod tests {
             .contains("ambiguous"));
     }
 
+    fn is_store_cancelled(error: &anyhow::Error) -> bool {
+        error
+            .downcast_ref::<crate::runtime::InvocationCancelled>()
+            .is_some()
+    }
+
+    fn snapshot_boundary_count(ws: &Workspace, source: &WorkspaceSource) -> usize {
+        fs::read_to_string(snapshot_path(&items_path(ws, source)))
+            .unwrap()
+            .lines()
+            .count()
+    }
+
+    fn assert_temp_files_are_clean(ws: &Workspace, source: &WorkspaceSource) {
+        let path = items_path(ws, source);
+        assert!(!path.with_extension("jsonl.tmp").exists());
+        assert!(!snapshot_path(&path)
+            .with_extension("snapshots.tmp")
+            .exists());
+    }
+
     fn workspace(sources: &[(&str, &str, &str)]) -> Workspace {
         let text = sources
             .iter()
@@ -964,11 +1155,9 @@ jql = {jql:?}
         let parsed = parse_workspace(&text, &registry).unwrap();
         Workspace {
             id: format!(
-                "test-{}",
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
+                "test-{}-{}",
+                std::process::id(),
+                TEST_WORKSPACE_COUNTER.fetch_add(1, Ordering::Relaxed)
             ),
             path: "work.toml".into(),
             sources: parsed.sources,
