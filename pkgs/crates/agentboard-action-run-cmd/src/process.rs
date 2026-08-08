@@ -39,6 +39,9 @@ fn capture(
     context: &ActionContext<'_>,
     deadline: Option<Instant>,
 ) -> Result<(Output, bool)> {
+    if context.cancellation.is_cancelled() {
+        return Err(anyhow!("action cancelled"));
+    }
     let mut command = shell_command(cmd, cwd, context);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = command.group_spawn().with_context(|| match cwd {

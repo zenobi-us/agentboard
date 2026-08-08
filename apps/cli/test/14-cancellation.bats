@@ -59,6 +59,34 @@ assert [record["outcome"] for record in records] == ["cancelled", "success"]
 PY
 }
 
+@test "Ctrl-C kills run-cmd descendants, persists output, and exits 130" {
+  write_item AB-1
+  write_workspace "printf before; printf error-before >&2; echo started > '$TMP/started'; (sleep 2; echo descendant-finished > '$TMP/descendant') & wait"
+
+  "$AB" --color never run "$TMP/workspace.toml" >"$TMP/run.out" 2>"$TMP/run.err" &
+  RUN_PID=$!
+  for _ in {1..100}; do
+    [ -e "$TMP/started" ] && break
+    sleep 0.05
+  done
+  [ -e "$TMP/started" ]
+
+  kill -INT "$RUN_PID"
+  wait_status=0
+  wait "$RUN_PID" || wait_status=$?
+  [ "$wait_status" -eq 130 ]
+  [ ! -e "$TMP/descendant" ]
+
+  /usr/bin/python3 - "$(actions_store_file)" <<'PY'
+import json, pathlib, sys
+record = json.loads(pathlib.Path(sys.argv[1]).read_text().splitlines()[0])
+assert record["outcome"] == "cancelled"
+assert record["stdout"] == "before"
+assert record["stderr"] == "error-before"
+assert record["message"] == "action cancelled"
+PY
+}
+
 @test "second Ctrl-C force-exits while running work cleans up" {
   write_item AB-1
   write_workspace "trap '' INT; echo started >> '$TMP/started'; sleep 5"

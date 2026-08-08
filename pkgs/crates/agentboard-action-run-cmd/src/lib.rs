@@ -89,6 +89,9 @@ impl Action for RunCmdAction {
 }
 
 fn execute_command(action: &RunCmdAction, context: &ActionContext<'_>) -> ActionRun {
+    if context.cancellation.is_cancelled() {
+        return cancelled_run(anyhow!("action cancelled"));
+    }
     let launch = match process::run(&action.cmd, action.cwd.as_deref(), context) {
         Ok(output) => output,
         Err(error) => {
@@ -124,7 +127,13 @@ fn poll_healthcheck(
     loop {
         let probe = match process::run_until(&healthcheck.command, cwd, context, deadline) {
             Ok(output) => output,
-            Err(error) => return failed_run(error),
+            Err(error) => {
+                return if context.cancellation.is_cancelled() {
+                    cancelled_output_run(launch)
+                } else {
+                    failed_run(error)
+                };
+            }
         };
         match probe {
             process::Run::Finished(probe) if probe.status.success() => return output_run(launch),
@@ -133,7 +142,7 @@ fn poll_healthcheck(
             }
             process::Run::Finished(probe) => {
                 if context.cancellation.is_cancelled() {
-                    return cancelled_output_run(probe);
+                    return cancelled_output_run(combined_output_run(launch, probe));
                 }
                 let elapsed = started.elapsed();
                 if elapsed >= healthcheck.timeout {
@@ -143,7 +152,7 @@ fn poll_healthcheck(
                 let sleep_started = Instant::now();
                 while sleep_started.elapsed() < sleep_for {
                     if context.cancellation.is_cancelled() {
-                        return cancelled_run(anyhow!("action cancelled"));
+                        return cancelled_output_run(combined_output_run(launch, probe));
                     }
                     thread::sleep(
                         Duration::from_millis(5).min(sleep_for - sleep_started.elapsed()),
@@ -177,6 +186,14 @@ fn cancelled_output_run(output: Output) -> ActionRun {
         stdout: cap(&output.stdout),
         stderr: cap(&output.stderr),
         message: Some("action cancelled".into()),
+    }
+}
+
+fn combined_output_run(launch: Output, probe: Output) -> Output {
+    Output {
+        status: probe.status,
+        stdout: combined_output(&launch.stdout, &probe.stdout).into_bytes(),
+        stderr: combined_output(&launch.stderr, &probe.stderr).into_bytes(),
     }
 }
 
@@ -517,6 +534,47 @@ mod tests {
     }
 
     #[test]
+    fn cancellation_during_healthcheck_keeps_launch_and_probe_output() {
+        let dir = tempdir().unwrap();
+        let started = dir.path().join("healthcheck-started");
+        let mut config = config("printf launch-out; printf launch-err >&2");
+        config.healthcheck = Some(format!(
+            "printf probe-out; printf probe-err >&2; touch {}; sleep 1; exit 1",
+            started.display()
+        ));
+        let action = RunCmdDefinition::build(config).unwrap();
+        let item = item();
+        let cancellation = CancellationToken::new();
+        let cancel = cancellation.clone();
+        let handle = thread::spawn(move || {
+            action
+                .execute(&ActionContext {
+                    workspace_id: "workspace",
+                    source_id: "issues",
+                    item: &item,
+                    cancellation,
+                })
+                .unwrap()
+        });
+        for _ in 0..100 {
+            if started.exists() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(started.exists());
+        cancel.cancel();
+
+        let run = handle.join().unwrap();
+        assert_eq!(run.outcome, ActionOutcome::Cancelled);
+        assert_eq!(run.message.as_deref(), Some("action cancelled"));
+        assert!(run.stdout.contains("launch-out"));
+        assert!(run.stdout.contains("probe-out"));
+        assert!(run.stderr.contains("launch-err"));
+        assert!(run.stderr.contains("probe-err"));
+    }
+
+    #[test]
     fn cancellation_terminates_owned_command_group() {
         let action = RunCmdDefinition::build(config("sleep 5; printf late")).unwrap();
         let item = item();
@@ -539,6 +597,75 @@ mod tests {
         assert!(started.elapsed() < Duration::from_secs(1));
         assert_eq!(run.outcome, ActionOutcome::Cancelled);
         assert!(!run.stdout.contains("late"));
+    }
+
+    #[test]
+    fn already_cancelled_action_does_not_start_command() {
+        let dir = tempdir().unwrap();
+        let marker = dir.path().join("started");
+        let action = RunCmdDefinition::build(config(format!(
+            "touch {}; printf started",
+            marker.display()
+        )))
+        .unwrap();
+        let item = item();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        let run = action
+            .execute(&ActionContext {
+                workspace_id: "workspace",
+                source_id: "issues",
+                item: &item,
+                cancellation,
+            })
+            .unwrap();
+
+        assert_eq!(run.outcome, ActionOutcome::Cancelled);
+        assert_eq!(run.message.as_deref(), Some("action cancelled"));
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn cancellation_terminates_descendants_and_drains_output() {
+        let dir = tempdir().unwrap();
+        let started = dir.path().join("started");
+        let descendant = dir.path().join("descendant-finished");
+        let action = RunCmdDefinition::build(config(format!(
+            "printf before; printf error-before >&2; touch {started}; (sleep 1; touch {descendant}) & wait",
+            started = started.display(),
+            descendant = descendant.display(),
+        )))
+        .unwrap();
+        let item = item();
+        let cancellation = CancellationToken::new();
+        let cancel = cancellation.clone();
+        let handle = thread::spawn(move || {
+            action
+                .execute(&ActionContext {
+                    workspace_id: "workspace",
+                    source_id: "issues",
+                    item: &item,
+                    cancellation,
+                })
+                .unwrap()
+        });
+        for _ in 0..100 {
+            if started.exists() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(5));
+        }
+        assert!(started.exists());
+        cancel.cancel();
+
+        let run = handle.join().unwrap();
+        assert_eq!(run.outcome, ActionOutcome::Cancelled);
+        assert_eq!(run.message.as_deref(), Some("action cancelled"));
+        assert_eq!(run.stdout, "before");
+        assert_eq!(run.stderr, "error-before");
+        thread::sleep(Duration::from_millis(100));
+        assert!(!descendant.exists());
     }
 
     #[test]
