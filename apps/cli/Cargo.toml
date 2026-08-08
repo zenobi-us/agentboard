@@ -16,6 +16,7 @@ agentboard-source-qmd = { path = "../../pkgs/crates/agentboard-source-qmd" }
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
+crossterm = "0.28"
 directories = "6"
 fs4 = "1"
 hex = "0.4"

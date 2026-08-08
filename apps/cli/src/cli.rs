@@ -9,7 +9,7 @@ use agentboard_core::{registry::Registry, CancellationToken};
 use agentboard_source_github::GithubSourceDefinition;
 use agentboard_source_jira::JiraSourceDefinition;
 use agentboard_source_qmd::QmdSourceDefinition;
-use std::{env, path::PathBuf, process::Command as ProcessCommand, sync::Arc};
+use std::{env, io::IsTerminal, path::PathBuf, process::Command as ProcessCommand, sync::Arc};
 
 use anyhow::{bail, Context, Result};
 use clap::{ArgAction, Parser, Subcommand};
@@ -19,6 +19,7 @@ use crate::{
         init_workspace, list_workspaces, load_workspace, named_workspace_path,
         validate_workspace_name,
     },
+    dashboard::{dashboard, require_dashboard_terminals},
     output::{ColorChoice, Output, Verbosity},
     runtime::{is_cancelled, parse_duration, run_once, run_watch, InvocationCancelled},
     schema::workspace_schema,
@@ -79,6 +80,8 @@ enum Command {
         #[arg(long, requires = "watch")]
         interval: Option<String>,
     },
+    /// Open a read-only Store dashboard.
+    Dashboard { workspace: Option<String> },
     /// Show one latest stored item and action attempts.
     Show {
         /// Pass ITEM_ID alone, or WORKSPACE followed by ITEM_ID.
@@ -168,14 +171,24 @@ pub fn register_builtins() -> Result<Registry> {
     Ok(registry)
 }
 
-fn start_signal_handler(cancellation: CancellationToken) -> tokio::task::JoinHandle<()> {
+fn start_signal_handler(
+    cancellation: CancellationToken,
+    force_exit_on_second_signal: bool,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         if tokio::signal::ctrl_c().await.is_err() {
             return;
         }
         cancellation.cancel();
-        if tokio::signal::ctrl_c().await.is_ok() {
+        if force_exit_on_second_signal && tokio::signal::ctrl_c().await.is_ok() {
             std::process::exit(130);
+        }
+        if !force_exit_on_second_signal {
+            loop {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    return;
+                }
+            }
         }
     })
 }
@@ -185,7 +198,8 @@ pub async fn run() -> Result<()> {
     let cancellation = CancellationToken::new();
     let registry = Arc::new(register_builtins()?);
     let cli = Cli::parse();
-    let _signal_handler = start_signal_handler(cancellation.clone());
+    let dashboard_command = matches!(&cli.command, Command::Dashboard { .. });
+    let _signal_handler = start_signal_handler(cancellation.clone(), !dashboard_command);
     let verbosity = if cli.quiet {
         Verbosity::Quiet
     } else if cli.verbose > 0 {
@@ -251,6 +265,14 @@ pub async fn run() -> Result<()> {
             } else {
                 list_items(&workspace, json)
             }
+        }
+        Command::Dashboard { workspace } => {
+            require_dashboard_terminals(
+                std::io::stdin().is_terminal(),
+                std::io::stdout().is_terminal(),
+            )?;
+            let workspace = load_workspace(workspace.as_deref(), &registry)?;
+            dashboard(&workspace, cancellation.clone())
         }
         Command::Show {
             workspace_and_item,
@@ -325,6 +347,12 @@ mod tests {
                 .unwrap()
                 .command,
             Command::Doctor { workspace: None }
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["agentboard", "dashboard"])
+                .unwrap()
+                .command,
+            Command::Dashboard { workspace: None }
         ));
         assert!(matches!(
             Cli::try_parse_from(["agentboard", "list", "--watch"])

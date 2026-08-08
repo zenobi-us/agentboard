@@ -44,6 +44,7 @@ agentboard workspace edit <name> # requires $EDITOR
 agentboard workspaces             # compatibility alias
 agentboard run <workspace> [--dry-run] [--watch] [--interval 60s]
 agentboard list <workspace> [--json]
+agentboard dashboard [workspace]
 agentboard show <workspace> <item-id> [--json]
 agentboard doctor <workspace>
 agentboard schema
@@ -64,6 +65,6 @@ See [docs/commands.md](docs/commands.md) for examples.
 ## Non-goals
 
 - No hosted service.
-- No UI.
+- No hosted UI. The read-only terminal Dashboard is local and Store-backed.
 - No tracker replacement.
 - No sandbox for actions; workspace configs are trusted local code.

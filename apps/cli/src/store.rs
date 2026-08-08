@@ -24,6 +24,7 @@ use crate::{
     config::{actions_path, items_path, source_slug, store_root},
     output::Output,
     runtime::schedule_refreshes,
+    template::{render_action, ActionTemplateContext},
 };
 
 #[derive(Clone, Debug)]
@@ -41,6 +42,25 @@ static SNAPSHOT_COUNTER: AtomicU64 = AtomicU64::new(0);
 struct StoredAction {
     slug: String,
     attempt: ActionAttempt,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SnapshotState {
+    Missing,
+    Ready,
+}
+
+#[derive(Clone, Debug)]
+pub struct SnapshotItem {
+    pub item: Item,
+    pub result: &'static str,
+}
+
+#[derive(Clone, Debug)]
+pub struct SourceSnapshot {
+    pub source_id: String,
+    pub state: SnapshotState,
+    pub items: Vec<SnapshotItem>,
 }
 
 /// Held workspace run lock. Unlocks when dropped.
@@ -117,15 +137,9 @@ fn append_items_inner(
     let snapshot_key = source_snapshot_key(source);
     let snapshot_id = next_snapshot_id();
     fs::create_dir_all(path.parent().unwrap())?;
-    let temp = path.with_extension("jsonl.tmp");
-    let snapshots_temp = snapshots.with_extension("snapshots.tmp");
     let result = (|| -> Result<()> {
         check_store_cancellation(cancellation)?;
-        let mut staged_items = File::create(&temp)?;
-        if path.exists() {
-            let mut previous = File::open(&path)?;
-            std::io::copy(&mut previous, &mut staged_items)?;
-        }
+        let mut item_store = OpenOptions::new().create(true).append(true).open(&path)?;
         for item in items {
             check_store_cancellation(cancellation)?;
             let mut value = serde_json::to_value(item)?;
@@ -140,80 +154,28 @@ fn append_items_inner(
                 SNAPSHOT_ID_FIELD.into(),
                 serde_json::Value::String(snapshot_id.clone()),
             );
-            writeln!(staged_items, "{value}")?;
+            writeln!(item_store, "{value}")?;
             hook(AppendPoint::ObservationAppended);
             check_store_cancellation(cancellation)?;
         }
-        staged_items.sync_all()?;
+        item_store.sync_all()?;
 
         check_store_cancellation(cancellation)?;
-        let mut staged_boundary = File::create(&snapshots_temp)?;
-        if snapshots.exists() {
-            let mut previous = File::open(&snapshots)?;
-            std::io::copy(&mut previous, &mut staged_boundary)?;
-        }
-        writeln!(
-            staged_boundary,
-            "{}",
+        let boundary = format!(
+            "{}\n",
             serde_json::json!({"snapshot_key": snapshot_key, "snapshot_id": snapshot_id})
-        )?;
-        staged_boundary.sync_all()?;
-        check_store_cancellation(cancellation)?;
+        );
         hook(AppendPoint::BeforeBoundaryPublication);
         check_store_cancellation(cancellation)?;
-
-        // Start publication only after the final cancellation check.
-        // Once it starts, replace the item file and boundary without a cancellable gap.
-        replace_file(&temp, &path)?;
-        replace_file(&snapshots_temp, &snapshots)
-    })();
-    let _ = fs::remove_file(&temp);
-    let _ = fs::remove_file(&snapshots_temp);
-    result
-}
-
-fn replace_file(temp: &Path, destination: &Path) -> Result<()> {
-    #[cfg(windows)]
-    {
-        use std::os::windows::ffi::OsStrExt;
-
-        #[link(name = "kernel32")]
-        extern "system" {
-            fn MoveFileExW(
-                existing_file_name: *const u16,
-                new_file_name: *const u16,
-                flags: u32,
-            ) -> i32;
-        }
-
-        let temp: Vec<u16> = temp
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        let destination: Vec<u16> = destination
-            .as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect();
-        if unsafe {
-            MoveFileExW(
-                temp.as_ptr(),
-                destination.as_ptr(),
-                0x0000_0001 | 0x0000_0008,
-            )
-        } == 0
-        {
-            return Err(std::io::Error::last_os_error().into());
-        }
-        return Ok(());
-    }
-
-    #[cfg(not(windows))]
-    {
-        fs::rename(temp, destination)?;
+        let mut boundaries = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&snapshots)?;
+        boundaries.write_all(boundary.as_bytes())?;
+        boundaries.sync_all()?;
         Ok(())
-    }
+    })();
+    result
 }
 
 fn check_store_cancellation(cancellation: &CancellationToken) -> Result<()> {
@@ -270,55 +232,90 @@ pub fn latest_items(ws: &Workspace) -> Result<HashMap<String, Item>> {
 
 fn latest_item_records(ws: &Workspace) -> Result<HashMap<String, StoredItem>> {
     let mut map = HashMap::new();
+    for snapshot in load_source_snapshot_records(ws)? {
+        let slug = source_slug(&snapshot.source);
+        for stored in snapshot.records {
+            map.insert(item_key(&slug, &stored.item.id), stored);
+        }
+    }
+    Ok(map)
+}
+
+struct SourceSnapshotRecords {
+    source: WorkspaceSource,
+    state: SnapshotState,
+    records: Vec<StoredItem>,
+}
+
+fn load_source_snapshot_records(ws: &Workspace) -> Result<Vec<SourceSnapshotRecords>> {
     let mut records_by_path = HashMap::<PathBuf, Vec<StoredItem>>::new();
     let mut boundaries_by_path = HashMap::<PathBuf, HashMap<String, String>>::new();
+    let mut loaded = Vec::with_capacity(ws.sources.len());
 
     for source in &ws.sources {
         let path = items_path(ws, source);
+        let snapshots = snapshot_path(&path);
         if !path.exists() {
+            if snapshots.exists() {
+                bail!(
+                    "committed Snapshot boundary exists without Item Store {}",
+                    path.display()
+                );
+            }
+            loaded.push(SourceSnapshotRecords {
+                source: source.clone(),
+                state: SnapshotState::Missing,
+                records: vec![],
+            });
             continue;
         }
-        if !records_by_path.contains_key(&path) {
+        if !boundaries_by_path.contains_key(&path) {
             // Read the boundary first. Publication replaces Items before the boundary, so this
             // order prevents a reader from pairing old Items with a new Snapshot ID.
             boundaries_by_path.insert(path.clone(), load_snapshot_boundaries(&path)?);
             records_by_path.insert(path.clone(), load_item_records(ws, &path)?);
         }
 
-        let slug = source_slug(source);
         let snapshot_key = source_snapshot_key(source);
-        let Some(snapshot_id) = boundaries_by_path
+        let snapshot_id = boundaries_by_path
             .get(&path)
-            .and_then(|boundaries| boundaries.get(&snapshot_key))
-        else {
-            continue;
-        };
-        for stored in records_by_path.get(&path).into_iter().flatten() {
-            if stored.snapshot_key.as_deref() == Some(snapshot_key.as_str())
-                && stored.snapshot_id.as_deref() == Some(snapshot_id.as_str())
-            {
-                map.insert(
-                    item_key(&slug, &stored.item.id),
-                    StoredItem {
+            .and_then(|boundaries| boundaries.get(&snapshot_key));
+        let records = snapshot_id
+            .map(|snapshot_id| {
+                let slug = source_slug(source);
+                records_by_path
+                    .get(&path)
+                    .into_iter()
+                    .flatten()
+                    .filter(|stored| {
+                        stored.snapshot_key.as_deref() == Some(snapshot_key.as_str())
+                            && stored.snapshot_id.as_deref() == Some(snapshot_id.as_str())
+                    })
+                    .map(|stored| StoredItem {
                         slug: slug.clone(),
                         item: stored.item.clone(),
                         snapshot_key: stored.snapshot_key.clone(),
                         snapshot_id: stored.snapshot_id.clone(),
-                    },
-                );
-            }
-        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        loaded.push(SourceSnapshotRecords {
+            source: source.clone(),
+            state: if snapshot_id.is_some() {
+                SnapshotState::Ready
+            } else {
+                SnapshotState::Missing
+            },
+            records,
+        });
     }
-    Ok(map)
+    Ok(loaded)
 }
 
 fn load_item_records(ws: &Workspace, path: &Path) -> Result<Vec<StoredItem>> {
-    let file = File::open(path).with_context(|| format!("open item Store {}", path.display()))?;
     let mut records = Vec::new();
-    for (index, line) in BufReader::new(file).lines().enumerate() {
-        let line_number = index + 1;
-        let line =
-            line.with_context(|| format!("read item Store {} line {line_number}", path.display()))?;
+    for (line_number, line) in complete_jsonl_lines(path)? {
         let value: Value = serde_json::from_str(&line)
             .with_context(|| format!("parse item Store {} line {line_number}", path.display()))?;
         let Some(record) = value.as_object() else {
@@ -360,16 +357,9 @@ fn load_snapshot_boundaries(path: &Path) -> Result<HashMap<String, String>> {
     if !snapshots.exists() {
         return Ok(HashMap::new());
     }
-    let file = File::open(&snapshots).with_context(|| {
-        format!(
-            "open item Store snapshot boundaries {}",
-            snapshots.display()
-        )
-    })?;
     let mut latest = HashMap::new();
-    for (index, line) in BufReader::new(file).lines().enumerate() {
-        let line_number = index + 1;
-        let value: Value = serde_json::from_str(&line?).with_context(|| {
+    for (line_number, line) in complete_jsonl_lines(&snapshots)? {
+        let value: Value = serde_json::from_str(&line).with_context(|| {
             format!(
                 "parse item Store snapshot boundary {} line {line_number}",
                 snapshots.display()
@@ -405,14 +395,35 @@ fn all_stored_actions(ws: &Workspace) -> Result<Vec<StoredAction>> {
             continue;
         }
         let slug = source_slug(source);
-        for line in BufReader::new(File::open(path)?).lines() {
+        for (_, line) in complete_jsonl_lines(&path)? {
             out.push(StoredAction {
                 slug: slug.clone(),
-                attempt: serde_json::from_str(&line?)?,
+                attempt: serde_json::from_str(&line)
+                    .with_context(|| format!("parse action Store {}", path.display()))?,
             });
         }
     }
     Ok(out)
+}
+
+fn complete_jsonl_lines(path: &Path) -> Result<Vec<(usize, String)>> {
+    let file = File::open(path).with_context(|| format!("open Store {}", path.display()))?;
+    let mut reader = BufReader::new(file);
+    let mut lines = Vec::new();
+    let mut bytes = Vec::new();
+    let mut line_number = 0;
+    loop {
+        bytes.clear();
+        let read = reader.read_until(b'\n', &mut bytes)?;
+        if read == 0 {
+            break;
+        }
+        line_number += 1;
+        if bytes.ends_with(b"\n") {
+            lines.push((line_number, String::from_utf8_lossy(&bytes).into_owned()));
+        }
+    }
+    Ok(lines)
 }
 
 /// Return identity keys for successful actions, used to skip already-completed work.
@@ -422,8 +433,8 @@ pub fn successful_actions(ws: &Workspace, source: &WorkspaceSource) -> Result<Ha
         return Ok(HashSet::new());
     }
     let mut latest = HashMap::new();
-    for line in BufReader::new(File::open(path)?).lines() {
-        let a: ActionAttempt = serde_json::from_str(&line?)?;
+    for (_, line) in complete_jsonl_lines(&path)? {
+        let a: ActionAttempt = serde_json::from_str(&line)?;
         latest.insert(
             action_key(
                 &a.source_id,
@@ -446,33 +457,134 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
     Ok(())
 }
 
-fn render_list_items(ws: &Workspace, as_json: bool) -> Result<String> {
-    let mut items: Vec<_> = latest_item_records(ws)?.into_values().collect();
-    items.sort_by(|a, b| a.item.id.cmp(&b.item.id));
+pub fn source_snapshots(ws: &Workspace) -> Result<Vec<SourceSnapshot>> {
     let actions = all_stored_actions(ws)?;
-    if as_json {
-        let rows: Vec<_> = items
-            .into_iter()
-            .map(|item| json!({ "action_state": action_state(&actions, &item), "source_slug": item.slug, "item": item.item }))
-            .collect();
-        Ok(format!("{}\n", serde_json::to_string_pretty(&rows)?))
-    } else {
-        Ok(items
-            .into_iter()
-            .map(|item| {
-                format!(
-                    "{}\t{}\t{}\t{}\n",
-                    item.item.id,
-                    item.item.status,
-                    action_state(&actions, &item),
-                    item.item.title
-                )
+    load_source_snapshot_records(ws)?
+        .into_iter()
+        .map(|snapshot| {
+            let mut records = snapshot.records;
+            records.sort_by(|a, b| {
+                a.item
+                    .reference_id
+                    .cmp(&b.item.reference_id)
+                    .then_with(|| a.item.id.cmp(&b.item.id))
+            });
+            let items = records
+                .into_iter()
+                .map(|stored| SnapshotItem {
+                    result: action_plan_result(ws, &snapshot.source, &stored.item, &actions),
+                    item: stored.item,
+                })
+                .collect();
+            Ok(SourceSnapshot {
+                source_id: snapshot.source.configured.id.clone(),
+                state: snapshot.state,
+                items,
             })
-            .collect())
+        })
+        .collect()
+}
+
+fn render_list_items(ws: &Workspace, as_json: bool) -> Result<String> {
+    let snapshots = source_snapshots(ws)?;
+    if as_json {
+        let sources: Vec<_> = snapshots
+            .into_iter()
+            .map(|snapshot| {
+                json!({
+                    "source_id": snapshot.source_id,
+                    "snapshot": match snapshot.state {
+                        SnapshotState::Missing => "missing",
+                        SnapshotState::Ready => "ready",
+                    },
+                    "items": snapshot.items.into_iter().map(|item| {
+                        json!({"item": item.item, "result": item.result})
+                    }).collect::<Vec<_>>()
+                })
+            })
+            .collect();
+        Ok(format!("{}\n", serde_json::to_string_pretty(&sources)?))
+    } else {
+        let mut output = String::new();
+        for snapshot in snapshots {
+            output.push_str(&format!("Source: {}\n", snapshot.source_id));
+            match snapshot.state {
+                SnapshotState::Missing => {
+                    output.push_str("Snapshot: missing (run successfully to populate it)\n\n");
+                }
+                SnapshotState::Ready if snapshot.items.is_empty() => {
+                    output.push_str("Snapshot: ready (0 items)\n\n");
+                }
+                SnapshotState::Ready => {
+                    output.push_str("Reference ID\tTitle\tStatus\tAction Plan Result\n");
+                    for item in snapshot.items {
+                        output.push_str(&format!(
+                            "{}\t{}\t{}\t{}\n",
+                            item.item.reference_id, item.item.title, item.item.status, item.result
+                        ));
+                    }
+                    output.push('\n');
+                }
+            }
+        }
+        Ok(output)
+    }
+}
+
+fn action_plan_result(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    item: &Item,
+    attempts: &[StoredAction],
+) -> &'static str {
+    if source.configured.actions.is_empty() {
+        return "success";
+    }
+
+    let mut latest = HashMap::<(String, String, usize, String), ActionOutcome>::new();
+    for action in attempts {
+        latest.insert(
+            (
+                action.attempt.source_id.clone(),
+                action.attempt.item_id.clone(),
+                action.attempt.source_action_index,
+                action.attempt.rendered_action_hash.clone(),
+            ),
+            action.attempt.outcome,
+        );
+    }
+
+    let mut named_actions = ActionTemplateContext::new();
+    let mut pending = false;
+    for (index, action) in source.configured.actions.iter().enumerate() {
+        let rendered = match render_action(ws, source, item, index, action, &named_actions) {
+            Ok(rendered) => rendered,
+            Err(_) => return "error",
+        };
+        if let Some(id) = &action.id {
+            named_actions.insert(id.clone(), rendered.inputs.clone());
+        }
+        let key = (
+            source.configured.id.clone(),
+            item.id.clone(),
+            index,
+            rendered.hash,
+        );
+        match latest.get(&key) {
+            Some(ActionOutcome::Success) => {}
+            Some(ActionOutcome::Failure) => return "error",
+            Some(ActionOutcome::Cancelled) | None => pending = true,
+        }
+    }
+    if pending {
+        "pending"
+    } else {
+        "success"
     }
 }
 
 // Derive display state from action attempts for one item.
+#[cfg(test)]
 fn action_state(actions: &[StoredAction], item: &StoredItem) -> &'static str {
     let mut latest = HashMap::new();
     for action in actions.iter().filter(|a| action_matches_item(a, item)) {
@@ -903,6 +1015,7 @@ mod tests {
     use super::*;
     use crate::config::parse_workspace;
     use serde_json::json;
+    use std::collections::BTreeMap;
 
     static TEST_WORKSPACE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -1301,6 +1414,107 @@ mod tests {
             .contains("ambiguous"));
     }
 
+    #[test]
+    fn list_json_groups_sources_and_distinguishes_missing_and_ready_empty() {
+        let ws = workspace(&[
+            ("issues", "https://team-a.atlassian.net", "project = AB"),
+            (
+                "mine",
+                "https://team-a.atlassian.net",
+                "assignee = currentUser()",
+            ),
+        ]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[]).unwrap();
+
+        let output: Value = serde_json::from_str(&render_list_items(&ws, true).unwrap()).unwrap();
+        assert_eq!(output[0]["source_id"], "issues");
+        assert_eq!(output[0]["snapshot"], "ready");
+        assert_eq!(output[0]["items"].as_array().unwrap().len(), 0);
+        assert_eq!(output[1]["source_id"], "mine");
+        assert_eq!(output[1]["snapshot"], "missing");
+    }
+
+    #[test]
+    fn action_plan_result_uses_current_identity_and_latest_attempt() {
+        let ws = workspace_with_action("echo {{ item.title }}");
+        let _cleanup = StoreCleanup::new(&ws);
+        let current = item("old", "PROJ-1");
+        append_items(&ws, &ws.sources[0], std::slice::from_ref(&current)).unwrap();
+
+        let rendered = render_action(
+            &ws,
+            &ws.sources[0],
+            &current,
+            0,
+            &ws.sources[0].configured.actions[0],
+            &BTreeMap::new(),
+        )
+        .unwrap();
+        let mut failed = attempt("a", "PROJ-1", false);
+        failed.rendered_action_hash = rendered.hash.clone();
+        append_action(&ws, &ws.sources[0], &failed).unwrap();
+        assert_eq!(source_snapshots(&ws).unwrap()[0].items[0].result, "error");
+
+        let mut success = failed.clone();
+        success.outcome = ActionOutcome::Success;
+        append_action(&ws, &ws.sources[0], &success).unwrap();
+        assert_eq!(source_snapshots(&ws).unwrap()[0].items[0].result, "success");
+
+        let changed = item("new", "PROJ-1");
+        append_items(&ws, &ws.sources[0], &[changed]).unwrap();
+        assert_eq!(source_snapshots(&ws).unwrap()[0].items[0].result, "pending");
+    }
+
+    #[test]
+    fn source_snapshots_keep_shared_bucket_membership_and_values_separate() {
+        let ws = workspace(&[
+            ("open", "https://team-a.atlassian.net", "project = AB"),
+            (
+                "mine",
+                "https://team-a.atlassian.net/",
+                "assignee = currentUser()",
+            ),
+        ]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[item("open value", "PROJ-1")]).unwrap();
+        append_items(&ws, &ws.sources[1], &[item("mine value", "PROJ-1")]).unwrap();
+
+        let snapshots = source_snapshots(&ws).unwrap();
+        assert_eq!(snapshots[0].items[0].item.title, "open value");
+        assert_eq!(snapshots[1].items[0].item.title, "mine value");
+    }
+
+    #[test]
+    fn incomplete_item_append_does_not_replace_committed_snapshot() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        append_items(&ws, &ws.sources[0], &[item("old", "PROJ-1")]).unwrap();
+        let path = items_path(&ws, &ws.sources[0]);
+        let mut file = OpenOptions::new().append(true).open(path).unwrap();
+        write!(file, "{{\"id\":\"partial\"").unwrap();
+
+        let snapshots = source_snapshots(&ws).unwrap();
+        assert_eq!(snapshots[0].items.len(), 1);
+        assert_eq!(snapshots[0].items[0].item.title, "old");
+    }
+
+    #[test]
+    fn committed_boundary_without_items_is_a_store_error() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+        let path = items_path(&ws, &ws.sources[0]);
+        let snapshots = snapshot_path(&path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            snapshots,
+            "{\"snapshot_key\":\"key\",\"snapshot_id\":\"id\"}\n",
+        )
+        .unwrap();
+
+        assert!(source_snapshots(&ws).is_err());
+    }
+
     fn is_store_cancelled(error: &anyhow::Error) -> bool {
         error
             .downcast_ref::<crate::runtime::InvocationCancelled>()
@@ -1340,6 +1554,37 @@ jql = {jql:?}
             .collect::<String>();
         let registry = crate::cli::register_builtins().unwrap();
         let parsed = parse_workspace(&text, &registry).unwrap();
+        Workspace {
+            id: format!(
+                "test-{}-{}",
+                std::process::id(),
+                TEST_WORKSPACE_COUNTER.fetch_add(1, Ordering::Relaxed)
+            ),
+            path: "work.toml".into(),
+            sources: parsed.sources,
+        }
+    }
+
+    fn workspace_with_action(command: &str) -> Workspace {
+        let registry = crate::cli::register_builtins().unwrap();
+        let parsed = parse_workspace(
+            &format!(
+                r#"
+[[sources]]
+id = "a"
+[sources.source]
+kind = "jira"
+site = "https://team-a.atlassian.net"
+jql = "project = AB"
+[[sources.actions]]
+uses = "agentboard/run-cmd"
+[sources.actions.with]
+cmd = {command:?}
+"#
+            ),
+            &registry,
+        )
+        .unwrap();
         Workspace {
             id: format!(
                 "test-{}-{}",

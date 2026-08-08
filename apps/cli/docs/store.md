@@ -4,7 +4,8 @@ title: Store
 
 # Store
 
-The Store is AgentBoard's local append-only record of item observations and Action attempts.
+The Store is AgentBoard's local append-only record of Item observations, Source
+Snapshot boundaries, and Action attempts.
 
 It is not the source of truth. The tracker or markdown collection remains the source of truth.
 
@@ -17,11 +18,20 @@ ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   run.lock
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
+  items-<source.slug>.snapshots
 ```
 
 `source.slug` identifies the upstream item universe. For Jira, it is derived from the normalized site URL because Jira issue keys are only unique inside one Jira organization. Two Jira Sources for the same site and different JQL views share an item file.
 
-`source.hash` identifies the configured Source view and Action plan. Changing JQL, mappings, or Actions creates a different action file without duplicating the broad item Store.
+`source.hash` identifies the configured Source view and Action plan. Changing JQL or field mappings creates a new Source Snapshot identity. Changing Actions creates a different Action file without duplicating the Item Store.
+
+Each `items-<source.slug>.snapshots` record commits one complete Source Snapshot.
+The identity includes the configured Source ID, Source kind, and normalized Source
+config. It excludes Actions. A failed or incomplete Run does not replace the
+latest committed Snapshot. A committed empty Snapshot is valid.
+
+Sources that share an Item Store keep separate Snapshot membership and their
+source-specific normalized Item values.
 
 Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 
@@ -45,7 +55,14 @@ Each Item contains both identities:
 
 A new Run appends new observations. It does not rewrite older lines.
 
-`list` derives the latest item by item id inside each item universe. JSON output includes `source_slug` for disambiguation. `show` returns one latest matching item, and accepts `source.slug:item-id` when the same item id exists in multiple item universes.
+`list` reads the latest committed Source Snapshot for each configured Source.
+It groups output in Workspace order and does not infer current membership from
+legacy Item records. JSON output contains one object per Source and keeps
+missing and ready-empty Snapshots distinct.
+
+`show` keeps its output and item-reference rules. It now uses committed Source
+Snapshot membership, so legacy Item observations without Snapshot boundaries are
+not eligible for `show`.
 
 ## `actions-<source.slug>-<source.hash>.jsonl`
 
@@ -66,13 +83,18 @@ Action attempts include:
 
 Successful attempts are used to skip completed work on later Runs.
 
-## Derived action state
+## Action Plan Result
 
-`list` shows a derived state for each item:
+`list` and `dashboard` derive one result from the current rendered Action
+identities for each Item:
 
-- `pending` — no Action attempt exists, or the latest attempt was cancelled.
-- `succeeded` — the latest attempt for every Action succeeded.
-- `failed` — the latest attempt for an Action failed.
+- `success` — every current Action identity succeeded, or no Actions exist.
+- `error` — an Action cannot render, or its latest attempt failed.
+- `pending` — every other state, including cancelled attempts and changed
+  rendered inputs.
+
+A later successful attempt replaces an older failure for the same current
+Action identity.
 
 Cancelled attempts remain eligible for retry on the next Run.
 

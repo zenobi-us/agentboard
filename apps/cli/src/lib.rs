@@ -5,6 +5,7 @@
 
 pub mod cli;
 pub mod config;
+pub mod dashboard;
 pub mod output;
 pub mod runtime;
 pub mod schema;
