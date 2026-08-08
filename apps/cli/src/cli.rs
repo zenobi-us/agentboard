@@ -22,7 +22,10 @@ use crate::{
     output::{ColorChoice, Output, Verbosity},
     runtime::{is_cancelled, parse_duration, run_once, run_watch, InvocationCancelled},
     schema::workspace_schema,
-    store::{doctor, list_items, show_item},
+    store::{
+        doctor, list_items, list_items_watch, require_watch_stdout, show_item, show_item_watch,
+        watch_stdout_is_terminal,
+    },
 };
 
 #[derive(Debug, Parser)]
@@ -69,16 +72,24 @@ enum Command {
     /// List latest stored items.
     List {
         workspace: Option<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "watch")]
         json: bool,
+        #[arg(long)]
+        watch: bool,
+        #[arg(long, requires = "watch")]
+        interval: Option<String>,
     },
     /// Show one latest stored item and action attempts.
     Show {
         /// Pass ITEM_ID alone, or WORKSPACE followed by ITEM_ID.
         #[arg(value_name = "ITEM_OR_WORKSPACE", num_args = 1..=2, required = true)]
         workspace_and_item: Vec<String>,
-        #[arg(long)]
+        #[arg(long, conflicts_with = "watch")]
         json: bool,
+        #[arg(long)]
+        watch: bool,
+        #[arg(long, requires = "watch")]
+        interval: Option<String>,
     },
     /// Validate workspace and local environment.
     Doctor { workspace: Option<String> },
@@ -225,19 +236,38 @@ pub async fn run() -> Result<()> {
                 .await
             }
         }
-        Command::List { workspace, json } => {
-            list_items(&load_workspace(workspace.as_deref(), &registry)?, json)
+        Command::List {
+            workspace,
+            json,
+            watch,
+            interval,
+        } => {
+            let workspace = load_workspace(workspace.as_deref(), &registry)?;
+            if watch {
+                require_watch_stdout(watch_stdout_is_terminal())?;
+                let interval = parse_duration(interval.as_deref().unwrap_or("60s"))?;
+                let output = create_output()?;
+                list_items_watch(workspace, interval, &output, cancellation.clone()).await
+            } else {
+                list_items(&workspace, json)
+            }
         }
         Command::Show {
             workspace_and_item,
             json,
+            watch,
+            interval,
         } => {
-            let (workspace, item_id) = split_show_args(workspace_and_item);
-            show_item(
-                &load_workspace(workspace.as_deref(), &registry)?,
-                &item_id,
-                json,
-            )
+            let (workspace_name, item_id) = split_show_args(workspace_and_item);
+            let workspace = load_workspace(workspace_name.as_deref(), &registry)?;
+            if watch {
+                require_watch_stdout(watch_stdout_is_terminal())?;
+                let interval = parse_duration(interval.as_deref().unwrap_or("60s"))?;
+                let output = create_output()?;
+                show_item_watch(workspace, item_id, interval, &output, cancellation.clone()).await
+            } else {
+                show_item(&workspace, &item_id, json)
+            }
         }
         Command::Doctor { workspace } => {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
@@ -286,11 +316,26 @@ mod tests {
             }
         ));
         assert!(Cli::try_parse_from(["agentboard", "run", "--interval", "5s"]).is_err());
+        assert!(Cli::try_parse_from(["agentboard", "list", "--interval", "5s"]).is_err());
+        assert!(Cli::try_parse_from(["agentboard", "show", "AB-1", "--interval", "5s"]).is_err());
+        assert!(Cli::try_parse_from(["agentboard", "list", "--watch", "--json"]).is_err());
+        assert!(Cli::try_parse_from(["agentboard", "show", "AB-1", "--watch", "--json"]).is_err());
         assert!(matches!(
             Cli::try_parse_from(["agentboard", "doctor"])
                 .unwrap()
                 .command,
             Command::Doctor { workspace: None }
+        ));
+        assert!(matches!(
+            Cli::try_parse_from(["agentboard", "list", "--watch"])
+                .unwrap()
+                .command,
+            Command::List {
+                workspace: None,
+                json: false,
+                watch: true,
+                interval: None,
+            }
         ));
     }
 
@@ -301,6 +346,8 @@ mod tests {
         let Command::Show {
             workspace_and_item,
             json: false,
+            watch: false,
+            interval: None,
         } = Cli::try_parse_from(["agentboard", "show", "AB-001"])
             .unwrap()
             .command
@@ -312,6 +359,8 @@ mod tests {
         let Command::Show {
             workspace_and_item,
             json: false,
+            watch: false,
+            interval: None,
         } = Cli::try_parse_from(["agentboard", "show", "work", "AB-001"])
             .unwrap()
             .command

@@ -112,7 +112,57 @@ async fn schedule_cycles<F, Fut>(
     delay: Duration,
     output: &Output,
     cancellation: CancellationToken,
-    mut cycle: F,
+    cycle: F,
+) -> Result<()>
+where
+    F: FnMut(u64) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    schedule_watch(
+        command,
+        workspace,
+        "cycle",
+        delay,
+        output,
+        cancellation,
+        cycle,
+    )
+    .await
+}
+
+/// Repeatedly refresh a read-only view until Ctrl-C.
+pub async fn schedule_refreshes<F, Fut>(
+    command: &str,
+    workspace: &str,
+    delay: Duration,
+    output: &Output,
+    cancellation: CancellationToken,
+    refresh: F,
+) -> Result<()>
+where
+    F: FnMut(u64) -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    schedule_watch(
+        command,
+        workspace,
+        "refresh",
+        delay,
+        output,
+        cancellation,
+        refresh,
+    )
+    .await
+}
+
+async fn schedule_watch<F, Fut>(
+    command: &str,
+    workspace: &str,
+    unit: &str,
+    delay: Duration,
+    output: &Output,
+    cancellation: CancellationToken,
+    mut operation: F,
 ) -> Result<()>
 where
     F: FnMut(u64) -> Fut,
@@ -122,33 +172,47 @@ where
     loop {
         stop_if_cancelled(&cancellation)?;
         output.info(
-            &format!("{command}.watch.cycle.start"),
-            &format!("{command} {workspace} cycle {cycle_number} starting"),
-            json!({"workspace": workspace, "cycle": cycle_number}),
+            &format!("{command}.watch.{unit}.start"),
+            &format!("{command} {workspace} {unit} {cycle_number} starting"),
+            watch_metadata(workspace, unit, cycle_number, None, None),
         )?;
-        match cycle(cycle_number).await {
+        match operation(cycle_number).await {
             Ok(()) => output.success(
-                &format!("{command}.watch.cycle.complete"),
-                &format!("{command} {workspace} cycle {cycle_number} complete"),
-                json!({"workspace": workspace, "cycle": cycle_number, "outcome": "pass"}),
+                &format!("{command}.watch.{unit}.complete"),
+                &format!("{command} {workspace} {unit} {cycle_number} complete"),
+                watch_metadata(workspace, unit, cycle_number, Some("pass"), None),
             )?,
             Err(error) if is_cancelled(&error) => {
                 output.info(
-                    &format!("{command}.watch.cycle.cancelled"),
-                    &format!("{command} {workspace} cycle {cycle_number} cancelled"),
-                    json!({"workspace": workspace, "cycle": cycle_number, "outcome": "cancelled"}),
+                    &format!("{command}.watch.{unit}.cancelled"),
+                    &format!("{command} {workspace} {unit} {cycle_number} cancelled"),
+                    watch_metadata(workspace, unit, cycle_number, Some("cancelled"), None),
                 )?;
                 return Err(error);
             }
             Err(error) => output.error(
-                &format!("{command}.watch.cycle.failed"),
-                &format!("{command} {workspace} cycle {cycle_number} failed: {error:#}"),
-                json!({"workspace": workspace, "cycle": cycle_number, "outcome": "fail", "error": format!("{error:#}")}),
+                &format!("{command}.watch.{unit}.failed"),
+                &format!("{command} {workspace} {unit} {cycle_number} failed: {error:#}"),
+                watch_metadata(
+                    workspace,
+                    unit,
+                    cycle_number,
+                    Some("fail"),
+                    Some(format!("{error:#}")),
+                ),
             )?,
         }
-        match wait_for_next_cycle(command, workspace, cycle_number, delay, output, async {
-            cancellation.cancelled().await;
-        })
+        match wait_for_watch(
+            command,
+            workspace,
+            unit,
+            cycle_number,
+            delay,
+            output,
+            async {
+                cancellation.cancelled().await;
+            },
+        )
         .await?
         {
             WaitOutcome::Elapsed => cycle_number += 1,
@@ -156,7 +220,7 @@ where
                 output.success(
                     &format!("{command}.watch.stop"),
                     &format!("{command} {workspace} stopped by cancellation"),
-                    json!({"workspace": workspace, "cycle": cycle_number, "outcome": "cancelled"}),
+                    watch_metadata(workspace, unit, cycle_number, Some("cancelled"), None),
                 )?;
                 return Err(cancelled());
             }
@@ -164,6 +228,26 @@ where
     }
 }
 
+fn watch_metadata(
+    workspace: &str,
+    unit: &str,
+    number: u64,
+    outcome: Option<&str>,
+    error: Option<String>,
+) -> serde_json::Value {
+    let mut metadata = serde_json::Map::new();
+    metadata.insert("workspace".into(), json!(workspace));
+    metadata.insert(unit.into(), json!(number));
+    if let Some(outcome) = outcome {
+        metadata.insert("outcome".into(), json!(outcome));
+    }
+    if let Some(error) = error {
+        metadata.insert("error".into(), json!(error));
+    }
+    serde_json::Value::Object(metadata)
+}
+
+#[cfg(test)]
 async fn wait_for_next_cycle<F>(
     command: &str,
     workspace: &str,
@@ -175,12 +259,30 @@ async fn wait_for_next_cycle<F>(
 where
     F: Future<Output = ()>,
 {
+    wait_for_watch(command, workspace, "cycle", cycle, delay, output, stop).await
+}
+
+async fn wait_for_watch<F>(
+    command: &str,
+    workspace: &str,
+    unit: &str,
+    cycle: u64,
+    delay: Duration,
+    output: &Output,
+    stop: F,
+) -> Result<WaitOutcome>
+where
+    F: Future<Output = ()>,
+{
     let started = tokio::time::Instant::now();
     let deadline = started + delay;
+    let label = if unit == "cycle" { "Run" } else { "refresh" };
+    let mut metadata = watch_metadata(workspace, unit, cycle, None, None);
+    metadata["delay_seconds"] = json!(delay.as_secs());
     output.transient_info(
         &format!("{command}.watch.wait"),
-        &format!("{command} {workspace} next Run in {}s", delay.as_secs()),
-        json!({"workspace": workspace, "cycle": cycle, "delay_seconds": delay.as_secs()}),
+        &format!("{command} {workspace} next {label} in {}s", delay.as_secs()),
+        metadata,
     )?;
 
     tokio::pin!(stop);
@@ -1659,6 +1761,57 @@ mod tests {
         assert!(events.contains("\"stage\":\"run.watch.cycle.failed\""));
         assert!(events.contains("\"stage\":\"run.watch.cycle.complete\""));
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn refresh_scheduler_uses_command_specific_events_and_retries() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = Output::with_terminal_file_writer(
+            Verbosity::Quiet,
+            ColorChoice::Never,
+            false,
+            &dir.path().join("human.txt"),
+            Some(&dir.path().join("events.jsonl")),
+        )
+        .unwrap();
+        let cancellation = CancellationToken::new();
+        let calls = Arc::new(AtomicUsize::new(0));
+        let task_calls = Arc::clone(&calls);
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            schedule_refreshes(
+                "list",
+                "work",
+                Duration::from_secs(1),
+                &output,
+                cancellation,
+                move |_| {
+                    let call = task_calls.fetch_add(1, Ordering::SeqCst) + 1;
+                    let cancellation = task_cancellation.clone();
+                    async move {
+                        if call == 1 {
+                            Err(anyhow::anyhow!("refresh failed"))
+                        } else {
+                            cancellation.cancel();
+                            Ok(())
+                        }
+                    }
+                },
+            )
+            .await
+        });
+
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        tokio::time::advance(Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert!(is_cancelled(&task.await.unwrap().unwrap_err()));
+
+        let events = fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(events.contains(r#""stage":"list.watch.refresh.failed""#));
+        assert!(events.contains(r#""stage":"list.watch.refresh.complete""#));
+        assert!(events.contains(r#""refresh":1"#));
     }
 
     #[test]

@@ -4,9 +4,10 @@ use std::{
     collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions},
     hash::{Hash, Hasher},
-    io::{BufRead, BufReader, Write},
+    io::{self, BufRead, BufReader, IsTerminal, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
+    time::Duration,
 };
 
 use agentboard_core::{
@@ -15,12 +16,14 @@ use agentboard_core::{
     CancellationToken,
 };
 use anyhow::{anyhow, bail, Context, Result};
+use chrono::Utc;
 use fs4::{FileExt, TryLockError};
 use serde_json::{json, Value};
 
 use crate::{
     config::{actions_path, items_path, source_slug, store_root},
     output::Output,
+    runtime::schedule_refreshes,
 };
 
 #[derive(Clone, Debug)]
@@ -441,6 +444,11 @@ pub fn successful_actions(ws: &Workspace, source: &WorkspaceSource) -> Result<Ha
 
 /// Print latest stored items with derived action state.
 pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
+    print!("{}", render_list_items(ws, as_json)?);
+    Ok(())
+}
+
+fn render_list_items(ws: &Workspace, as_json: bool) -> Result<String> {
     let mut items: Vec<_> = latest_item_records(ws)?.into_values().collect();
     items.sort_by(|a, b| a.item.id.cmp(&b.item.id));
     let actions = all_stored_actions(ws)?;
@@ -449,19 +457,21 @@ pub fn list_items(ws: &Workspace, as_json: bool) -> Result<()> {
             .into_iter()
             .map(|item| json!({ "action_state": action_state(&actions, &item), "source_slug": item.slug, "item": item.item }))
             .collect();
-        println!("{}", serde_json::to_string_pretty(&rows)?);
+        Ok(format!("{}\n", serde_json::to_string_pretty(&rows)?))
     } else {
-        for item in items {
-            println!(
-                "{}\t{}\t{}\t{}",
-                item.item.id,
-                item.item.status,
-                action_state(&actions, &item),
-                item.item.title
-            );
-        }
+        Ok(items
+            .into_iter()
+            .map(|item| {
+                format!(
+                    "{}\t{}\t{}\t{}\n",
+                    item.item.id,
+                    item.item.status,
+                    action_state(&actions, &item),
+                    item.item.title
+                )
+            })
+            .collect())
     }
-    Ok(())
 }
 
 // Derive display state from action attempts for one item.
@@ -489,6 +499,11 @@ fn action_state(actions: &[StoredAction], item: &StoredItem) -> &'static str {
 
 /// Print one latest stored item and its action attempts.
 pub fn show_item(ws: &Workspace, item_ref: &str, as_json: bool) -> Result<()> {
+    print!("{}", render_show_item(ws, item_ref, as_json)?);
+    Ok(())
+}
+
+fn render_show_item(ws: &Workspace, item_ref: &str, as_json: bool) -> Result<String> {
     let item = resolve_item(ws, item_ref)?;
     let actions: Vec<_> = all_stored_actions(ws)?
         .into_iter()
@@ -496,25 +511,142 @@ pub fn show_item(ws: &Workspace, item_ref: &str, as_json: bool) -> Result<()> {
         .map(|stored| stored.attempt)
         .collect();
     if as_json {
-        println!(
-            "{}",
+        Ok(format!(
+            "{}\n",
             serde_json::to_string_pretty(
                 &json!({"source_slug": item.slug, "item": item.item, "actions": actions})
             )?
-        );
+        ))
     } else {
-        println!(
-            "{}\n{}\n{}\n{}",
+        let mut rendered = format!(
+            "{}\n{}\n{}\n{}\n",
             item.item.id, item.item.title, item.item.status, item.item.url
         );
         for a in actions {
-            println!(
-                "action#{} {} outcome={}",
+            rendered.push_str(&format!(
+                "action#{} {} outcome={}\n",
                 a.source_action_index, a.uses, a.outcome
-            );
+            ));
+        }
+        Ok(rendered)
+    }
+}
+
+pub fn watch_stdout_is_terminal() -> bool {
+    io::stdout().is_terminal()
+}
+
+pub fn require_watch_stdout(terminal: bool) -> Result<()> {
+    if terminal {
+        Ok(())
+    } else {
+        bail!("Watch Mode requires terminal stdout; do not redirect stdout");
+    }
+}
+
+struct WatchView<W> {
+    command: &'static str,
+    interval: Duration,
+    displayed: bool,
+    writer: W,
+}
+
+impl<W: Write> WatchView<W> {
+    fn new(command: &'static str, interval: Duration, writer: W) -> Self {
+        Self {
+            command,
+            interval,
+            displayed: false,
+            writer,
         }
     }
-    Ok(())
+
+    fn refresh(&mut self, view: Result<String>) -> Result<()> {
+        match view {
+            Ok(view) => {
+                if self.displayed {
+                    self.writer.write_all(b"\x1b[2J\x1b[H")?;
+                }
+                write!(
+                    self.writer,
+                    "agentboard {} --watch\nInterval: {}s\nLast refresh: {}\n\n{}",
+                    self.command,
+                    self.interval.as_secs(),
+                    Utc::now().to_rfc3339(),
+                    view
+                )?;
+                self.writer.flush()?;
+                self.displayed = true;
+                Ok(())
+            }
+            Err(error) => {
+                if !self.displayed {
+                    write!(
+                        self.writer,
+                        "agentboard {} --watch\nInterval: {}s\nLast refresh: unavailable\nRefresh failed: {error:#}\n",
+                        self.command,
+                        self.interval.as_secs()
+                    )?;
+                    self.writer.flush()?;
+                    self.displayed = true;
+                }
+                Err(error)
+            }
+        }
+    }
+}
+
+pub async fn list_items_watch(
+    ws: Workspace,
+    interval: Duration,
+    output: &Output,
+    cancellation: CancellationToken,
+) -> Result<()> {
+    let workspace_id = ws.id.clone();
+    let mut view = WatchView::new("list", interval, io::stdout());
+    schedule_refreshes(
+        "list",
+        &workspace_id,
+        interval,
+        output,
+        cancellation.clone(),
+        move |_| {
+            let rendered = if cancellation.is_cancelled() {
+                Err(crate::runtime::InvocationCancelled.into())
+            } else {
+                render_list_items(&ws, false)
+            };
+            std::future::ready(view.refresh(rendered))
+        },
+    )
+    .await
+}
+
+pub async fn show_item_watch(
+    ws: Workspace,
+    item_ref: String,
+    interval: Duration,
+    output: &Output,
+    cancellation: CancellationToken,
+) -> Result<()> {
+    let workspace_id = ws.id.clone();
+    let mut view = WatchView::new("show", interval, io::stdout());
+    schedule_refreshes(
+        "show",
+        &workspace_id,
+        interval,
+        output,
+        cancellation.clone(),
+        move |_| {
+            let rendered = if cancellation.is_cancelled() {
+                Err(crate::runtime::InvocationCancelled.into())
+            } else {
+                render_show_item(&ws, &item_ref, false)
+            };
+            std::future::ready(view.refresh(rendered))
+        },
+    )
+    .await
 }
 
 fn resolve_item(ws: &Workspace, item_ref: &str) -> Result<StoredItem> {
@@ -775,6 +907,52 @@ mod tests {
     use serde_json::json;
 
     static TEST_WORKSPACE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn watch_view_redraws_after_first_render_without_appending_plain_snapshots() {
+        let mut view = WatchView::new("list", Duration::from_secs(5), Vec::new());
+
+        view.refresh(Ok("first\n".into())).unwrap();
+        let first = String::from_utf8(view.writer.clone()).unwrap();
+        assert!(first.contains("agentboard list --watch"));
+        assert!(first.contains("Interval: 5s"));
+        assert!(first.contains("Last refresh:"));
+        assert!(!first.contains("\x1b[2J"));
+
+        view.refresh(Ok("second\n".into())).unwrap();
+        let second = String::from_utf8(view.writer.clone()).unwrap();
+        assert_eq!(second.matches("\x1b[2J\x1b[H").count(), 1);
+        assert!(second.ends_with("second\n"));
+    }
+
+    #[test]
+    fn watch_view_keeps_last_good_view_and_reports_initial_failure() {
+        let mut view = WatchView::new("show", Duration::from_secs(2), Vec::new());
+
+        let error = view.refresh(Err(anyhow!("store unavailable"))).unwrap_err();
+        assert_eq!(error.to_string(), "store unavailable");
+        let failed = String::from_utf8(view.writer.clone()).unwrap();
+        assert!(failed.contains("Last refresh: unavailable"));
+        assert!(failed.contains("Refresh failed: store unavailable"));
+
+        view.refresh(Ok("good\n".into())).unwrap();
+        let recovered = String::from_utf8(view.writer.clone()).unwrap();
+        assert!(recovered.contains("\x1b[2J\x1b[H"));
+        assert!(recovered.ends_with("good\n"));
+
+        let before_failure = view.writer.len();
+        assert!(view.refresh(Err(anyhow!("temporary failure"))).is_err());
+        assert_eq!(view.writer.len(), before_failure);
+    }
+
+    #[test]
+    fn watch_stdout_requirement_rejects_redirected_output() {
+        assert!(require_watch_stdout(true).is_ok());
+        assert_eq!(
+            require_watch_stdout(false).unwrap_err().to_string(),
+            "Watch Mode requires terminal stdout; do not redirect stdout"
+        );
+    }
 
     #[test]
     fn doctor_source_message_distinguishes_available_from_fetched() {

@@ -161,6 +161,22 @@ EOF
   [ "$(wc -l < "$(items_store_file)")" -eq 2 ]
 }
 
+@test "Store Watch Mode rejects redirected stdout and JSON output" {
+  printf 'sources = []\n' > "$TMP/workspace.toml"
+
+  run "$AB" list "$TMP/workspace.toml" --watch --interval 1s
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"terminal stdout"* ]]
+
+  run "$AB" list "$TMP/workspace.toml" --watch --json
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot be used with"* ]]
+
+  run "$AB" show "$TMP/workspace.toml" ITEM --watch --json
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"cannot be used with"* ]]
+}
+
 @test "legacy item Store errors explain how to rebuild" {
   write_item AB-1
   write_workspace "true"
