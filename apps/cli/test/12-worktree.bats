@@ -113,6 +113,44 @@ EOF
   [ "$(git -C "$TMP/worktrees/ab-1" branch --show-current)" = "target" ]
 }
 
+@test "worktree cancellation persists partial mutation and retries" {
+  write_item AB-1
+  mkdir -p "$TMP/hooks"
+  cat > "$TMP/hooks/post-checkout" <<EOF
+#!/bin/sh
+echo started > "$TMP/hook-started"
+sleep 10
+EOF
+  chmod +x "$TMP/hooks/post-checkout"
+  git -C "$TMP/repo" config core.hooksPath "$TMP/hooks"
+  write_worktree_workspace "$TMP/worktrees/ab-1" "ab-1"
+
+  "$AB" --color never run "$TMP/workspace.toml" >"$TMP/run.out" 2>"$TMP/run.err" &
+  RUN_PID=$!
+  wait_for_pattern "$TMP/hook-started" started
+  kill -INT "$RUN_PID"
+  wait_status=0
+  wait "$RUN_PID" || wait_status=$?
+
+  [ "$wait_status" -eq 130 ]
+  [ -d "$TMP/worktrees/ab-1" ]
+  [ "$(git -C "$TMP/worktrees/ab-1" branch --show-current)" = "ab-1" ]
+  /usr/bin/python3 - "$(actions_store_file)" <<'PY'
+import json, pathlib, sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert [record["outcome"] for record in records] == ["cancelled"]
+PY
+
+  git -C "$TMP/repo" config --unset core.hooksPath
+  run "$AB" --color never run "$TMP/workspace.toml"
+  [ "$status" -eq 0 ]
+  /usr/bin/python3 - "$(actions_store_file)" <<'PY'
+import json, pathlib, sys
+records = [json.loads(line) for line in pathlib.Path(sys.argv[1]).read_text().splitlines()]
+assert [record["outcome"] for record in records] == ["cancelled", "success"]
+PY
+}
+
 @test "worktree rejects an arbitrary existing path" {
   write_item AB-1
   mkdir -p "$TMP/worktrees/wrong"

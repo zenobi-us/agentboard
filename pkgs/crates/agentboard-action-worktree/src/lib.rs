@@ -61,6 +61,9 @@ fn execute_worktree(
     config: &WorktreeConfig,
     cancellation: &agentboard_core::CancellationToken,
 ) -> ActionRun {
+    if cancellation.is_cancelled() {
+        return cancelled_run(cancelled_command_error(Vec::new(), Vec::new()));
+    }
     match ensure_worktree(config, cancellation) {
         Ok((stdout, stderr)) => successful_run(stdout, stderr),
         Err(error) if cancellation.is_cancelled() => cancelled_run(error),
@@ -257,11 +260,44 @@ fn git_output(
     args: &[&str],
     cancellation: &agentboard_core::CancellationToken,
 ) -> Result<Output> {
-    let mut command = ProcessCommand::new("git");
+    let mut command_args = Vec::with_capacity(args.len() + 2);
+    command_args.push("-C");
+    command_args.push(path);
+    command_args.extend_from_slice(args);
+    run_command("git", &command_args, cancellation)
+}
+
+#[derive(Debug)]
+struct CancelledCommand {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+impl std::fmt::Display for CancelledCommand {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("worktree action cancelled")
+    }
+}
+
+impl std::error::Error for CancelledCommand {}
+
+fn cancelled_command_error(stdout: Vec<u8>, stderr: Vec<u8>) -> anyhow::Error {
+    CancelledCommand { stdout, stderr }.into()
+}
+
+fn run_command(
+    program: &str,
+    args: &[&str],
+    cancellation: &agentboard_core::CancellationToken,
+) -> Result<Output> {
+    if cancellation.is_cancelled() {
+        return Err(cancelled_command_error(Vec::new(), Vec::new()));
+    }
+
+    let mut command = ProcessCommand::new(program);
     command
-        .arg("-C")
-        .arg(path)
         .args(args)
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     let mut child: GroupChild = command.group_spawn()?;
@@ -279,20 +315,41 @@ fn git_output(
     let stderr_reader = thread::spawn(move || read_output(stderr));
     loop {
         if let Some(status) = child.try_wait()? {
-            let output = Output {
-                status,
-                stdout: join_output(stdout_reader)?,
-                stderr: join_output(stderr_reader)?,
-            };
-            return Ok(output);
+            return command_output(status, stdout_reader, stderr_reader);
         }
         if cancellation.is_cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("worktree action cancelled");
+            if let Some(status) = child.try_wait()? {
+                return command_output(status, stdout_reader, stderr_reader);
+            }
+            if let Err(error) = child.kill() {
+                if let Some(status) = child.try_wait()? {
+                    return command_output(status, stdout_reader, stderr_reader);
+                }
+                return Err(anyhow!("failed to terminate {program}: {error}"));
+            }
+            let status = child
+                .wait()
+                .map_err(|error| anyhow!("failed to wait for terminated {program}: {error}"))?;
+            let output = command_output(status, stdout_reader, stderr_reader)?;
+            if output.status.success() {
+                return Ok(output);
+            }
+            return Err(cancelled_command_error(output.stdout, output.stderr));
         }
         thread::sleep(Duration::from_millis(5));
     }
+}
+
+fn command_output(
+    status: std::process::ExitStatus,
+    stdout_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+    stderr_reader: thread::JoinHandle<std::io::Result<Vec<u8>>>,
+) -> Result<Output> {
+    Ok(Output {
+        status,
+        stdout: join_output(stdout_reader)?,
+        stderr: join_output(stderr_reader)?,
+    })
 }
 
 fn read_output(mut pipe: impl Read) -> std::io::Result<Vec<u8>> {
@@ -318,11 +375,15 @@ fn successful_run(stdout: String, stderr: String) -> ActionRun {
 }
 
 fn cancelled_run(error: anyhow::Error) -> ActionRun {
+    let (stdout, stderr) = error
+        .downcast_ref::<CancelledCommand>()
+        .map(|command| (cap(&command.stdout), cap(&command.stderr)))
+        .unwrap_or_else(|| (String::new(), cap(format!("{error:#}").as_bytes())));
     ActionRun {
         outcome: ActionOutcome::Cancelled,
-        stdout: String::new(),
-        stderr: cap(format!("{error:#}").as_bytes()),
-        message: Some(error.to_string()),
+        stdout,
+        stderr,
+        message: Some("worktree action cancelled".into()),
     }
 }
 
@@ -345,30 +406,17 @@ fn check_command_with_cancellation(
     args: &[&str],
     cancellation: &agentboard_core::CancellationToken,
 ) -> Result<()> {
-    if cancellation.is_cancelled() {
-        bail!("required command {command} health check cancelled");
-    }
-    let mut child = ProcessCommand::new(command)
-        .args(args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .group_spawn()
-        .map_err(|error| anyhow!("required command {command} not found: {error}"))?;
-    loop {
-        if let Some(status) = child.try_wait()? {
-            if !status.success() {
-                bail!("required command {command} returned {status}");
-            }
-            return Ok(());
+    let output = match run_command(command, args, cancellation) {
+        Ok(output) => output,
+        Err(_error) if cancellation.is_cancelled() => {
+            bail!("required command {command} health check cancelled")
         }
-        if cancellation.is_cancelled() {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!("required command {command} health check cancelled");
-        }
-        thread::sleep(Duration::from_millis(5));
+        Err(error) => return Err(anyhow!("required command {command} not found: {error}")),
+    };
+    if !output.status.success() {
+        bail!("required command {command} returned {}", output.status);
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -380,7 +428,13 @@ mod tests {
         CancellationToken,
     };
     use serde_json::json;
-    use std::{collections::BTreeMap, fs};
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    use std::{
+        collections::BTreeMap,
+        fs, thread,
+        time::{Duration, Instant},
+    };
     use tempfile::tempdir;
 
     fn item() -> Item {
@@ -439,6 +493,24 @@ mod tests {
             root: root.display().to_string(),
             branch: branch.into(),
         }
+    }
+
+    #[cfg(unix)]
+    fn post_checkout_hook(repo: &Path, marker: &Path, delay_seconds: u64) {
+        let hooks = repo.join("hooks");
+        fs::create_dir(&hooks).unwrap();
+        let hook = hooks.join("post-checkout");
+        fs::write(
+            &hook,
+            format!(
+                "#!/bin/sh\ntouch '{}'\nsleep {}\n",
+                marker.display(),
+                delay_seconds
+            ),
+        )
+        .unwrap();
+        fs::set_permissions(&hook, fs::Permissions::from_mode(0o755)).unwrap();
+        git(repo, &["config", "core.hooksPath", hooks.to_str().unwrap()]);
     }
 
     #[test]
@@ -973,5 +1045,212 @@ mod tests {
         assert!(error
             .to_string()
             .contains("required command agentboard-command-that-does-not-exist not found"));
+    }
+
+    #[test]
+    fn pre_cancelled_execution_does_not_start_git() {
+        let dir = tempdir().unwrap();
+        let item = item();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let run = WorktreeDefinition::build(config(
+            &dir.path().join("missing-repo"),
+            &dir.path().join("worktree"),
+            "feature",
+        ))
+        .unwrap()
+        .execute(&ActionContext {
+            workspace_id: "workspace",
+            source_id: "issues",
+            item: &item,
+            cancellation,
+        })
+        .unwrap();
+
+        assert_eq!(run.outcome, ActionOutcome::Cancelled);
+        assert_eq!(run.stdout, "");
+        assert_eq!(run.message.as_deref(), Some("worktree action cancelled"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn execute_cancellation_reports_partial_git_mutation_and_can_retry() {
+        let dir = tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        let root = dir.path().join("worktree");
+        let marker = dir.path().join("post-checkout-started");
+        init_repo(&repo);
+        post_checkout_hook(&repo, &marker, 10);
+
+        let item = item();
+        let cancellation = CancellationToken::new();
+        let canceller_token = cancellation.clone();
+        let canceller_marker = marker.clone();
+        let canceller = thread::spawn(move || {
+            for _ in 0..400 {
+                if canceller_marker.exists() {
+                    canceller_token.cancel();
+                    return;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            panic!("post-checkout hook did not start");
+        });
+
+        let action = WorktreeDefinition::build(config(&repo, &root, "feature")).unwrap();
+        let action_item = item.clone();
+        let action_cancellation = cancellation.clone();
+        let action_thread = thread::spawn(move || {
+            action
+                .execute(&ActionContext {
+                    workspace_id: "workspace",
+                    source_id: "issues",
+                    item: &action_item,
+                    cancellation: action_cancellation,
+                })
+                .unwrap()
+        });
+        let started = Instant::now();
+        let run = action_thread.join().unwrap();
+        canceller.join().unwrap();
+
+        assert!(started.elapsed() < Duration::from_secs(2));
+        assert_eq!(run.outcome, ActionOutcome::Cancelled);
+        assert_eq!(run.message.as_deref(), Some("worktree action cancelled"));
+        assert!(root.exists());
+        assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "feature");
+
+        git(&repo, &["config", "--unset", "core.hooksPath"]);
+        let retry = WorktreeDefinition::build(config(&repo, &root, "feature"))
+            .unwrap()
+            .execute(&ActionContext {
+                workspace_id: "workspace",
+                source_id: "issues",
+                item: &item,
+                cancellation: CancellationToken::new(),
+            })
+            .unwrap();
+        assert_eq!(retry.outcome, ActionOutcome::Success);
+        assert_eq!(retry.stdout, format!("reused {}\n", root.display()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn execute_preserves_success_when_cancellation_follows_git_completion() {
+        let dir = tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        let root = dir.path().join("worktree");
+        let marker = dir.path().join("post-checkout-complete");
+        init_repo(&repo);
+        post_checkout_hook(&repo, &marker, 0);
+
+        let item = item();
+        let cancellation = CancellationToken::new();
+        let canceller_token = cancellation.clone();
+        let canceller_marker = marker.clone();
+        let canceller = thread::spawn(move || {
+            for _ in 0..400 {
+                if canceller_marker.exists() {
+                    thread::sleep(Duration::from_millis(100));
+                    canceller_token.cancel();
+                    return;
+                }
+                thread::sleep(Duration::from_millis(5));
+            }
+            panic!("post-checkout hook did not complete");
+        });
+
+        let action = WorktreeDefinition::build(config(&repo, &root, "feature")).unwrap();
+        let action_item = item.clone();
+        let action_cancellation = cancellation.clone();
+        let run = thread::spawn(move || {
+            action
+                .execute(&ActionContext {
+                    workspace_id: "workspace",
+                    source_id: "issues",
+                    item: &action_item,
+                    cancellation: action_cancellation,
+                })
+                .unwrap()
+        })
+        .join()
+        .unwrap();
+        canceller.join().unwrap();
+
+        assert_eq!(run.outcome, ActionOutcome::Success);
+        assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "feature");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn cancellation_kills_git_process_group_and_keeps_partial_output() {
+        let dir = tempdir().unwrap();
+        let side_effect = dir.path().join("side-effect");
+        let descendant_effect = dir.path().join("descendant-effect");
+        let script = format!(
+            "touch '{}'; printf partial-out; printf partial-err >&2; (sleep 10; touch '{}') & wait",
+            side_effect.display(),
+            descendant_effect.display()
+        );
+        let cancellation = CancellationToken::new();
+        let cancel = cancellation.clone();
+        let canceller = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            cancel.cancel();
+        });
+        let started = Instant::now();
+        let error = run_command("sh", &["-c", &script], &cancellation).unwrap_err();
+        canceller.join().unwrap();
+
+        assert!(started.elapsed() < Duration::from_secs(2));
+        let run = cancelled_run(error);
+        assert_eq!(run.outcome, ActionOutcome::Cancelled);
+        assert_eq!(run.stdout, "partial-out");
+        assert_eq!(run.stderr, "partial-err");
+        assert_eq!(run.message.as_deref(), Some("worktree action cancelled"));
+        assert!(side_effect.exists());
+        assert!(!descendant_effect.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn completed_git_command_wins_completion_race() {
+        let cancellation = CancellationToken::new();
+        let cancel = cancellation.clone();
+        let canceller = thread::spawn(move || {
+            thread::sleep(Duration::from_millis(200));
+            cancel.cancel();
+        });
+        let output =
+            run_command("sh", &["-c", "sleep 0.05; printf complete"], &cancellation).unwrap();
+        canceller.join().unwrap();
+
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"complete");
+    }
+
+    #[test]
+    fn cancellation_between_git_steps_prevents_the_next_step() {
+        let dir = tempdir().unwrap();
+        let repo = dir.path().join("repo");
+        init_repo(&repo);
+        let cancellation = CancellationToken::new();
+
+        let first = git_output(
+            repo.to_str().unwrap(),
+            &["rev-parse", "--show-toplevel"],
+            &cancellation,
+        )
+        .unwrap();
+        assert!(first.status.success());
+
+        cancellation.cancel();
+        let error = git_output(
+            repo.to_str().unwrap(),
+            &["rev-parse", "--show-toplevel"],
+            &cancellation,
+        )
+        .unwrap_err();
+        assert!(error.downcast_ref::<CancelledCommand>().is_some());
     }
 }
