@@ -4,6 +4,12 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, Ordering};
+
+#[cfg(test)]
+static CANCEL_BEFORE_COLLECTION_RETURN: AtomicBool = AtomicBool::new(false);
+
 use anyhow::{anyhow, bail, Context, Result};
 use command_group::AsyncCommandGroup;
 use reqwest::Client;
@@ -107,22 +113,105 @@ impl JiraSource {
             fields: &self.config.fields,
             field_map: &self.config.field_map,
         };
+        check_jira_cancellation(cancellation, "jira collection")?;
         let credential = jira_credential(&query, site, cancellation).await?;
-        let search = jira_search(
-            &format!("{site}/rest/api/3/search/jql"),
-            &credential.username,
-            &credential.password,
-            query.jql,
-            query.limit,
-            query.fields,
-            query.field_map,
-            cancellation,
-        )
-        .await?;
-        self.collection_from_search(source_id, search)
+        let client = Client::new();
+        let mut next_page_token = None;
+        let mut available = None;
+        let mut ids = HashSet::new();
+        let mut items = Vec::new();
+
+        while items.len() < query.limit {
+            check_jira_cancellation(cancellation, "jira collection")?;
+            let page_size = (query.limit - items.len()).min(100);
+            let search = jira_search(
+                &client,
+                &format!("{site}/rest/api/3/search/jql"),
+                &credential.username,
+                &credential.password,
+                query.jql,
+                page_size,
+                query.fields,
+                query.field_map,
+                next_page_token.as_deref(),
+                cancellation,
+            )
+            .await?;
+            available = available.or_else(|| {
+                search
+                    .get("total")
+                    .and_then(Value::as_u64)
+                    .map(|value| value as usize)
+            });
+            let issues = search
+                .get("issues")
+                .and_then(Value::as_array)
+                .ok_or_else(|| anyhow!("jira search response missing issues array"))?;
+            if issues.is_empty() {
+                break;
+            }
+
+            for issue in issues {
+                check_jira_cancellation(cancellation, "jira normalization")?;
+                let item = normalize_issue(
+                    self.config.site.as_str(),
+                    source_id,
+                    issue,
+                    &self.config.field_map,
+                    &self.config.status_map,
+                )?;
+                if !ids.insert(item.id.clone()) {
+                    bail!("duplicate item id {} in source {source_id}", item.id);
+                }
+                items.push(item);
+                if items.len() >= query.limit {
+                    break;
+                }
+            }
+
+            if items.len() >= query.limit {
+                break;
+            }
+            let Some(token) = search
+                .get("nextPageToken")
+                .and_then(Value::as_str)
+                .filter(|token| !token.is_empty())
+            else {
+                break;
+            };
+            if next_page_token.as_deref() == Some(token) {
+                break;
+            }
+            next_page_token = Some(token.to_string());
+        }
+
+        #[cfg(test)]
+        if CANCEL_BEFORE_COLLECTION_RETURN.swap(false, Ordering::AcqRel) {
+            cancellation.cancel();
+        }
+        Ok(SourceCollection {
+            items,
+            available,
+            limit: self.config.limit,
+        })
     }
 
+    #[cfg(test)]
     fn collection_from_search(&self, source_id: &str, search: Value) -> Result<SourceCollection> {
+        self.collection_from_search_with_cancellation(
+            source_id,
+            search,
+            &agentboard_core::CancellationToken::new(),
+        )
+    }
+
+    #[cfg(test)]
+    fn collection_from_search_with_cancellation(
+        &self,
+        source_id: &str,
+        search: Value,
+        cancellation: &agentboard_core::CancellationToken,
+    ) -> Result<SourceCollection> {
         let issues = search
             .get("issues")
             .and_then(Value::as_array)
@@ -131,6 +220,7 @@ impl JiraSource {
         let mut ids = HashSet::new();
         let mut items = Vec::new();
         for issue in issues {
+            check_jira_cancellation(cancellation, "jira normalization")?;
             let item = normalize_issue(
                 site,
                 source_id,
@@ -143,9 +233,13 @@ impl JiraSource {
             }
             items.push(item);
         }
+        check_jira_cancellation(cancellation, "jira normalization")?;
         Ok(SourceCollection {
             items,
-            available: None,
+            available: search
+                .get("total")
+                .and_then(Value::as_u64)
+                .map(|value| value as usize),
             limit: self.config.limit,
         })
     }
@@ -237,6 +331,7 @@ fn normalize_issue(
 
 #[allow(clippy::too_many_arguments)]
 async fn jira_search(
+    client: &Client,
     url: &str,
     email: &str,
     token: &str,
@@ -244,25 +339,32 @@ async fn jira_search(
     limit: usize,
     fields: &[String],
     map: &FieldMap,
+    next_page_token: Option<&str>,
     cancellation: &agentboard_core::CancellationToken,
 ) -> Result<Value> {
     let requested_fields = jira_fetch_fields(fields, map);
+    let mut body = json!({
+        "jql": jql,
+        "maxResults": limit,
+        "fields": requested_fields,
+    });
+    if let Some(next_page_token) = next_page_token {
+        body["nextPageToken"] = json!(next_page_token);
+    }
 
-    let request = Client::new()
+    let request = client
         .post(url)
         .basic_auth(email, Some(token))
-        .json(&json!({
-            "jql": jql,
-            "maxResults": limit,
-            "fields": requested_fields,
-        }))
+        .json(&body)
         .send();
     let response = tokio::select! {
+        biased;
         response = request => response.context("send jira search request")?,
         _ = cancellation.cancelled() => bail!("jira search cancelled"),
     };
     let status = response.status();
     let text = tokio::select! {
+        biased;
         text = response.text() => text.context("read jira search response")?,
         _ = cancellation.cancelled() => bail!("jira search cancelled"),
     };
@@ -270,6 +372,16 @@ async fn jira_search(
         bail!("jira search failed with {status}: {text}");
     }
     serde_json::from_str(&text).context("parse jira search JSON")
+}
+
+fn check_jira_cancellation(
+    cancellation: &agentboard_core::CancellationToken,
+    operation: &str,
+) -> Result<()> {
+    if cancellation.is_cancelled() {
+        bail!("{operation} cancelled");
+    }
+    Ok(())
 }
 
 struct JiraCredential {
@@ -317,14 +429,23 @@ async fn run_jira_credential_helper(
         .with_context(|| format!("run jira credential helper {helper}"))?;
 
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    child
+    let mut child_stdin = child
         .inner()
         .stdin
         .take()
-        .context("open jira credential helper stdin")?
-        .write_all(stdin.as_bytes())
-        .await
-        .context("write jira credential helper request")?;
+        .context("open jira credential helper stdin")?;
+    tokio::select! {
+        biased;
+        result = child_stdin.write_all(stdin.as_bytes()) => {
+            result.context("write jira credential helper request")?;
+        }
+        _ = cancellation.cancelled() => {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+            bail!("jira credential helper cancelled");
+        }
+    }
+    drop(child_stdin);
     let stdout = child
         .inner()
         .stdout
@@ -336,6 +457,7 @@ async fn run_jira_credential_helper(
         .take()
         .ok_or_else(|| anyhow!("jira helper stderr was not captured"))?;
     let output = tokio::select! {
+        biased;
         result = async {
             let mut stdout = stdout;
             let mut stderr = stderr;
@@ -471,12 +593,168 @@ mod tests {
         registry::{HealthCheckContext, RawConfig, Registry, Source, SourceDefinition},
         CancellationToken,
     };
+    use std::{
+        io::{Read, Write},
+        net::{SocketAddr, TcpListener, TcpStream},
+        sync::{
+            atomic::{AtomicBool, AtomicUsize, Ordering},
+            Arc,
+        },
+        thread,
+        time::Duration,
+    };
+
     fn config(site: &str) -> JiraSourceConfig {
         serde_json::from_value(json!({
             "site": site,
             "jql": "project = AB"
         }))
         .unwrap()
+    }
+
+    fn mock_config(site: &str) -> JiraSourceConfig {
+        serde_json::from_value(json!({
+            "site": site,
+            "jql": "project = AB",
+            "credentials": {
+                "helper": "printf 'username=user@example.com\\npassword=secret\\n'"
+            }
+        }))
+        .unwrap()
+    }
+
+    fn jira_page(issues: Value) -> Value {
+        json!({"issues": issues})
+    }
+
+    struct MockJiraServer {
+        url: String,
+        address: SocketAddr,
+        connections: Arc<AtomicUsize>,
+        body_started: Arc<AtomicBool>,
+        stop: Arc<AtomicBool>,
+        release: Arc<AtomicBool>,
+        thread: Option<thread::JoinHandle<()>>,
+    }
+
+    impl MockJiraServer {
+        fn start(responses: Vec<Value>, delayed_response: Option<usize>) -> Self {
+            Self::start_with_body_delay(responses, delayed_response, None)
+        }
+
+        fn start_with_body_delay(
+            responses: Vec<Value>,
+            delayed_response: Option<usize>,
+            delayed_body_response: Option<usize>,
+        ) -> Self {
+            let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+            let address = listener.local_addr().unwrap();
+            let url = format!("http://{address}");
+            let connections = Arc::new(AtomicUsize::new(0));
+            let body_started = Arc::new(AtomicBool::new(false));
+            let stop = Arc::new(AtomicBool::new(false));
+            let release = Arc::new(AtomicBool::new(false));
+            let thread_stop = Arc::clone(&stop);
+            let thread_release = Arc::clone(&release);
+            let thread_connections = Arc::clone(&connections);
+            let thread_body_started = Arc::clone(&body_started);
+            let thread = thread::spawn(move || {
+                for (index, response) in responses.into_iter().enumerate() {
+                    let Ok((mut stream, _)) = listener.accept() else {
+                        return;
+                    };
+                    thread_connections.fetch_add(1, Ordering::Relaxed);
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    read_http_request(&mut stream);
+                    if delayed_response == Some(index) {
+                        while !thread_stop.load(Ordering::Relaxed)
+                            && !thread_release.load(Ordering::Relaxed)
+                        {
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                    }
+                    let body = serde_json::to_vec(&response).unwrap();
+                    let header = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(header.as_bytes());
+                    if delayed_body_response == Some(index) {
+                        let split = body.len().min(1);
+                        let _ = stream.write_all(&body[..split]);
+                        thread_body_started.store(true, Ordering::Release);
+                        while !thread_stop.load(Ordering::Relaxed)
+                            && !thread_release.load(Ordering::Relaxed)
+                        {
+                            thread::sleep(Duration::from_millis(2));
+                        }
+                        let _ = stream.write_all(&body[split..]);
+                    } else {
+                        let _ = stream.write_all(&body);
+                    }
+                }
+            });
+            Self {
+                url,
+                address,
+                connections,
+                body_started,
+                stop,
+                release,
+                thread: Some(thread),
+            }
+        }
+
+        async fn wait_for_connection(&self, expected: usize) {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while self.connections.load(Ordering::Relaxed) < expected {
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+
+        async fn wait_for_body(&self) {
+            tokio::time::timeout(Duration::from_secs(2), async {
+                while !self.body_started.load(Ordering::Acquire) {
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                }
+            })
+            .await
+            .unwrap();
+        }
+    }
+
+    impl Drop for MockJiraServer {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            self.release.store(true, Ordering::Relaxed);
+            let _ = TcpStream::connect(self.address);
+            if let Some(thread) = self.thread.take() {
+                thread.join().unwrap();
+            }
+        }
+    }
+
+    fn read_http_request(stream: &mut TcpStream) {
+        let mut bytes = Vec::new();
+        let mut chunk = [0; 1024];
+        loop {
+            let Ok(count) = stream.read(&mut chunk) else {
+                return;
+            };
+            if count == 0 {
+                return;
+            }
+            bytes.extend_from_slice(&chunk[..count]);
+            if bytes.windows(4).any(|window| window == b"\r\n\r\n") {
+                thread::sleep(Duration::from_millis(50));
+                return;
+            }
+        }
     }
 
     #[test]
@@ -631,6 +909,125 @@ mod tests {
         };
 
         assert!(source.health_check(&context).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn jira_collection_honors_pre_request_cancellation() {
+        let server = MockJiraServer::start(vec![jira_page(json!([]))], None);
+        let source = JiraSourceDefinition::build(mock_config(&server.url)).unwrap();
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+        let context = HealthCheckContext {
+            source_id: "jira",
+            cancellation,
+        };
+
+        let error = source.health_check(&context).await.unwrap_err();
+        assert!(error.to_string().contains("cancelled"));
+        assert_eq!(server.connections.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn jira_collection_drops_active_http_response_body_on_cancellation() {
+        let server = MockJiraServer::start_with_body_delay(
+            vec![jira_page(json!([{
+                "id": "10001",
+                "key": "AB-1",
+                "fields": {"summary": "One", "status": {"name": "Ready"}}
+            }]))],
+            None,
+            Some(0),
+        );
+        let source = JiraSourceDefinition::build(mock_config(&server.url)).unwrap();
+        let cancellation = CancellationToken::new();
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            let context = SourceContext {
+                source_id: "jira",
+                cancellation: task_cancellation,
+            };
+            source.collect(&context).await
+        });
+
+        server.wait_for_body().await;
+        tokio::task::yield_now().await;
+        cancellation.cancel();
+        let result = tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+    }
+
+    #[tokio::test]
+    async fn jira_collection_cancels_an_active_later_page() {
+        let first = json!({
+            "issues": [{
+                "id": "10001",
+                "key": "AB-1",
+                "fields": {"summary": "One", "status": {"name": "Ready"}}
+            }],
+            "nextPageToken": "page-2"
+        });
+        let second = jira_page(json!([{
+            "id": "10002",
+            "key": "AB-2",
+            "fields": {"summary": "Two", "status": {"name": "Ready"}}
+        }]));
+        let server = MockJiraServer::start(vec![first, second], Some(1));
+        let mut source_config = mock_config(&server.url);
+        source_config.limit = 2;
+        let source = JiraSourceDefinition::build(source_config).unwrap();
+        let cancellation = CancellationToken::new();
+        let task_cancellation = cancellation.clone();
+        let task = tokio::spawn(async move {
+            let context = SourceContext {
+                source_id: "jira",
+                cancellation: task_cancellation,
+            };
+            source.collect(&context).await
+        });
+
+        server.wait_for_connection(1).await;
+        server.wait_for_connection(2).await;
+        cancellation.cancel();
+        let result = tokio::time::timeout(Duration::from_secs(1), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(result.unwrap_err().to_string().contains("cancelled"));
+        assert_eq!(server.connections.load(Ordering::Relaxed), 2);
+    }
+
+    #[tokio::test]
+    async fn jira_collection_wins_completion_race() {
+        let first = json!({
+            "issues": [{
+                "id": "10001",
+                "key": "AB-1",
+                "fields": {"summary": "One", "status": {"name": "Ready"}}
+            }],
+            "nextPageToken": "page-2"
+        });
+        let second = jira_page(json!([{
+            "id": "10002",
+            "key": "AB-2",
+            "fields": {"summary": "Two", "status": {"name": "Ready"}}
+        }]));
+        let server = MockJiraServer::start(vec![first, second], None);
+        let mut source_config = mock_config(&server.url);
+        source_config.limit = 2;
+        let source = JiraSourceDefinition::build(source_config).unwrap();
+        let cancellation = CancellationToken::new();
+        let context = SourceContext {
+            source_id: "jira",
+            cancellation: cancellation.clone(),
+        };
+
+        CANCEL_BEFORE_COLLECTION_RETURN.store(true, Ordering::Release);
+        let collection = source.collect(&context).await.unwrap();
+        assert_eq!(collection.items.len(), 2);
+        assert_eq!(collection.items[1].reference_id, "AB-2");
     }
 
     #[test]
