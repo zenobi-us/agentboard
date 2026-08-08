@@ -7,6 +7,18 @@ use std::{
     time::Duration,
 };
 
+#[cfg(test)]
+use std::cell::RefCell;
+
+#[cfg(test)]
+type TestGitAfterCommand = Box<dyn FnMut(&[&str])>;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_GIT_AFTER_COMMAND: RefCell<Option<TestGitAfterCommand>> =
+        const { RefCell::new(None) };
+}
+
 use anyhow::{anyhow, bail, Result};
 use command_group::{CommandGroup, GroupChild};
 use schemars::JsonSchema;
@@ -229,6 +241,9 @@ fn git_text(
 ) -> Result<String> {
     let output = git_output(path, args, cancellation)?;
     if !output.status.success() {
+        if cancellation.is_cancelled() {
+            return Err(cancelled_command_error(output.stdout, output.stderr));
+        }
         return Err(git_failure(args, &output));
     }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
@@ -241,6 +256,9 @@ fn run_git(
 ) -> Result<(String, String)> {
     let output = git_output(path, args, cancellation)?;
     if !output.status.success() {
+        if cancellation.is_cancelled() {
+            return Err(cancelled_command_error(output.stdout, output.stderr));
+        }
         return Err(git_failure(args, &output));
     }
     Ok((cap(&output.stdout), cap(&output.stderr)))
@@ -294,7 +312,8 @@ fn run_command(
         return Err(cancelled_command_error(Vec::new(), Vec::new()));
     }
 
-    let mut command = ProcessCommand::new(program);
+    let program = PathBuf::from(program);
+    let mut command = ProcessCommand::new(&program);
     command
         .args(args)
         .stdin(Stdio::null())
@@ -315,7 +334,14 @@ fn run_command(
     let stderr_reader = thread::spawn(move || read_output(stderr));
     loop {
         if let Some(status) = child.try_wait()? {
-            return command_output(status, stdout_reader, stderr_reader);
+            let output = command_output(status, stdout_reader, stderr_reader)?;
+            #[cfg(test)]
+            TEST_GIT_AFTER_COMMAND.with(|hook| {
+                if let Some(hook) = hook.borrow_mut().as_mut() {
+                    hook(args);
+                }
+            });
+            return Ok(output);
         }
         if cancellation.is_cancelled() {
             if let Some(status) = child.try_wait()? {
@@ -325,11 +351,17 @@ fn run_command(
                 if let Some(status) = child.try_wait()? {
                     return command_output(status, stdout_reader, stderr_reader);
                 }
-                return Err(anyhow!("failed to terminate {program}: {error}"));
+                return Err(anyhow!(
+                    "failed to terminate {}: {error}",
+                    program.display()
+                ));
             }
-            let status = child
-                .wait()
-                .map_err(|error| anyhow!("failed to wait for terminated {program}: {error}"))?;
+            let status = child.wait().map_err(|error| {
+                anyhow!(
+                    "failed to wait for terminated {}: {error}",
+                    program.display()
+                )
+            })?;
             let output = command_output(status, stdout_reader, stderr_reader)?;
             if output.status.success() {
                 return Ok(output);
@@ -1233,24 +1265,37 @@ mod tests {
     fn cancellation_between_git_steps_prevents_the_next_step() {
         let dir = tempdir().unwrap();
         let repo = dir.path().join("repo");
+        let root = dir.path().join("worktree");
         init_repo(&repo);
+        git(&repo, &["branch", "target"]);
+        git(
+            &repo,
+            &["worktree", "add", "-b", "feature", root.to_str().unwrap()],
+        );
+
         let cancellation = CancellationToken::new();
+        let hook_cancellation = cancellation.clone();
+        TEST_GIT_AFTER_COMMAND.with(|hook| {
+            *hook.borrow_mut() = Some(Box::new(move |args| {
+                if args.ends_with(&["show-ref", "--verify", "--quiet", "refs/heads/target"]) {
+                    hook_cancellation.cancel();
+                }
+            }));
+        });
 
-        let first = git_output(
-            repo.to_str().unwrap(),
-            &["rev-parse", "--show-toplevel"],
-            &cancellation,
-        )
-        .unwrap();
-        assert!(first.status.success());
+        let run = WorktreeDefinition::build(config(&repo, &root, "target"))
+            .unwrap()
+            .execute(&ActionContext {
+                workspace_id: "workspace",
+                source_id: "issues",
+                item: &item(),
+                cancellation,
+            })
+            .unwrap();
+        TEST_GIT_AFTER_COMMAND.with(|hook| *hook.borrow_mut() = None);
 
-        cancellation.cancel();
-        let error = git_output(
-            repo.to_str().unwrap(),
-            &["rev-parse", "--show-toplevel"],
-            &cancellation,
-        )
-        .unwrap_err();
-        assert!(error.downcast_ref::<CancelledCommand>().is_some());
+        assert_eq!(run.outcome, ActionOutcome::Cancelled);
+        assert_eq!(run.message.as_deref(), Some("worktree action cancelled"));
+        assert_eq!(git_stdout(&root, &["branch", "--show-current"]), "feature");
     }
 }
