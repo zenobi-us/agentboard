@@ -1,0 +1,1 @@
+import{t as e}from"./flexsearch-static-DCXSMcUG.js";export default e();

@@ -23,15 +23,15 @@ AgentBoard records successful actions. GitHub labels, PR state, and your cleanup
 
 ## Prerequisites [#prerequisites]
 
-The demo uses Zellij to launch Pi in new tabs and panes. Install and configure:
+The demo uses a launcher to open Pi in a new pane, tab, or terminal window. Install and configure:
 
 * AgentBoard
 * [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`
 * Git
 * [Bun](https://bun.sh/)
 * `curl`, `tar`, and `jq`
-* [Zellij](https://zellij.dev/)
 * [Pi](https://github.com/badlogic/pi-mono) with a model provider configured
+* One launcher: [Zellij](https://zellij.dev/), Herdr, GNOME Terminal, xterm, Konsole, Kitty, Alacritty, or WezTerm
 
 ## 1. Create the private demo repository [#1-create-the-private-demo-repository]
 
@@ -73,16 +73,18 @@ The generated Workspace contains three configured GitHub Sources:
 
 ## 2. Start Watch Mode and release two issues [#2-start-watch-mode-and-release-two-issues]
 
-Start a Zellij session from the standalone repository:
-
-```sh
-zellij --session agentboard-demo
-```
-
-Run AgentBoard inside that session:
+Start AgentBoard from the standalone repository:
 
 ```sh
 agentboard run .agentboard.toml --watch --interval 15s
+```
+
+The launcher uses Herdr when the process runs inside Herdr, Zellij when it runs inside Zellij, and then the first supported desktop terminal. Set `AGENTBOARD_LAUNCHER` to select one explicitly:
+
+```sh
+AGENTBOARD_LAUNCHER=gnome-terminal agentboard run .agentboard.toml --watch --interval 15s
+AGENTBOARD_LAUNCHER=xterm agentboard run .agentboard.toml --watch --interval 15s
+AGENTBOARD_LAUNCHER=zellij AGENTBOARD_LAUNCH_MODE=tab agentboard run .agentboard.toml --watch --interval 15s
 ```
 
 From another terminal, list the seeded issues and release two of them:
@@ -93,7 +95,7 @@ gh issue edit <number> --add-label agentboard:ready-for-agent
 gh issue edit <number> --add-label agentboard:ready-for-agent
 ```
 
-GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree, installs its JavaScript dependencies with Bun, and launches Pi in a new Zellij tab or pane.
+GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree, installs its JavaScript dependencies with Bun, and launches Pi through the selected launcher.
 
 ## 3. Observe implementation and review [#3-observe-implementation-and-review]
 
