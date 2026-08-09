@@ -13,8 +13,8 @@ test("Quickstart bootstraps only the demo fixture", async () => {
   );
   expect(quickstart).toContain("REPO=OWNER/agentboard-quickstart-demo sh");
   expect(quickstart).toContain("downloads and copies only AgentBoard's `apps/demo` directory");
-  expect(quickstart).toContain("zellij --session agentboard-demo");
-  expect(quickstart).toContain("launches Pi in a new Zellij tab or pane");
+  expect(quickstart).toContain("AGENTBOARD_LAUNCHER=gnome-terminal");
+  expect(quickstart).toContain("launches Pi through the selected launcher");
   expect(quickstart).toContain("installs ESLint, Husky, and lint-staged");
   expect(quickstart).toContain("lints staged `*.html` and `*.css` files");
   expect(quickstart).toContain("Husky runs lint-staged and ESLint");
@@ -24,6 +24,7 @@ test("Quickstart bootstraps only the demo fixture", async () => {
   expect(quickstart).not.toContain("open-terminal");
   expect(quickstart).not.toContain("xdg-terminal-exec");
   expect(quickstart).not.toContain("agentboard-demo-template");
-  expect(quickstart).toContain("zellij");
+  expect(quickstart).toContain("Zellij");
+  expect(quickstart).toContain("Herdr");
   expect(quickstart).not.toContain("./teardown.sh");
 });

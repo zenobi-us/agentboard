@@ -28,7 +28,7 @@ uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 # ponytail: updated_at rearms this demo after label transitions; production workflows need explicit retry generations.
-cmd = ''': "{{ item.raw.github.issue.updated_at }}"; test -n "$ZELLIJ" && bun install && tab_name="issue-{{ item.reference_id }}" && tab_id=$(zellij action list-tabs --json | jq -r --arg name "$tab_name" 'first(.[] | select(.name == $name) | .tab_id) // empty') && if [ -n "$tab_id" ]; then zellij action new-pane --tab-id "$tab_id" --cwd "$PWD" --name "implement-{{ item.reference_id }}" -- pi "/implement {{ item.reference_id }}"; else zellij action new-tab --cwd "$PWD" --name "$tab_name" -- pi "/implement {{ item.reference_id }}"; fi'''
+cmd = ''': "{{ item.raw.github.issue.updated_at }}"; bun install && ./launch-agent.sh launch implement "{{ item.reference_id }}"'''
 cwd = "{{ actions.worktree.inputs.root }}"
 
 [[sources]]
@@ -61,7 +61,7 @@ uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 # ponytail: updated_at rearms this demo after label transitions; production workflows need explicit retry generations.
-cmd = ''': "{{ item.raw.github.issue.updated_at }}"; test -n "$ZELLIJ" && bun install && tab_name="issue-{{ item.reference_id }}" && tab_id=$(zellij action list-tabs --json | jq -r --arg name "$tab_name" 'first(.[] | select(.name == $name) | .tab_id) // empty') && if [ -n "$tab_id" ]; then zellij action new-pane --tab-id "$tab_id" --cwd "$PWD" --name "review-{{ item.reference_id }}" -- pi "/review {{ item.reference_id }}"; else zellij action new-tab --cwd "$PWD" --name "$tab_name" -- pi "/review {{ item.reference_id }}"; fi'''
+cmd = ''': "{{ item.raw.github.issue.updated_at }}"; bun install && ./launch-agent.sh launch review "{{ item.reference_id }}"'''
 cwd = "{{ actions.worktree.inputs.root }}"
 
 [[sources]]
@@ -84,5 +84,5 @@ helper = "gh auth token"
 uses = "agentboard/run-cmd"
 
 [sources.actions.with]
-cmd = '''if [ -n "${ZELLIJ:-}" ]; then tab_name="issue-{{ item.reference_id }}"; tab_id=$(zellij action list-tabs --json | jq -r --arg name "$tab_name" 'first(.[] | select(.name == $name) | .tab_id) // empty'); if [ -n "$tab_id" ]; then zellij action close-tab-by-id "$tab_id"; fi; fi; git worktree remove worktrees/issue-{{ item.reference_id }} --force'''
+cmd = '''./launch-agent.sh cleanup "{{ item.reference_id }}"'''
 cwd = "."

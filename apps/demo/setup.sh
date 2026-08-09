@@ -204,12 +204,13 @@ cat <<EOF
 Demo ready: https://github.com/$REPO
 Local clone: $target
 
-Start a Zellij session:
+Start AgentBoard from the demo repository:
   cd $target
-  zellij --session agentboard-demo
-
-Then start AgentBoard inside that Zellij session:
   agentboard run .agentboard.toml --watch --interval 15s
+
+The launcher auto-detects Herdr, Zellij, and supported desktop terminals.
+Override it with AGENTBOARD_LAUNCHER=gnome-terminal, xterm, or another supported launcher.
+For Zellij, set AGENTBOARD_LAUNCH_MODE=tab to use a new tab instead of the default issue pane.
 
 Queue an issue from another terminal:
   gh issue edit <number> --repo $REPO --add-label agentboard:ready-for-agent
