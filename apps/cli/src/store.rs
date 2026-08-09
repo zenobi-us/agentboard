@@ -21,7 +21,7 @@ use fs4::{FileExt, TryLockError};
 use serde_json::{json, Value};
 
 use crate::{
-    config::{actions_path, items_path, source_slug, store_root},
+    config::{actions_path, items_path, source_dir, source_slug, store_root},
     output::Output,
     runtime::schedule_refreshes,
     template::{render_action, ActionTemplateContext},
@@ -50,17 +50,43 @@ pub enum SnapshotState {
     Ready,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CollectionState {
+    Collecting,
+    Complete,
+    Failed,
+    Cancelled,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct SourceCollectionStatus {
+    pub state: CollectionState,
+    pub updated_at: String,
+    pub error: Option<String>,
+}
+
 #[derive(Clone, Debug)]
 pub struct SnapshotItem {
     pub item: Item,
     pub result: &'static str,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionState {
+    Idle,
+    Pending,
+    Success,
+    Error,
+}
+
 #[derive(Clone, Debug)]
 pub struct SourceSnapshot {
     pub source_id: String,
     pub state: SnapshotState,
+    pub collection: Option<SourceCollectionStatus>,
     pub items: Vec<SnapshotItem>,
+    pub actions: Vec<ActionState>,
 }
 
 /// Held workspace run lock. Unlocks when dropped.
@@ -91,6 +117,69 @@ pub fn acquire_lock(ws: &Workspace) -> Result<Lock> {
             Err(err).with_context(|| format!("lock {}", path.display()))
         }
     }
+}
+
+/// Return whether another process currently holds the Workspace run lock.
+pub fn run_is_active(ws: &Workspace) -> Result<bool> {
+    let path = store_root(ws).join("run.lock");
+    let file = match OpenOptions::new().read(true).write(true).open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(error) => return Err(error).with_context(|| format!("open {}", path.display())),
+    };
+    match FileExt::try_lock(&file) {
+        Ok(()) => {
+            FileExt::unlock(&file)?;
+            Ok(false)
+        }
+        Err(TryLockError::WouldBlock) => Ok(true),
+        Err(TryLockError::Error(error)) => {
+            Err(error).with_context(|| format!("lock {}", path.display()))
+        }
+    }
+}
+
+fn collection_status_path(ws: &Workspace, source_id: &str) -> PathBuf {
+    source_dir(ws, source_id).join("collection-status.json")
+}
+
+pub fn set_source_collection_status(
+    ws: &Workspace,
+    source_id: &str,
+    state: CollectionState,
+    error: Option<String>,
+) -> Result<()> {
+    let path = collection_status_path(ws, source_id);
+    fs::create_dir_all(path.parent().unwrap())?;
+    let temporary = path.with_extension("json.tmp");
+    let status = SourceCollectionStatus {
+        state,
+        updated_at: Utc::now().to_rfc3339(),
+        error,
+    };
+    fs::write(&temporary, serde_json::to_vec_pretty(&status)?)?;
+    fs::rename(&temporary, &path)?;
+    Ok(())
+}
+
+pub fn source_collection_status(
+    ws: &Workspace,
+    source_id: &str,
+) -> Result<Option<SourceCollectionStatus>> {
+    let path = collection_status_path(ws, source_id);
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).with_context(|| format!("read {}", path.display())),
+    };
+    let mut status: SourceCollectionStatus =
+        serde_json::from_str(&text).with_context(|| format!("parse {}", path.display()))?;
+    if status.state == CollectionState::Collecting && !run_is_active(ws)? {
+        status.state = CollectionState::Cancelled;
+        status.error = Some("collection stopped before completion".into());
+        fs::write(&path, serde_json::to_vec_pretty(&status)?)?;
+    }
+    Ok(Some(status))
 }
 
 /// Append one complete Source Snapshot to the source Item Store.
@@ -469,6 +558,7 @@ pub fn source_snapshots(ws: &Workspace) -> Result<Vec<SourceSnapshot>> {
                     .cmp(&b.item.reference_id)
                     .then_with(|| a.item.id.cmp(&b.item.id))
             });
+            let action_states = source_action_states(ws, &snapshot.source, &records, &actions);
             let items = records
                 .into_iter()
                 .map(|stored| SnapshotItem {
@@ -479,7 +569,9 @@ pub fn source_snapshots(ws: &Workspace) -> Result<Vec<SourceSnapshot>> {
             Ok(SourceSnapshot {
                 source_id: snapshot.source.configured.id.clone(),
                 state: snapshot.state,
+                collection: source_collection_status(ws, &snapshot.source.configured.id)?,
                 items,
+                actions: action_states,
             })
         })
         .collect()
@@ -531,35 +623,71 @@ fn render_list_items(ws: &Workspace, as_json: bool) -> Result<String> {
     }
 }
 
-fn action_plan_result(
+fn source_action_states(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    items: &[StoredItem],
+    attempts: &[StoredAction],
+) -> Vec<ActionState> {
+    let action_count = source.configured.actions.len();
+    if action_count == 0 {
+        return Vec::new();
+    }
+    if items.is_empty() {
+        return vec![ActionState::Idle; action_count];
+    }
+
+    let mut states = vec![ActionState::Success; action_count];
+    for item in items {
+        for (index, state) in item_action_states(ws, source, &item.item, attempts)
+            .into_iter()
+            .enumerate()
+        {
+            states[index] = match (states[index], state) {
+                (ActionState::Error, _) | (_, ActionState::Error) => ActionState::Error,
+                (ActionState::Pending, _) | (_, ActionState::Pending) => ActionState::Pending,
+                (ActionState::Idle, state) | (state, ActionState::Idle) => state,
+                _ => ActionState::Success,
+            };
+        }
+    }
+    states
+}
+
+fn item_action_states(
     ws: &Workspace,
     source: &WorkspaceSource,
     item: &Item,
     attempts: &[StoredAction],
-) -> &'static str {
-    if source.configured.actions.is_empty() {
-        return "success";
-    }
-
-    let mut latest = HashMap::<(String, String, usize, String), ActionOutcome>::new();
-    for action in attempts {
-        latest.insert(
+) -> Vec<ActionState> {
+    let latest: HashMap<(String, String, usize, String), ActionOutcome> = attempts
+        .iter()
+        .map(|action| {
             (
-                action.attempt.source_id.clone(),
-                action.attempt.item_id.clone(),
-                action.attempt.source_action_index,
-                action.attempt.rendered_action_hash.clone(),
-            ),
-            action.attempt.outcome,
-        );
-    }
-
+                (
+                    action.attempt.source_id.clone(),
+                    action.attempt.item_id.clone(),
+                    action.attempt.source_action_index,
+                    action.attempt.rendered_action_hash.clone(),
+                ),
+                action.attempt.outcome,
+            )
+        })
+        .collect();
     let mut named_actions = ActionTemplateContext::new();
-    let mut pending = false;
+    let mut states = Vec::with_capacity(source.configured.actions.len());
+
     for (index, action) in source.configured.actions.iter().enumerate() {
         let rendered = match render_action(ws, source, item, index, action, &named_actions) {
             Ok(rendered) => rendered,
-            Err(_) => return "error",
+            Err(_) => {
+                states.push(ActionState::Error);
+                states.extend(std::iter::repeat_n(
+                    ActionState::Pending,
+                    source.configured.actions.len().saturating_sub(index + 1),
+                ));
+                break;
+            }
         };
         if let Some(id) = &action.id {
             named_actions.insert(id.clone(), rendered.inputs.clone());
@@ -570,16 +698,25 @@ fn action_plan_result(
             index,
             rendered.hash,
         );
-        match latest.get(&key) {
-            Some(ActionOutcome::Success) => {}
-            Some(ActionOutcome::Failure) => return "error",
-            Some(ActionOutcome::Cancelled) | None => pending = true,
-        }
+        states.push(match latest.get(&key) {
+            Some(ActionOutcome::Success) => ActionState::Success,
+            Some(ActionOutcome::Failure) => ActionState::Error,
+            Some(ActionOutcome::Cancelled) | None => ActionState::Pending,
+        });
     }
-    if pending {
-        "pending"
-    } else {
-        "success"
+    states
+}
+
+fn action_plan_result(
+    ws: &Workspace,
+    source: &WorkspaceSource,
+    item: &Item,
+    attempts: &[StoredAction],
+) -> &'static str {
+    match item_action_states(ws, source, item, attempts).as_slice() {
+        states if states.contains(&ActionState::Error) => "error",
+        states if states.contains(&ActionState::Pending) => "pending",
+        _ => "success",
     }
 }
 
@@ -1464,6 +1601,35 @@ mod tests {
         let changed = item("new", "PROJ-1");
         append_items(&ws, &ws.sources[0], &[changed]).unwrap();
         assert_eq!(source_snapshots(&ws).unwrap()[0].items[0].result, "pending");
+    }
+
+    #[test]
+    fn collection_status_round_trips_and_stale_collection_is_cancelled() {
+        let ws = workspace(&[("a", "https://team-a.atlassian.net", "project = AB")]);
+        let _cleanup = StoreCleanup::new(&ws);
+
+        set_source_collection_status(&ws, "a", CollectionState::Collecting, None).unwrap();
+        let lock = acquire_lock(&ws).unwrap();
+        assert_eq!(
+            source_collection_status(&ws, "a").unwrap().unwrap().state,
+            CollectionState::Collecting
+        );
+        drop(lock);
+
+        let stale = source_collection_status(&ws, "a").unwrap().unwrap();
+        assert_eq!(stale.state, CollectionState::Cancelled);
+        assert!(stale.error.is_some());
+
+        set_source_collection_status(
+            &ws,
+            "a",
+            CollectionState::Failed,
+            Some("query failed".into()),
+        )
+        .unwrap();
+        let failed = source_collection_status(&ws, "a").unwrap().unwrap();
+        assert_eq!(failed.state, CollectionState::Failed);
+        assert_eq!(failed.error.as_deref(), Some("query failed"));
     }
 
     #[test]

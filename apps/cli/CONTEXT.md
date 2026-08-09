@@ -17,7 +17,7 @@ One execution of the AgentBoard pipeline: load a workspace, read sources, update
 _Avoid_: Collect when referring to the public command
 
 **Watch Mode**:
-A persistent command mode that repeats or refreshes the selected operation until cancellation. A watched Run executes complete Runs; watched Store views refresh their current state.
+A persistent command mode that repeats or refreshes the selected operation until cancellation. A watched Run executes complete Runs; watched Store views refresh their current state. Dashboard Watch Mode is enabled by default and can be toggled by the user.
 _Avoid_: Daemon unless it is actually installed as a service
 
 **Dashboard**:
@@ -35,6 +35,10 @@ _Avoid_: Database, cache when precision matters
 **Source Snapshot**:
 The complete set of Items observed by one configured Source during its latest successful collection. A failed or cancelled collection does not replace the previous Source Snapshot.
 _Avoid_: Membership list, query cache
+
+**Source Collection Status**:
+Each configured Source has its own shared collection status: `collecting`, `complete`, `failed`, or `cancelled`. `complete` means that the Source query returned successfully and the Snapshot was committed. `failed` means that the Source query returned an error and includes a short error message. `cancelled` means that the collection stopped before the Source query completed, including runtime cancellation or a stale `collecting` status after a crash. The status keeps the last result and its time for the Dashboard. A failed or cancelled collection keeps the previous Snapshot, or shows no Snapshot when none exists. Collection status does not define the current Source Snapshot.
+_Avoid_: Fetch status, fetching state
 
 **Item Bucket**:
 A Store partition for one stable item universe. For Jira, the item universe is keyed by the normalized Jira site URL because Jira issue keys are only unique inside one Jira organization.

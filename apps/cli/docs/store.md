@@ -4,8 +4,9 @@ title: Store
 
 # Store
 
-The Store is AgentBoard's local append-only record of Item observations, Source
-Snapshot boundaries, and Action attempts.
+The Store contains AgentBoard's append-only records of Item observations, Source
+Snapshot boundaries, and Action attempts. It also contains the latest collection
+status for each Source.
 
 It is not the source of truth. The tracker or markdown collection remains the source of truth.
 
@@ -19,6 +20,7 @@ ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
   items-<source.slug>.snapshots
+  sources/<source-id>/collection-status.json
 ```
 
 `source.slug` identifies the upstream item universe. For Jira, it is derived from the normalized site URL because Jira issue keys are only unique inside one Jira organization. Two Jira Sources for the same site and different JQL views share an item file.
@@ -43,6 +45,20 @@ Normal `run` and non-dry `run --watch` acquire `run.lock` for the Workspace.
 - `run --watch --dry-run` skips the lock and does not write Store files.
 - A non-dry watched Run holds the lock until it exits.
 - Overlapping normal Runs for the same Workspace fail.
+
+## Source collection status
+
+Each normal Run writes one `collection-status.json` file for each Source. The
+status is `collecting`, `complete`, `failed`, or `cancelled`.
+
+- `collecting` means that the Source query is running.
+- `complete` means that the query succeeded and the Snapshot was committed.
+- `failed` means that the query returned an error. The file keeps a short error message.
+- `cancelled` means that collection stopped before the query completed.
+
+The file keeps the last status and its update time. If the file says `collecting`
+but the Workspace lock is free, the Dashboard treats the status as `cancelled`.
+Collection status does not replace the authoritative Source Snapshot.
 
 ## `items-<source.slug>.jsonl`
 
@@ -102,7 +118,7 @@ This is display state, not tracker state.
 
 ## Inspecting by hand
 
-The Store is plain JSONL. Use normal shell tools:
+The Store records are plain JSONL, and collection status files are JSON. Use normal shell tools:
 
 ```bash
 tail -n 20 ~/.local/share/agentboard/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl

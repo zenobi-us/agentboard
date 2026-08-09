@@ -23,6 +23,7 @@ hex = "0.4"
 minijinja = "2.21"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_28"] }
 schemars = { version = "0.8", features = ["preserve_order"] }
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 shlex = "2"
@@ -30,6 +31,5 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "tim
 toml = "0.8"
 
 [dev-dependencies]
-serde = { version = "1", features = ["derive"] }
 tempfile = "3"
 tokio = { version = "1", features = ["test-util"] }

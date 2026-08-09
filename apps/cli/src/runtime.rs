@@ -15,7 +15,10 @@ use serde_json::json;
 
 use crate::{
     output::Output,
-    store::{acquire_lock, action_key, append_action, successful_actions},
+    store::{
+        acquire_lock, action_key, append_action, set_source_collection_status, successful_actions,
+        CollectionState,
+    },
     template::{render_action, ActionTemplateContext},
 };
 
@@ -508,35 +511,51 @@ async fn run_source_with_store_hook(
         &format!("source {source_id} collecting"),
         json!({"workspace": ws.id, "run": run_id, "source": source_id}),
     )?;
+    if !dry_run {
+        set_source_collection_status(ws, source_id, CollectionState::Collecting, None)?;
+    }
     let context = SourceContext {
         source_id,
         cancellation: cancellation.clone(),
     };
-    let mut items = source
-        .built
-        .runtime()
-        .collect(&context)
-        .await
-        .map_err(|error| {
-            if cancellation.is_cancelled() {
-                cancelled()
-            } else {
-                error
+    let mut items = match source.built.runtime().collect(&context).await {
+        Ok(collection) => collection.items,
+        Err(_error) if cancellation.is_cancelled() => {
+            if !dry_run {
+                set_source_collection_status(ws, source_id, CollectionState::Cancelled, None)?;
             }
-        })?
-        .items;
+            return Err(cancelled());
+        }
+        Err(error) => {
+            if !dry_run {
+                set_source_collection_status(
+                    ws,
+                    source_id,
+                    CollectionState::Failed,
+                    Some(format!("{error:#}")),
+                )?;
+            }
+            return Err(error);
+        }
+    };
     stop_if_cancelled(&cancellation)?;
     items.sort_by(|a, b| a.id.cmp(&b.id));
     stop_if_cancelled(&cancellation)?;
     if !dry_run {
-        let ws = ws.clone();
+        let store_ws = ws.clone();
         let source = source.clone();
         let items = items.clone();
         let append_cancellation = cancellation.clone();
         tokio::task::spawn_blocking(move || {
-            crate::store::append_items_with_cancellation(&ws, &source, &items, &append_cancellation)
+            crate::store::append_items_with_cancellation(
+                &store_ws,
+                &source,
+                &items,
+                &append_cancellation,
+            )
         })
         .await??;
+        set_source_collection_status(ws, source_id, CollectionState::Complete, None)?;
         if let Some(after_store_publication) = after_store_publication {
             after_store_publication(&cancellation);
         }
@@ -1507,11 +1526,19 @@ mod tests {
 
         assert!(is_cancelled(&error));
         assert_eq!(CANCELLING_SOURCE_COLLECTIONS.load(Ordering::SeqCst), 1);
-        assert!(!store_root(&ws).exists());
+        assert!(store_root(&ws).exists());
+        assert_eq!(
+            crate::store::source_collection_status(&ws, "source")
+                .unwrap()
+                .unwrap()
+                .state,
+            CollectionState::Cancelled
+        );
         let events = fs::read_to_string(events).unwrap();
         assert!(events.contains("\"stage\":\"source.cancelled\""));
         assert!(events.contains("\"stage\":\"run.cancelled\""));
         assert!(!events.contains("\"stage\":\"source.failed\""));
+        fs::remove_dir_all(store_root(&ws)).unwrap();
     }
 
     #[tokio::test]

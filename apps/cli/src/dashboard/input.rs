@@ -1,7 +1,6 @@
+use agentboard_core::model::Workspace;
 use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-
-use crate::store::SourceSnapshot;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DashboardCommand {
@@ -21,27 +20,35 @@ pub(super) fn dashboard_command(code: KeyCode, modifiers: KeyModifiers) -> Dashb
     }
 }
 
+pub(super) fn clicked_watch(mouse: &MouseEvent, watch_area: Rect) -> bool {
+    matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+        && mouse.column >= watch_area.x
+        && mouse.column < watch_area.right()
+        && mouse.row >= watch_area.y
+        && mouse.row < watch_area.bottom()
+}
+
 pub(super) fn clicked_source(
     mouse: &MouseEvent,
-    tabs_area: Rect,
-    snapshots: &[SourceSnapshot],
+    tree_area: Rect,
+    workspace: &Workspace,
 ) -> Option<usize> {
     if !matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
-        || mouse.column < tabs_area.x
-        || mouse.column >= tabs_area.right()
-        || mouse.row < tabs_area.y
-        || mouse.row >= tabs_area.bottom()
+        || mouse.column < tree_area.x
+        || mouse.column >= tree_area.right()
+        || mouse.row < tree_area.y
+        || mouse.row >= tree_area.bottom()
     {
         return None;
     }
 
-    let mut x = tabs_area.x;
-    for (index, snapshot) in snapshots.iter().enumerate() {
-        let width = snapshot.source_id.chars().count() as u16;
-        if mouse.column >= x && mouse.column < x.saturating_add(width) {
+    let mut row = tree_area.y + 1;
+    for (index, source) in workspace.sources.iter().enumerate() {
+        let height = 2 + source.configured.actions.len() as u16;
+        if mouse.row >= row && mouse.row < row.saturating_add(height) {
             return Some(index);
         }
-        x = x.saturating_add(width + 1);
+        row = row.saturating_add(height);
     }
     None
 }
