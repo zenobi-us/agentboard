@@ -14,23 +14,23 @@ ready-for-agent
           |
           +--> changes requested --> ready-for-agent
           |
-          +--> review complete + manual merge
+          +--> review complete + merged PR
                     -> cleanup approval
                     -> remove worktree
 ```
 
-AgentBoard records successful actions. GitHub labels, PR state, and your explicit merge and cleanup approval record lifecycle completion.
+AgentBoard records successful actions. GitHub labels, PR state, and your cleanup approval record lifecycle completion.
 
 ## Prerequisites [#prerequisites]
 
-The demo uses [`open-terminal`](https://www.npmjs.com/package/open-terminal) through `npx` to launch Pi in new terminal windows on Linux or macOS. Install and configure:
+The demo uses Zellij to launch Pi in new tabs and panes. Install and configure:
 
 * AgentBoard
 * [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`
 * Git
 * [Bun](https://bun.sh/)
-* [Node.js](https://nodejs.org/) with `npm` and `npx`
-* `curl` and `tar`
+* `curl`, `tar`, and `jq`
+* [Zellij](https://zellij.dev/)
 * [Pi](https://github.com/badlogic/pi-mono) with a model provider configured
 
 ## 1. Create the private demo repository [#1-create-the-private-demo-repository]
@@ -73,7 +73,13 @@ The generated Workspace contains three configured GitHub Sources:
 
 ## 2. Start Watch Mode and release two issues [#2-start-watch-mode-and-release-two-issues]
 
-Start AgentBoard from the standalone repository:
+Start a Zellij session from the standalone repository:
+
+```sh
+zellij --session agentboard-demo
+```
+
+Run AgentBoard inside that session:
 
 ```sh
 agentboard run .agentboard.toml --watch --interval 15s
@@ -87,13 +93,7 @@ gh issue edit <number> --add-label agentboard:ready-for-agent
 gh issue edit <number> --add-label agentboard:ready-for-agent
 ```
 
-GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree, installs its npm dependencies, and launches Pi in a new terminal with:
-
-```sh
-npx --yes open-terminal "pi -p '/implement <issue>'"
-```
-
-`--yes` allows `npx` to install `open-terminal` on demand without blocking the background action for confirmation.
+GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree, installs its JavaScript dependencies with Bun, and launches Pi in a new Zellij tab or pane.
 
 ## 3. Observe implementation and review [#3-observe-implementation-and-review]
 
@@ -101,10 +101,10 @@ The implementation Pi session reads the issue and implements its written accepta
 
 The review Source launches a separate reviewer Pi session in the same issue worktree:
 
-* **Pass:** Pi comments with review evidence and applies `agentboard:review-complete`. Review and merge the PR yourself in GitHub.
+* **Pass:** Pi comments with review evidence, approves and merges the PR, and applies `agentboard:review-complete`. Confirm that the issue is closed.
 * **Changes requested:** Pi comments, applies `agentboard:changes-requested`, and returns the issue to `agentboard:ready-for-agent`. The implementation Source launches another Pi session in the existing worktree.
 
-After merging an accepted PR, apply `agentboard:cleanup-approved` to its closed issue. The cleanup Source removes the issue worktree.
+After an accepted PR is merged, apply `agentboard:cleanup-approved` to its closed issue. The cleanup Source removes the issue worktree.
 
 ## 4. Tear down the throwaway demo [#4-tear-down-the-throwaway-demo]
 
@@ -263,14 +263,36 @@ agentboard list work
 Plain output:
 
 ```text
-AB-001	ready	pending	Create the first worktree
+Source: issues
+Reference ID	Title	Status	Action Plan Result
+AB-001	Create the first worktree	ready	pending
 ```
 
-JSON output:
+JSON output groups Items by Source and preserves missing versus ready-empty
+Snapshots:
 
 ```bash
 agentboard list work --json
 ```
+
+Each Source object contains `source_id`, `snapshot` (`missing` or `ready`), and
+an `items` array. Each Item entry contains `item` and `result`, where `result`
+is `error`, `pending`, or `success`.
+
+## `dashboard` [#dashboard]
+
+Open a read-only terminal view of the local Store:
+
+```bash
+agentboard dashboard
+agentboard dashboard work
+```
+
+The Dashboard does not collect Sources, execute Actions, acquire the Run lock,
+or write Store data. Watch Mode starts enabled and polls once per minute. Use the
+Watch button to pause or resume polling. Use Left/Right or `h`/`l` to change
+the selected Source. The left panel shows workspace actions. The right panel shows
+found Items. Use `q` or Ctrl-C to exit. The Dashboard has no in-flight Run view.
 
 ## `show` [#show]
 
@@ -399,7 +421,9 @@ Source crates own Source-specific validation and collection behavior.
 
 # Store [#store]
 
-The Store is AgentBoard's local append-only record of item observations and Action attempts.
+The Store contains AgentBoard's append-only records of Item observations, Source
+Snapshot boundaries, and Action attempts. It also contains the latest collection
+status for each Source.
 
 It is not the source of truth. The tracker or markdown collection remains the source of truth.
 
@@ -412,11 +436,21 @@ ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   run.lock
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
+  items-<source.slug>.snapshots
+  sources/<source-id>/collection-status.json
 ```
 
 `source.slug` identifies the upstream item universe. For Jira, it is derived from the normalized site URL because Jira issue keys are only unique inside one Jira organization. Two Jira Sources for the same site and different JQL views share an item file.
 
-`source.hash` identifies the configured Source view and Action plan. Changing JQL, mappings, or Actions creates a different action file without duplicating the broad item Store.
+`source.hash` identifies the configured Source view and Action plan. Changing JQL or field mappings creates a new Source Snapshot identity. Changing Actions creates a different Action file without duplicating the Item Store.
+
+Each `items-<source.slug>.snapshots` record commits one complete Source Snapshot.
+The identity includes the configured Source ID, Source kind, and normalized Source
+config. It excludes Actions. A failed or incomplete Run does not replace the
+latest committed Snapshot. A committed empty Snapshot is valid.
+
+Sources that share an Item Store keep separate Snapshot membership and their
+source-specific normalized Item values.
 
 Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 
@@ -429,6 +463,20 @@ Normal `run` and non-dry `run --watch` acquire `run.lock` for the Workspace.
 * A non-dry watched Run holds the lock until it exits.
 * Overlapping normal Runs for the same Workspace fail.
 
+## Source collection status [#source-collection-status]
+
+Each normal Run writes one `collection-status.json` file for each Source. The
+status is `collecting`, `complete`, `failed`, or `cancelled`.
+
+* `collecting` means that the Source query is running.
+* `complete` means that the query succeeded and the Snapshot was committed.
+* `failed` means that the query returned an error. The file keeps a short error message.
+* `cancelled` means that collection stopped before the query completed.
+
+The file keeps the last status and its update time. If the file says `collecting`
+but the Workspace lock is free, the Dashboard treats the status as `cancelled`.
+Collection status does not replace the authoritative Source Snapshot.
+
 ## `items-<source.slug>.jsonl` [#items-sourceslugjsonl]
 
 Each line is one normalized item observation.
@@ -440,7 +488,14 @@ Each Item contains both identities:
 
 A new Run appends new observations. It does not rewrite older lines.
 
-`list` derives the latest item by item id inside each item universe. JSON output includes `source_slug` for disambiguation. `show` returns one latest matching item, and accepts `source.slug:item-id` when the same item id exists in multiple item universes.
+`list` reads the latest committed Source Snapshot for each configured Source.
+It groups output in Workspace order and does not infer current membership from
+legacy Item records. JSON output contains one object per Source and keeps
+missing and ready-empty Snapshots distinct.
+
+`show` keeps its output and item-reference rules. It now uses committed Source
+Snapshot membership, so legacy Item observations without Snapshot boundaries are
+not eligible for `show`.
 
 ## `actions-<source.slug>-<source.hash>.jsonl` [#actions-sourceslug-sourcehashjsonl]
 
@@ -461,13 +516,18 @@ Action attempts include:
 
 Successful attempts are used to skip completed work on later Runs.
 
-## Derived action state [#derived-action-state]
+## Action Plan Result [#action-plan-result]
 
-`list` shows a derived state for each item:
+`list` and `dashboard` derive one result from the current rendered Action
+identities for each Item:
 
-* `pending` — no Action attempt exists, or the latest attempt was cancelled.
-* `succeeded` — the latest attempt for every Action succeeded.
-* `failed` — the latest attempt for an Action failed.
+* `success` — every current Action identity succeeded, or no Actions exist.
+* `error` — an Action cannot render, or its latest attempt failed.
+* `pending` — every other state, including cancelled attempts and changed
+  rendered inputs.
+
+A later successful attempt replaces an older failure for the same current
+Action identity.
 
 Cancelled attempts remain eligible for retry on the next Run.
 
@@ -475,7 +535,7 @@ This is display state, not tracker state.
 
 ## Inspecting by hand [#inspecting-by-hand]
 
-The Store is plain JSONL. Use normal shell tools:
+The Store records are plain JSONL, and collection status files are JSON. Use normal shell tools:
 
 ```bash
 tail -n 20 ~/.local/share/agentboard/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl

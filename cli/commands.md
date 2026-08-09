@@ -70,14 +70,36 @@ agentboard list work
 Plain output:
 
 ```text
-AB-001	ready	pending	Create the first worktree
+Source: issues
+Reference ID	Title	Status	Action Plan Result
+AB-001	Create the first worktree	ready	pending
 ```
 
-JSON output:
+JSON output groups Items by Source and preserves missing versus ready-empty
+Snapshots:
 
 ```bash
 agentboard list work --json
 ```
+
+Each Source object contains `source_id`, `snapshot` (`missing` or `ready`), and
+an `items` array. Each Item entry contains `item` and `result`, where `result`
+is `error`, `pending`, or `success`.
+
+## `dashboard` [#dashboard]
+
+Open a read-only terminal view of the local Store:
+
+```bash
+agentboard dashboard
+agentboard dashboard work
+```
+
+The Dashboard does not collect Sources, execute Actions, acquire the Run lock,
+or write Store data. Watch Mode starts enabled and polls once per minute. Use the
+Watch button to pause or resume polling. Use Left/Right or `h`/`l` to change
+the selected Source. The left panel shows workspace actions. The right panel shows
+found Items. Use `q` or Ctrl-C to exit. The Dashboard has no in-flight Run view.
 
 ## `show` [#show]
 
