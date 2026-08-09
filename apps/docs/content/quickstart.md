@@ -14,23 +14,23 @@ ready-for-agent
           |
           +--> changes requested --> ready-for-agent
           |
-          +--> review complete + manual merge
+          +--> review complete + merged PR
                     -> cleanup approval
                     -> remove worktree
 ```
 
-AgentBoard records successful actions. GitHub labels, PR state, and your explicit merge and cleanup approval record lifecycle completion.
+AgentBoard records successful actions. GitHub labels, PR state, and your cleanup approval record lifecycle completion.
 
 ## Prerequisites
 
-The demo uses [`open-terminal`](https://www.npmjs.com/package/open-terminal) through `npx` to launch Pi in new terminal windows on Linux or macOS. Install and configure:
+The demo uses Zellij to launch Pi in new tabs and panes. Install and configure:
 
 - AgentBoard
 - [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`
 - Git
 - [Bun](https://bun.sh/)
-- [Node.js](https://nodejs.org/) with `npm` and `npx`
-- `curl` and `tar`
+- `curl`, `tar`, and `jq`
+- [Zellij](https://zellij.dev/)
 - [Pi](https://github.com/badlogic/pi-mono) with a model provider configured
 
 ## 1. Create the private demo repository
@@ -73,7 +73,13 @@ The generated Workspace contains three configured GitHub Sources:
 
 ## 2. Start Watch Mode and release two issues
 
-Start AgentBoard from the standalone repository:
+Start a Zellij session from the standalone repository:
+
+```sh
+zellij --session agentboard-demo
+```
+
+Run AgentBoard inside that session:
 
 ```sh
 agentboard run .agentboard.toml --watch --interval 15s
@@ -87,13 +93,7 @@ gh issue edit <number> --add-label agentboard:ready-for-agent
 gh issue edit <number> --add-label agentboard:ready-for-agent
 ```
 
-GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree, installs its npm dependencies, and launches Pi in a new terminal with:
-
-```sh
-npx --yes open-terminal "pi -p '/implement <issue>'"
-```
-
-`--yes` allows `npx` to install `open-terminal` on demand without blocking the background action for confirmation.
+GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree, installs its JavaScript dependencies with Bun, and launches Pi in a new Zellij tab or pane.
 
 ## 3. Observe implementation and review
 
@@ -101,10 +101,10 @@ The implementation Pi session reads the issue and implements its written accepta
 
 The review Source launches a separate reviewer Pi session in the same issue worktree:
 
-- **Pass:** Pi comments with review evidence and applies `agentboard:review-complete`. Review and merge the PR yourself in GitHub.
+- **Pass:** Pi comments with review evidence, approves and merges the PR, and applies `agentboard:review-complete`. Confirm that the issue is closed.
 - **Changes requested:** Pi comments, applies `agentboard:changes-requested`, and returns the issue to `agentboard:ready-for-agent`. The implementation Source launches another Pi session in the existing worktree.
 
-After merging an accepted PR, apply `agentboard:cleanup-approved` to its closed issue. The cleanup Source removes the issue worktree.
+After an accepted PR is merged, apply `agentboard:cleanup-approved` to its closed issue. The cleanup Source removes the issue worktree.
 
 ## 4. Tear down the throwaway demo
 

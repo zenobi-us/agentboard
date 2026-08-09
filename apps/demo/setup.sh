@@ -149,7 +149,7 @@ action 'Installing dependencies...'
 	bun install
 )
 
-action 'Building demo...'
+action 'Preparing demo commit...'
 git -C "$target" add .
 git -C "$target" commit -m 'chore: initialize AgentBoard demo'
 git -C "$target" branch -M main
@@ -214,7 +214,7 @@ Then start AgentBoard inside that Zellij session:
 Queue an issue from another terminal:
   gh issue edit <number> --repo $REPO --add-label agentboard:ready-for-agent
 
-After review passes, merge the PR and close the issue, then approve cleanup:
+After review passes, confirm that the PR is merged and the issue is closed, then approve cleanup:
   gh issue edit <number> --repo $REPO --add-label agentboard:cleanup-approved
 
 If an agent exits before handing off, remove its in-progress label and restore the matching ready label.
