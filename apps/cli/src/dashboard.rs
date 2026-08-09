@@ -1,17 +1,24 @@
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal};
 use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 use crossterm::{
-    cursor::{Hide, MoveTo, Show},
-    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
-    execute,
-    terminal::{self, Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen},
+    event::{self, Event, KeyEventKind},
+    terminal as crossterm_terminal,
 };
+use ratatui::layout::Rect;
 
 use agentboard_core::{model::Workspace, CancellationToken};
 
-use crate::store::{source_snapshots, SnapshotState, SourceSnapshot};
+use crate::store::source_snapshots;
+
+mod input;
+mod terminal;
+mod view;
+
+use input::{clicked_source, dashboard_command, next_source, previous_source, DashboardCommand};
+use terminal::TerminalSession;
+use view::{dashboard_areas, render_view, view_signature};
 
 pub fn require_dashboard_terminals(stdin: bool, stdout: bool) -> Result<()> {
     if stdin && stdout {
@@ -31,202 +38,57 @@ pub fn dashboard(ws: &Workspace, cancellation: CancellationToken) -> Result<()> 
         if cancellation.is_cancelled() {
             return Err(crate::runtime::InvocationCancelled.into());
         }
-        let width = terminal::size().context("read Dashboard terminal size")?.0 as usize;
+        let (width, height) = crossterm_terminal::size().context("read Dashboard terminal size")?;
         let snapshots = source_snapshots(ws)?;
         if selected >= snapshots.len() {
             selected = 0;
         }
-        let view = render_view(&snapshots, selected, width);
+
+        let view = view_signature(&snapshots, selected, width as usize);
         if visible_view_changed(last_view.as_deref(), &view) {
-            execute!(terminal.writer, MoveTo(0, 0), Clear(ClearType::All))?;
-            terminal.writer.write_all(view.as_bytes())?;
-            terminal.writer.flush()?;
+            terminal
+                .terminal
+                .draw(|frame| render_view(frame, &snapshots, selected))?;
             last_view = Some(view);
         }
 
         if event::poll(Duration::from_secs(1)).context("poll Dashboard input")? {
             while event::poll(Duration::ZERO).context("poll Dashboard input")? {
-                let Event::Key(key) = event::read().context("read Dashboard input")? else {
-                    continue;
-                };
-                if key.kind != KeyEventKind::Press {
-                    continue;
-                }
-                match dashboard_command(key.code, key.modifiers) {
-                    DashboardCommand::Quit => return Ok(()),
-                    DashboardCommand::Previous if !snapshots.is_empty() => {
-                        selected = previous_source(selected, snapshots.len());
-                        last_view = None;
+                match event::read().context("read Dashboard input")? {
+                    Event::Key(key) => {
+                        if key.kind != KeyEventKind::Press {
+                            continue;
+                        }
+                        match dashboard_command(key.code, key.modifiers) {
+                            DashboardCommand::Quit => return Ok(()),
+                            DashboardCommand::Previous if !snapshots.is_empty() => {
+                                selected = previous_source(selected, snapshots.len());
+                                last_view = None;
+                            }
+                            DashboardCommand::Next if !snapshots.is_empty() => {
+                                selected = next_source(selected, snapshots.len());
+                                last_view = None;
+                            }
+                            DashboardCommand::Previous
+                            | DashboardCommand::Next
+                            | DashboardCommand::Ignore => {}
+                        }
                     }
-                    DashboardCommand::Next if !snapshots.is_empty() => {
-                        selected = next_source(selected, snapshots.len());
-                        last_view = None;
+                    Event::Mouse(mouse) => {
+                        if let Some(source) = clicked_source(
+                            &mouse,
+                            dashboard_areas(Rect::new(0, 0, width, height))[1],
+                            &snapshots,
+                        ) {
+                            selected = source;
+                            last_view = None;
+                        }
                     }
-                    DashboardCommand::Previous
-                    | DashboardCommand::Next
-                    | DashboardCommand::Ignore => {}
+                    _ => {}
                 }
             }
         }
     }
-}
-
-struct TerminalSession {
-    writer: io::Stdout,
-    active: bool,
-}
-
-impl TerminalSession {
-    fn enter() -> Result<Self> {
-        terminal::enable_raw_mode().context("enable Dashboard terminal mode")?;
-        let mut session = Self {
-            writer: io::stdout(),
-            active: true,
-        };
-        if let Err(error) = execute!(session.writer, EnterAlternateScreen, Hide) {
-            session.restore();
-            return Err(error).context("enter Dashboard terminal screen");
-        }
-        Ok(session)
-    }
-
-    fn restore(&mut self) {
-        if !self.active {
-            return;
-        }
-        let _ = terminal::disable_raw_mode();
-        let _ = execute!(self.writer, Show, LeaveAlternateScreen);
-        let _ = self.writer.flush();
-        self.active = false;
-    }
-}
-
-impl Drop for TerminalSession {
-    fn drop(&mut self) {
-        self.restore();
-    }
-}
-
-fn render_view(snapshots: &[SourceSnapshot], selected: usize, width: usize) -> String {
-    if snapshots.is_empty() {
-        return "agentboard dashboard\n\nWorkspace has no configured Sources.\n\nq quit\n".into();
-    }
-
-    let snapshot = &snapshots[selected];
-    let mut output = format!(
-        "agentboard dashboard  Source {}/{}: {}\nControls: Left/Right or h/l change Source, q quit\n\n",
-        selected + 1,
-        snapshots.len(),
-        snapshot.source_id
-    );
-    match snapshot.state {
-        SnapshotState::Missing => {
-            output
-                .push_str("This Source has no current Snapshot. Run the Workspace successfully.\n");
-        }
-        SnapshotState::Ready if snapshot.items.is_empty() => {
-            output.push_str("This Source has a valid current Snapshot with zero Items.\n");
-        }
-        SnapshotState::Ready => render_table(&mut output, snapshot, width),
-    }
-    output
-}
-
-fn render_table(output: &mut String, snapshot: &SourceSnapshot, width: usize) {
-    let reference_width = snapshot
-        .items
-        .iter()
-        .map(|item| display_width(&item.item.reference_id))
-        .max()
-        .unwrap_or(0)
-        .max(display_width("Reference ID"));
-    let status_width = snapshot
-        .items
-        .iter()
-        .map(|item| display_width(&item.item.status))
-        .max()
-        .unwrap_or(0)
-        .max(display_width("Status"));
-    let result_width = snapshot
-        .items
-        .iter()
-        .map(|item| display_width(item.result))
-        .max()
-        .unwrap_or(0)
-        .max(display_width("Action Plan Result"));
-    let fixed_width = reference_width + status_width + result_width + 6;
-    let title_width = width.saturating_sub(fixed_width);
-    if title_width < 4 {
-        output.push_str(&format!(
-            "Terminal is too narrow. Minimum width: {} columns.\n",
-            fixed_width + 4
-        ));
-        return;
-    }
-
-    output.push_str(&format!(
-        "{}  {}  {}  {}\n",
-        cell("Reference ID", reference_width),
-        cell("Title", title_width),
-        cell("Status", status_width),
-        cell("Action Plan Result", result_width),
-    ));
-    for item in &snapshot.items {
-        output.push_str(&format!(
-            "{}  {}  {}  {}\n",
-            cell(&item.item.reference_id, reference_width),
-            cell(&truncate_title(&item.item.title, title_width), title_width),
-            cell(&item.item.status, status_width),
-            cell(item.result, result_width),
-        ));
-    }
-}
-
-fn truncate_title(title: &str, width: usize) -> String {
-    let title = title.replace(['\n', '\r'], " ");
-    if display_width(&title) <= width {
-        return title;
-    }
-    title
-        .chars()
-        .take(width.saturating_sub(1))
-        .chain(['…'])
-        .collect()
-}
-
-fn cell(value: &str, width: usize) -> String {
-    let padding = width.saturating_sub(display_width(value));
-    format!("{value}{}", " ".repeat(padding))
-}
-
-fn display_width(value: &str) -> usize {
-    value.chars().count()
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum DashboardCommand {
-    Quit,
-    Previous,
-    Next,
-    Ignore,
-}
-
-fn dashboard_command(code: KeyCode, modifiers: KeyModifiers) -> DashboardCommand {
-    match code {
-        KeyCode::Char('q') => DashboardCommand::Quit,
-        KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => DashboardCommand::Quit,
-        KeyCode::Left | KeyCode::Char('h') => DashboardCommand::Previous,
-        KeyCode::Right | KeyCode::Char('l') => DashboardCommand::Next,
-        _ => DashboardCommand::Ignore,
-    }
-}
-
-fn previous_source(selected: usize, source_count: usize) -> usize {
-    selected.checked_sub(1).unwrap_or(source_count - 1)
-}
-
-fn next_source(selected: usize, source_count: usize) -> usize {
-    (selected + 1) % source_count
 }
 
 fn visible_view_changed(previous: Option<&str>, current: &str) -> bool {
@@ -236,8 +98,10 @@ fn visible_view_changed(previous: Option<&str>, current: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::SnapshotItem;
+    use crate::store::{SnapshotItem, SnapshotState, SourceSnapshot};
     use agentboard_core::model::Item;
+    use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+    use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
     use serde_json::json;
 
     fn snapshot(state: SnapshotState, items: Vec<SnapshotItem>) -> SourceSnapshot {
@@ -264,6 +128,29 @@ mod tests {
         }
     }
 
+    fn rendered_view(snapshots: &[SourceSnapshot], selected: usize, width: usize) -> String {
+        let backend = TestBackend::new(width as u16, 12);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let frame = terminal
+            .draw(|frame| render_view(frame, snapshots, selected))
+            .unwrap();
+        buffer_text(frame.buffer)
+    }
+
+    fn buffer_text(buffer: &Buffer) -> String {
+        let area = buffer.area();
+        (0..area.height)
+            .map(|y| {
+                (0..area.width)
+                    .map(|x| buffer[(x, y)].symbol())
+                    .collect::<String>()
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     #[test]
     fn rejects_non_interactive_streams() {
         assert!(require_dashboard_terminals(false, true).is_err());
@@ -273,13 +160,13 @@ mod tests {
 
     #[test]
     fn renders_distinct_empty_states() {
-        assert!(render_view(&[], 0, 80).contains("no configured Sources"));
+        assert!(rendered_view(&[], 0, 80).contains("no configured Sources"));
         assert!(
-            render_view(&[snapshot(SnapshotState::Missing, vec![])], 0, 80)
+            rendered_view(&[snapshot(SnapshotState::Missing, vec![])], 0, 80)
                 .contains("no current Snapshot")
         );
         assert!(
-            render_view(&[snapshot(SnapshotState::Ready, vec![])], 0, 80).contains("zero Items")
+            rendered_view(&[snapshot(SnapshotState::Ready, vec![])], 0, 80).contains("zero Items")
         );
     }
 
@@ -293,24 +180,59 @@ mod tests {
                 items: vec![],
             },
         ];
-        assert!(render_view(&snapshots, 0, 80).contains("issues"));
-        assert!(render_view(&snapshots, 1, 80).contains("mine"));
+        assert!(rendered_view(&snapshots, 0, 80).contains("issues"));
+        assert!(rendered_view(&snapshots, 1, 80).contains("mine"));
     }
 
     #[test]
     fn truncates_only_the_title_when_width_is_limited() {
-        let text = render_view(
+        let text = rendered_view(
             &[snapshot(
                 SnapshotState::Ready,
                 vec![item("AB-123", "A very long title that must be truncated")],
             )],
             0,
-            52,
+            80,
         );
         assert!(text.contains("AB-123"));
         assert!(text.contains("ready"));
         assert!(text.contains("pending"));
         assert!(text.contains('…'));
+    }
+
+    #[test]
+    fn mouse_clicks_select_source_tabs() {
+        let snapshots = vec![
+            snapshot(SnapshotState::Ready, vec![]),
+            SourceSnapshot {
+                source_id: "mine".into(),
+                state: SnapshotState::Ready,
+                items: vec![],
+            },
+        ];
+        let tabs_area = dashboard_areas(Rect::new(0, 0, 80, 12))[1];
+        let first = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: tabs_area.x + 1,
+            row: tabs_area.y + 1,
+            modifiers: KeyModifiers::NONE,
+        };
+        let second = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: tabs_area.x + "issues".chars().count() as u16 + 2,
+            row: tabs_area.y + 1,
+            modifiers: KeyModifiers::NONE,
+        };
+        let outside = MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Right),
+            column: tabs_area.x + 1,
+            row: tabs_area.y + 1,
+            modifiers: KeyModifiers::NONE,
+        };
+
+        assert_eq!(clicked_source(&first, tabs_area, &snapshots), Some(0));
+        assert_eq!(clicked_source(&second, tabs_area, &snapshots), Some(1));
+        assert_eq!(clicked_source(&outside, tabs_area, &snapshots), None);
     }
 
     #[test]
@@ -340,11 +262,10 @@ mod tests {
             SnapshotState::Ready,
             vec![item("AB-123", "A long title")],
         )];
-        let narrow = render_view(&snapshots, 0, 10);
-        assert!(narrow.contains("Minimum width"));
+        let narrow = rendered_view(&snapshots, 0, 10);
+        assert!(narrow.contains("Minimum"));
 
-        let width = 80;
-        let rendered = render_view(&snapshots, 0, width);
-        assert!(rendered.lines().all(|line| display_width(line) <= width));
+        let rendered = rendered_view(&snapshots, 0, 80);
+        assert!(rendered.lines().all(|line| line.chars().count() <= 80));
     }
 }
