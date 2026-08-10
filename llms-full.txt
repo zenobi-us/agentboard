@@ -35,23 +35,39 @@ The demo uses a launcher to open Pi in a new pane, tab, or terminal window. Inst
 
 ## 1. Create the private demo repository [#1-create-the-private-demo-repository]
 
-From the directory where you want the local clone, run:
+From the AgentBoard repository, run the local setup script:
+
+```sh
+env REPO=OWNER/agentboard-quickstart-demo \
+    TARGET_DIR="$HOME/agentboard-quickstart-demo" \
+    ./apps/demo/setup.sh
+```
+
+You can also run the setup script without a local checkout:
 
 ```sh
 curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | sh
 ```
 
-When prompted, enter the new GitHub repository as `OWNER/agentboard-quickstart-demo`. To skip the prompt, pass `REPO` to the shell running the downloaded script:
+When prompted, enter the new GitHub repository as `OWNER/agentboard-quickstart-demo`. To skip the prompt, pass `REPO` to the setup shell:
 
 ```sh
 curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh \
-  | REPO=OWNER/agentboard-quickstart-demo sh
+  | env REPO=OWNER/agentboard-quickstart-demo sh
+```
+
+By default, the script clones the repository into `./agentboard-quickstart-demo`. Set `TARGET_DIR` to choose another exact local path:
+
+```sh
+curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh \
+  | env REPO=OWNER/agentboard-quickstart-demo \
+    TARGET_DIR="$HOME/agentboard-quickstart-demo" sh
 ```
 
 The setup script:
 
 1. creates a private GitHub repository;
-2. clones it into `./agentboard-quickstart-demo`;
+2. clones it into the selected local path;
 3. downloads and copies only AgentBoard's `apps/demo` directory;
 4. renders the repository-specific query in `.agentboard.toml`;
 5. installs ESLint, Husky, and lint-staged;
@@ -293,6 +309,7 @@ agentboard dashboard work
 The Dashboard does not collect Sources, execute Actions, acquire the Run lock,
 or write Store data. Watch Mode starts enabled and polls once per minute. Use the
 Watch button to pause or resume polling. Use Left/Right or `h`/`l` to change
+the selected Source. Press `e` to expand the footer and show recent events for
 the selected Source. The left panel shows workspace actions. The right panel shows
 found Items. Use `q` or Ctrl-C to exit. The Dashboard has no in-flight Run view.
 
@@ -436,6 +453,7 @@ AgentBoard stores data under the user's XDG data directory:
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   run.lock
+  events.jsonl
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
   items-<source.slug>.snapshots
@@ -453,6 +471,9 @@ latest committed Snapshot. A committed empty Snapshot is valid.
 
 Sources that share an Item Store keep separate Snapshot membership and their
 source-specific normalized Item values.
+
+Normal Runs append structured diagnostic events to `events.jsonl`. The global
+`--log-file` option writes these events to a different path.
 
 Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 
