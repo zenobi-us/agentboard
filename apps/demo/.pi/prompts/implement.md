@@ -10,7 +10,9 @@ Implement the GitHub issue and create or update its pull request.
 
 When the branch is ready:
 
-- Push and create or update a PR whose body describes the "why" of the changes. Ensure the PR contains `Closes #$1`, validation results, and review handoff.
+- Push and create or update a PR whose body describes the "why" of the changes.
+- Use conventional commit messages for the PR title. include the issue number in the title.
+- Ensure the pr description contains validation results, and review handoff.
 - Remove `agentboard:in-progress`, `agentboard:ready-for-agent`, and `agentboard:changes-requested` when present.
 - Add `agentboard:ready-for-review` last, so the watcher sees the completed handoff state.
 

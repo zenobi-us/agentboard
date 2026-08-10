@@ -16,7 +16,7 @@ If changes are required:
 If the change passes:
 
 - Comment on the PR with review and lint evidence.
-- use the gh cli to approve and merge the PR.
+- Use the gh CLI to merge the PR.
 - Remove `agentboard:review-in-progress`, `agentboard:ready-for-review`, and `agentboard:changes-requested` when present.
 - Add `agentboard:review-complete`.
 
