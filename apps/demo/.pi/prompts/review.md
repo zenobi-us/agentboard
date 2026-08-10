@@ -3,7 +3,7 @@ Review the GitHub issue and associated pull request.
 Act as an independent reviewer. Do not edit files or commit changes.
 
 - Use `gh` to read the issue and PR and inspect the diff.
-- Before reviewing, claim the issue: remove `agentboard:ready-for-review`, then add `agentboard:review-in-progress`.
+- AgentBoard claims the issue before it launches this prompt.
 - Verify the written acceptance criteria directly.
 - Run and include the result in the review evidence.
 

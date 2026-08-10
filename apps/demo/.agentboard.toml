@@ -15,6 +15,15 @@ helper = "gh auth token"
 "agentboard:changes-requested" = "changes-requested"
 
 [[sources.actions]]
+id = "claim"
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+# ponytail: updated_at rearms this claim after label transitions; production workflows need explicit retry generations.
+cmd = ''': "{{ item.raw.github.issue.updated_at }}"; gh issue edit "{{ item.reference_id }}" --repo "__GITHUB_REPOSITORY__" --remove-label "agentboard:ready-for-agent,agentboard:changes-requested" --add-label "agentboard:in-progress"'''
+cwd = "."
+
+[[sources.actions]]
 id = "worktree"
 uses = "agentboard/worktree"
 
@@ -46,6 +55,15 @@ helper = "gh auth token"
 [sources.source.status_map]
 "agentboard:ready-for-review" = "ready-for-review"
 "agentboard:review-complete" = "review-complete"
+
+[[sources.actions]]
+id = "claim"
+uses = "agentboard/run-cmd"
+
+[sources.actions.with]
+# ponytail: updated_at rearms this claim after label transitions; production workflows need explicit retry generations.
+cmd = ''': "{{ item.raw.github.issue.updated_at }}"; gh issue edit "{{ item.reference_id }}" --repo "__GITHUB_REPOSITORY__" --remove-label "agentboard:ready-for-review" --add-label "agentboard:review-in-progress"'''
+cwd = "."
 
 [[sources.actions]]
 id = "worktree"

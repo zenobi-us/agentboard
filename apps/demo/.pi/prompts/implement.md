@@ -1,7 +1,7 @@
 Implement the GitHub issue and create or update its pull request.
 
 - Use `gh` to read the issue and any existing PR for the branch.
-- Before doing other work, claim the issue: remove `agentboard:ready-for-agent` and `agentboard:changes-requested`, then add `agentboard:in-progress`.
+- AgentBoard claims the issue before it launches this prompt.
 - Comment on the issue to acknowledge that work has started.
 - Work only in this worktree.
 - Implement the issue's written acceptance criteria directly.
