@@ -9,7 +9,7 @@ Usage:
 
 Environment:
   AGENTBOARD_LAUNCHER=auto|herdr|zellij|gnome-terminal|xterm|konsole|kitty|alacritty|wezterm
-  AGENTBOARD_LAUNCH_MODE=issue-pane|pane|tab
+  AGENTBOARD_LAUNCH_MODE=workspace|issue-pane|pane|tab
 EOF
 }
 
@@ -86,24 +86,91 @@ launch_zellij() {
 	esac
 }
 
-launch_herdr() {
+canonical_path() {
+	(
+		cd -- "$1" >/dev/null 2>&1 &&
+		pwd -P
+	)
+}
+
+worktree_workspace_for_path() {
+	local cwd=$1
+	local parent_workspace_id=${HERDR_WORKSPACE_ID:-}
+
+	[ -n "$parent_workspace_id" ] || return 1
+	herdr worktree list --workspace "$parent_workspace_id" |
+		jq -r --arg cwd "$cwd" '
+			first(.result.worktrees[]? |
+				select(.path == $cwd) |
+				.open_workspace_id // empty)'
+}
+
+launch_herdr_workspace() {
 	local role=$1
 	local issue=$2
-	local mode=${AGENTBOARD_LAUNCH_MODE:-issue-pane}
-	local pane_json
+	local name="${role}-${issue}"
+	local cwd
+	local parent_workspace_id=${HERDR_WORKSPACE_ID:-}
+	local workspace_id
+	local worktree_json
+	local tab_json
 	local pane_id
 	local command
 
-	[ "${HERDR_ENV:-}" = 1 ] || fail 'Herdr launcher requires HERDR_ENV=1'
-	[ "$mode" = issue-pane ] || [ "$mode" = pane ] ||
-		fail 'Herdr launcher supports pane mode only'
-	require_command herdr
-	require_command jq
+	[ -n "$parent_workspace_id" ] || fail 'Herdr workspace context is missing'
+	cwd=$(canonical_path "$PWD") || fail "worktree path does not exist: $PWD"
+	workspace_id=$(worktree_workspace_for_path "$cwd")
+
+	if [ -n "$workspace_id" ]; then
+		tab_json=$(herdr tab create \
+			--workspace "$workspace_id" \
+			--cwd "$cwd" \
+			--label "$name" \
+			--no-focus)
+		pane_id=$(jq -er '.result.root_pane.pane_id' <<<"$tab_json")
+	elif [ "$role" = implement ]; then
+		# AgentBoard/Worktrunk owns Git worktree creation. Herdr only opens it.
+		worktree_json=$(herdr worktree open \
+			--workspace "$parent_workspace_id" \
+			--path "$cwd" \
+			--label "issue-${issue}" \
+			--no-focus)
+		pane_id=$(jq -er '.result.root_pane.pane_id' <<<"$worktree_json")
+	else
+		fail "issue workspace is not open; launch implement first for issue $issue"
+	fi
+
+	printf -v command 'cd %q && exec pi %q' "$cwd" "/$role $issue"
+	herdr pane run "$pane_id" "$command"
+}
+
+launch_herdr_pane() {
+	local role=$1
+	local issue=$2
+	local pane_json
+	local pane_id
+	local command
 
 	pane_json=$(herdr pane split --current --direction right --cwd "$PWD" --no-focus)
 	pane_id=$(jq -er '.result.pane.pane_id' <<<"$pane_json")
 	printf -v command 'cd %q && exec pi %q' "$PWD" "/$role $issue"
 	herdr pane run "$pane_id" "$command"
+}
+
+launch_herdr() {
+	local role=$1
+	local issue=$2
+	local mode=${AGENTBOARD_LAUNCH_MODE:-workspace}
+
+	[ "${HERDR_ENV:-}" = 1 ] || fail 'Herdr launcher requires HERDR_ENV=1'
+	require_command herdr
+	require_command jq
+
+	case "$mode" in
+	workspace) launch_herdr_workspace "$role" "$issue" ;;
+	issue-pane | pane) launch_herdr_pane "$role" "$issue" ;;
+	*) fail 'Herdr launcher supports workspace, issue-pane, and pane modes' ;;
+	esac
 }
 
 launch_terminal() {
