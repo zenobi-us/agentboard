@@ -18,10 +18,13 @@ tmp=''
 usage() {
 	cat <<'EOF'
 Usage:
-  curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | sh
+  REPO=owner/name TARGET_DIR=/path/to/clone ./apps/demo/setup.sh
+  curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | env REPO=owner/name TARGET_DIR=/path/to/clone sh
 
+Pass REPO and TARGET_DIR to the setup script.
 Set REPO=owner/name to skip the repository prompt.
-The private repository is cloned into ./<name>.
+Set TARGET_DIR=/path/to/clone to choose the exact local clone path.
+The default path is ./<name>.
 EOF
 }
 
@@ -93,7 +96,7 @@ case "$name" in
 */* | . | ..) fail 'REPO must use owner/name format' ;;
 esac
 
-target=$PWD/$name
+target=${TARGET_DIR:-$PWD/$name}
 replace_target=false
 replace_repo=false
 if [ -e "$target" ]; then

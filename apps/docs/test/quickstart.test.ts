@@ -8,10 +8,12 @@ test("Quickstart bootstraps only the demo fixture", async () => {
     "utf8",
   );
 
+  expect(quickstart).toContain("./apps/demo/setup.sh");
   expect(quickstart).toContain(
     "curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | sh",
   );
-  expect(quickstart).toContain("REPO=OWNER/agentboard-quickstart-demo sh");
+  expect(quickstart).toContain("env REPO=OWNER/agentboard-quickstart-demo sh");
+  expect(quickstart).toContain("TARGET_DIR=\"$HOME/agentboard-quickstart-demo\"");
   expect(quickstart).toContain("downloads and copies only AgentBoard's `apps/demo` directory");
   expect(quickstart).toContain("AGENTBOARD_LAUNCHER=gnome-terminal");
   expect(quickstart).toContain("launches Pi through the selected launcher");

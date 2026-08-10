@@ -35,23 +35,39 @@ The demo uses a launcher to open Pi in a new pane, tab, or terminal window. Inst
 
 ## 1. Create the private demo repository
 
-From the directory where you want the local clone, run:
+From the AgentBoard repository, run the local setup script:
+
+```sh
+env REPO=OWNER/agentboard-quickstart-demo \
+    TARGET_DIR="$HOME/agentboard-quickstart-demo" \
+    ./apps/demo/setup.sh
+```
+
+You can also run the setup script without a local checkout:
 
 ```sh
 curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | sh
 ```
 
-When prompted, enter the new GitHub repository as `OWNER/agentboard-quickstart-demo`. To skip the prompt, pass `REPO` to the shell running the downloaded script:
+When prompted, enter the new GitHub repository as `OWNER/agentboard-quickstart-demo`. To skip the prompt, pass `REPO` to the setup shell:
 
 ```sh
 curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh \
-  | REPO=OWNER/agentboard-quickstart-demo sh
+  | env REPO=OWNER/agentboard-quickstart-demo sh
+```
+
+By default, the script clones the repository into `./agentboard-quickstart-demo`. Set `TARGET_DIR` to choose another exact local path:
+
+```sh
+curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh \
+  | env REPO=OWNER/agentboard-quickstart-demo \
+    TARGET_DIR="$HOME/agentboard-quickstart-demo" sh
 ```
 
 The setup script:
 
 1. creates a private GitHub repository;
-2. clones it into `./agentboard-quickstart-demo`;
+2. clones it into the selected local path;
 3. downloads and copies only AgentBoard's `apps/demo` directory;
 4. renders the repository-specific query in `.agentboard.toml`;
 5. installs ESLint, Husky, and lint-staged;
