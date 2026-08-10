@@ -5,7 +5,7 @@
 
 use agentboard_action_run_cmd::RunCmdDefinition;
 use agentboard_action_worktree::WorktreeDefinition;
-use agentboard_core::{registry::Registry, CancellationToken};
+use agentboard_core::{model::Workspace, registry::Registry, CancellationToken};
 use agentboard_source_github::GithubSourceDefinition;
 use agentboard_source_jira::JiraSourceDefinition;
 use agentboard_source_qmd::QmdSourceDefinition;
@@ -16,7 +16,7 @@ use clap::{ArgAction, Parser, Subcommand};
 
 use crate::{
     config::{
-        init_workspace, list_workspaces, load_workspace, named_workspace_path,
+        event_log_path, init_workspace, list_workspaces, load_workspace, named_workspace_path,
         validate_workspace_name,
     },
     dashboard::{dashboard, require_dashboard_terminals},
@@ -209,7 +209,16 @@ pub async fn run() -> Result<()> {
     };
     // Delay output construction until after Workspace loading. Opening a diagnostic
     // log is a side effect, so invalid config must fail before this closure is called.
-    let create_output = || Output::new(verbosity, cli.color, cli.log_file.as_deref());
+    let create_output = |workspace: &Workspace, use_default_log: bool| {
+        let default_log = event_log_path(workspace);
+        Output::new(
+            verbosity,
+            cli.color,
+            cli.log_file
+                .as_deref()
+                .or(use_default_log.then_some(default_log.as_path())),
+        )
+    };
     let result = match cli.command {
         Command::Workspace { command } => match command {
             WorkspaceCommand::List => print_workspaces(),
@@ -227,7 +236,7 @@ pub async fn run() -> Result<()> {
             interval,
         } => {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
-            let output = create_output()?;
+            let output = create_output(&workspace, !dry_run)?;
             if watch {
                 let interval = parse_duration(interval.as_deref().unwrap_or("60s"))?;
                 run_watch(
@@ -260,7 +269,7 @@ pub async fn run() -> Result<()> {
             if watch {
                 require_watch_stdout(watch_stdout_is_terminal())?;
                 let interval = parse_duration(interval.as_deref().unwrap_or("60s"))?;
-                let output = create_output()?;
+                let output = create_output(&workspace, true)?;
                 list_items_watch(workspace, interval, &output, cancellation.clone()).await
             } else {
                 list_items(&workspace, json)
@@ -285,7 +294,7 @@ pub async fn run() -> Result<()> {
             if watch {
                 require_watch_stdout(watch_stdout_is_terminal())?;
                 let interval = parse_duration(interval.as_deref().unwrap_or("60s"))?;
-                let output = create_output()?;
+                let output = create_output(&workspace, true)?;
                 show_item_watch(workspace, item_id, interval, &output, cancellation.clone()).await
             } else {
                 show_item(&workspace, &item_id, json)
@@ -293,7 +302,7 @@ pub async fn run() -> Result<()> {
         }
         Command::Doctor { workspace } => {
             let workspace = load_workspace(workspace.as_deref(), &registry)?;
-            let output = create_output()?;
+            let output = create_output(&workspace, true)?;
             doctor(&workspace, &registry, &output, cancellation.clone()).await
         }
         Command::Schema => {

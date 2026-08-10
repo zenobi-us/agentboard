@@ -98,6 +98,7 @@ agentboard dashboard work
 The Dashboard does not collect Sources, execute Actions, acquire the Run lock,
 or write Store data. Watch Mode starts enabled and polls once per minute. Use the
 Watch button to pause or resume polling. Use Left/Right or `h`/`l` to change
+the selected Source. Press `e` to expand the footer and show recent events for
 the selected Source. The left panel shows workspace actions. The right panel shows
 found Items. Use `q` or Ctrl-C to exit. The Dashboard has no in-flight Run view.
 

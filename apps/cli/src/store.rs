@@ -1,7 +1,7 @@
 //! Append-only Workspace Store operations and registered diagnostic checks.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fs::{self, File, OpenOptions},
     hash::{Hash, Hasher},
     io::{self, BufRead, BufReader, IsTerminal, Write},
@@ -21,7 +21,7 @@ use fs4::{FileExt, TryLockError};
 use serde_json::{json, Value};
 
 use crate::{
-    config::{actions_path, items_path, source_dir, source_slug, store_root},
+    config::{actions_path, event_log_path, items_path, source_dir, source_slug, store_root},
     output::Output,
     runtime::schedule_refreshes,
     template::{render_action, ActionTemplateContext},
@@ -38,6 +38,72 @@ struct StoredItem {
 const SNAPSHOT_KEY_FIELD: &str = "_agentboard_snapshot_key";
 const SNAPSHOT_ID_FIELD: &str = "_agentboard_snapshot_id";
 static SNAPSHOT_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// One structured event from a workspace diagnostic log.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EventLogEntry {
+    pub timestamp: String,
+    pub level: String,
+    pub stage: String,
+    pub source: Option<String>,
+    pub kind: Option<String>,
+    pub items: Option<u64>,
+    pub error: Option<String>,
+}
+
+/// Read the newest structured events for a workspace.
+pub fn recent_events(ws: &Workspace, limit: usize) -> Result<Vec<EventLogEntry>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let path = event_log_path(ws);
+    let file = match File::open(&path) {
+        Ok(file) => file,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => {
+            return Err(error).with_context(|| format!("open event log {}", path.display()))
+        }
+    };
+    let mut events = VecDeque::with_capacity(limit);
+    for line in BufReader::new(file).lines() {
+        let line = line?;
+        let value: Value = match serde_json::from_str(&line) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        let Some(stage) = value.get("stage").and_then(Value::as_str) else {
+            continue;
+        };
+        let event = EventLogEntry {
+            timestamp: value
+                .get("ts")
+                .and_then(Value::as_str)
+                .unwrap_or("unknown time")
+                .to_owned(),
+            level: value
+                .get("level")
+                .and_then(Value::as_str)
+                .unwrap_or("info")
+                .to_owned(),
+            stage: stage.to_owned(),
+            source: value
+                .get("source")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            kind: value.get("kind").and_then(Value::as_str).map(str::to_owned),
+            items: value.get("items").and_then(Value::as_u64),
+            error: value
+                .get("error")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+        };
+        if events.len() == limit {
+            events.pop_front();
+        }
+        events.push_back(event);
+    }
+    Ok(events.into_iter().collect())
+}
 
 struct StoredAction {
     slug: String,

@@ -17,6 +17,7 @@ AgentBoard stores data under the user's XDG data directory:
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   run.lock
+  events.jsonl
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
   items-<source.slug>.snapshots
@@ -34,6 +35,9 @@ latest committed Snapshot. A committed empty Snapshot is valid.
 
 Sources that share an Item Store keep separate Snapshot membership and their
 source-specific normalized Item values.
+
+Normal Runs append structured diagnostic events to `events.jsonl`. The global
+`--log-file` option writes these events to a different path.
 
 Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 

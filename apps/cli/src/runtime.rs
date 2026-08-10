@@ -509,7 +509,12 @@ async fn run_source_with_store_hook(
     output.detail(
         "source.start",
         &format!("source {source_id} collecting"),
-        json!({"workspace": ws.id, "run": run_id, "source": source_id}),
+        json!({
+            "workspace": ws.id,
+            "run": run_id,
+            "source": source_id,
+            "kind": source.configured.source.kind,
+        }),
     )?;
     if !dry_run {
         set_source_collection_status(ws, source_id, CollectionState::Collecting, None)?;
@@ -715,6 +720,7 @@ async fn run_source_with_store_hook(
             "workspace": ws.id,
             "run": run_id,
             "source": source_id,
+            "kind": source.configured.source.kind,
             "items": summary.items,
             "attempted": summary.attempted,
             "skipped": summary.skipped,

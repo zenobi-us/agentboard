@@ -10,10 +10,17 @@ use agentboard_core::model::{ActionConfig, Workspace, WorkspaceSource};
 use serde_json::Value;
 
 use crate::store::{
-    ActionState, CollectionState, SnapshotState, SourceCollectionStatus, SourceSnapshot,
+    ActionState, CollectionState, EventLogEntry, SnapshotState, SourceCollectionStatus,
+    SourceSnapshot,
 };
 
 use super::logo::Logo;
+
+pub(super) struct Footer<'a> {
+    pub(super) text: &'a str,
+    pub(super) events_open: bool,
+    pub(super) events: &'a [EventLogEntry],
+}
 
 pub(super) fn render_view(
     frame: &mut Frame,
@@ -21,9 +28,9 @@ pub(super) fn render_view(
     snapshots: &[SourceSnapshot],
     selected: usize,
     watching: bool,
-    footer: &str,
+    footer: Footer<'_>,
 ) {
-    let areas = dashboard_areas(frame.area());
+    let areas = dashboard_areas(frame.area(), footer.events_open);
     frame.render_widget(Logo::new(watching), areas[0]);
 
     if snapshots.is_empty() {
@@ -38,9 +45,12 @@ pub(super) fn render_view(
         render_ticket_list(frame, columns[1], &snapshots[selected]);
     }
 
-    frame.render_widget(
-        Paragraph::new(footer).style(Style::default().fg(Color::DarkGray)),
+    render_event_footer(
+        frame,
         areas[2],
+        footer.text,
+        footer.events_open,
+        footer.events,
     );
 }
 
@@ -58,16 +68,80 @@ pub(super) fn watch_button_area(area: Rect) -> Rect {
     }
 }
 
-pub(super) fn dashboard_areas(area: Rect) -> Vec<Rect> {
+pub(super) fn dashboard_areas(area: Rect, events_open: bool) -> Vec<Rect> {
     Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Min(1),
-            Constraint::Length(1),
+            Constraint::Length(if events_open { 8 } else { 1 }),
         ])
         .split(area)
         .to_vec()
+}
+
+fn render_event_footer(
+    frame: &mut Frame,
+    area: Rect,
+    footer: &str,
+    events_open: bool,
+    events: &[EventLogEntry],
+) {
+    if !events_open {
+        let label = format!("▸ Events ({})   {footer}", events.len());
+        frame.render_widget(
+            Paragraph::new(label).style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    }
+
+    let footer_areas = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Min(1)])
+        .split(area);
+    let header = format!("▾ Events · current Source ({})   {footer}", events.len());
+    frame.render_widget(
+        Paragraph::new(header).style(Style::default().fg(Color::DarkGray)),
+        footer_areas[0],
+    );
+    let lines = events
+        .iter()
+        .map(format_event)
+        .collect::<Vec<_>>()
+        .join("\n");
+    frame.render_widget(
+        Paragraph::new(if lines.is_empty() {
+            "No events for the current Source.".to_owned()
+        } else {
+            lines
+        })
+        .style(Style::default().fg(Color::Gray)),
+        footer_areas[1],
+    );
+}
+
+fn format_event(event: &EventLogEntry) -> String {
+    let time = event
+        .timestamp
+        .split('T')
+        .nth(1)
+        .unwrap_or(&event.timestamp)
+        .trim_end_matches('Z');
+    let mut line = format!("{time} {} {}", event.level, event.stage);
+    if let Some(source) = &event.source {
+        line.push_str(&format!(" · source={source}"));
+    }
+    if let Some(kind) = &event.kind {
+        line.push_str(&format!(" kind={kind}"));
+    }
+    if let Some(items) = event.items {
+        line.push_str(&format!(" items={items}"));
+    }
+    if let Some(error) = &event.error {
+        line.push_str(&format!(" error={error}"));
+    }
+    line
 }
 
 pub(super) fn dashboard_columns(area: Rect) -> Vec<Rect> {
@@ -355,8 +429,13 @@ pub(super) fn view_signature(
     width: usize,
     watching: bool,
     footer: &str,
+    events_open: bool,
+    events: &[EventLogEntry],
 ) -> String {
-    let mut signature = format!("{selected}:{width}:{watching}:{footer};");
+    let mut signature = format!("{selected}:{width}:{watching}:{footer}:{events_open};");
+    for event in events {
+        signature.push_str(&format!("{}:{};", event.timestamp, event.stage));
+    }
     for snapshot in snapshots {
         signature.push_str(&snapshot.source_id);
         signature.push(':');

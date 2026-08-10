@@ -205,6 +205,11 @@ pub fn store_root(ws: &Workspace) -> PathBuf {
     data_home().join("agentboard").join(&ws.id)
 }
 
+/// Return the diagnostic event log path for one workspace.
+pub fn event_log_path(ws: &Workspace) -> PathBuf {
+    store_root(ws).join("events.jsonl")
+}
+
 /// Return the per-source store directory for one workspace source.
 pub fn source_dir(ws: &Workspace, source_id: &str) -> PathBuf {
     store_root(ws).join("sources").join(source_id)

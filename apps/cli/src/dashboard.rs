@@ -11,7 +11,7 @@ use ratatui::layout::Rect;
 
 use agentboard_core::{model::Workspace, CancellationToken};
 
-use crate::store::source_snapshots;
+use crate::store::{recent_events, source_snapshots, EventLogEntry};
 
 mod input;
 mod logo;
@@ -23,7 +23,9 @@ use input::{
     DashboardCommand,
 };
 use terminal::TerminalSession;
-use view::{dashboard_areas, dashboard_columns, render_view, view_signature, watch_button_area};
+use view::{
+    dashboard_areas, dashboard_columns, render_view, view_signature, watch_button_area, Footer,
+};
 
 const WATCH_INTERVAL: Duration = Duration::from_secs(60);
 const UI_TICK: Duration = Duration::from_millis(100);
@@ -43,6 +45,8 @@ pub fn dashboard(ws: &Workspace, cancellation: CancellationToken) -> Result<()> 
     let mut watching = true;
     let mut loaded = false;
     let mut snapshots = Vec::new();
+    let mut event_records = Vec::new();
+    let mut events_open = false;
     let mut last_view = None;
     let mut next_fetch = Instant::now();
     let mut poll_number = 0_u64;
@@ -55,6 +59,7 @@ pub fn dashboard(ws: &Workspace, cancellation: CancellationToken) -> Result<()> 
         let (width, height) = crossterm_terminal::size().context("read Dashboard terminal size")?;
         if !loaded || (watching && Instant::now() >= next_fetch) {
             snapshots = source_snapshots(ws)?;
+            event_records = recent_events(ws, 512)?;
             loaded = true;
             poll_number += 1;
             last_poll_label = Some(Utc::now().format("%H:%M:%S").to_string());
@@ -66,11 +71,31 @@ pub fn dashboard(ws: &Workspace, cancellation: CancellationToken) -> Result<()> 
 
         let countdown = watching.then(|| next_fetch.saturating_duration_since(Instant::now()));
         let footer = watch_footer(poll_number, last_poll_label.as_deref(), countdown);
-        let view = view_signature(&snapshots, selected, width as usize, watching, &footer);
+        let events = selected_source_events(&snapshots, selected, &event_records);
+        let view = view_signature(
+            &snapshots,
+            selected,
+            width as usize,
+            watching,
+            &footer,
+            events_open,
+            &events,
+        );
         if visible_view_changed(last_view.as_deref(), &view) {
-            terminal
-                .terminal
-                .draw(|frame| render_view(frame, ws, &snapshots, selected, watching, &footer))?;
+            terminal.terminal.draw(|frame| {
+                render_view(
+                    frame,
+                    ws,
+                    &snapshots,
+                    selected,
+                    watching,
+                    Footer {
+                        text: &footer,
+                        events_open,
+                        events: &events,
+                    },
+                )
+            })?;
             last_view = Some(view);
         }
 
@@ -98,13 +123,17 @@ pub fn dashboard(ws: &Workspace, cancellation: CancellationToken) -> Result<()> 
                                 selected = next_source(selected, snapshots.len());
                                 last_view = None;
                             }
+                            DashboardCommand::ToggleEvents => {
+                                events_open = !events_open;
+                                last_view = None;
+                            }
                             DashboardCommand::Previous
                             | DashboardCommand::Next
                             | DashboardCommand::Ignore => {}
                         }
                     }
                     Event::Mouse(mouse) => {
-                        let areas = dashboard_areas(Rect::new(0, 0, width, height));
+                        let areas = dashboard_areas(Rect::new(0, 0, width, height), events_open);
                         if clicked_watch(&mouse, watch_button_area(areas[0])) {
                             watching = !watching;
                             if watching {
@@ -125,12 +154,34 @@ pub fn dashboard(ws: &Workspace, cancellation: CancellationToken) -> Result<()> 
     }
 }
 
+fn selected_source_events(
+    snapshots: &[crate::store::SourceSnapshot],
+    selected: usize,
+    records: &[EventLogEntry],
+) -> Vec<EventLogEntry> {
+    let Some(source_id) = snapshots
+        .get(selected)
+        .map(|snapshot| snapshot.source_id.as_str())
+    else {
+        return Vec::new();
+    };
+    let mut events = records
+        .iter()
+        .filter(|event| event.source.as_deref() == Some(source_id))
+        .rev()
+        .take(6)
+        .cloned()
+        .collect::<Vec<_>>();
+    events.reverse();
+    events
+}
+
 fn watch_footer(
     poll_number: u64,
     last_poll_label: Option<&str>,
     countdown: Option<Duration>,
 ) -> String {
-    let controls = "←/h Prev   →/l Next   q/Ctrl-C Quit";
+    let controls = "←/h Prev   →/l Next   e Events   q/Ctrl-C Quit";
     let last_poll = format!(
         "Last poll #{poll_number} at {}",
         last_poll_label.unwrap_or("--:--:--")
@@ -156,7 +207,7 @@ fn visible_view_changed(previous: Option<&str>, current: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::store::{SnapshotItem, SnapshotState, SourceSnapshot};
+    use crate::store::{EventLogEntry, SnapshotItem, SnapshotState, SourceSnapshot};
     use agentboard_core::model::Item;
     use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
     use ratatui::{backend::TestBackend, buffer::Buffer, Terminal};
@@ -209,7 +260,11 @@ mod tests {
                     snapshots,
                     selected,
                     watching,
-                    "test footer",
+                    Footer {
+                        text: "test footer",
+                        events_open: false,
+                        events: &[],
+                    },
                 )
             })
             .unwrap();
@@ -325,7 +380,20 @@ cmd = "echo worktree"
         let backend = TestBackend::new(100, 12);
         let mut terminal = Terminal::new(backend).unwrap();
         let frame = terminal
-            .draw(|frame| render_view(frame, &workspace, &snapshots, 0, true, "test footer"))
+            .draw(|frame| {
+                render_view(
+                    frame,
+                    &workspace,
+                    &snapshots,
+                    0,
+                    true,
+                    Footer {
+                        text: "test footer",
+                        events_open: false,
+                        events: &[],
+                    },
+                )
+            })
             .unwrap();
         let text = buffer_text(frame.buffer);
 
@@ -336,6 +404,44 @@ cmd = "echo worktree"
         assert!(text.contains("Fix login timeout"));
         assert!(text.contains("failed"));
         assert!(text.contains("⟳"));
+    }
+
+    #[test]
+    fn renders_current_source_events_when_expanded() {
+        let snapshots = [snapshot(SnapshotState::Ready, vec![])];
+        let workspace = workspace_for(&snapshots);
+        let events = [EventLogEntry {
+            timestamp: "2026-01-01T12:34:56Z".into(),
+            level: "info".into(),
+            stage: "source.complete".into(),
+            source: Some("issues".into()),
+            kind: Some("github".into()),
+            items: Some(12),
+            error: None,
+        }];
+        let backend = TestBackend::new(100, 20);
+        let mut terminal = Terminal::new(backend).unwrap();
+        let frame = terminal
+            .draw(|frame| {
+                render_view(
+                    frame,
+                    &workspace,
+                    &snapshots,
+                    0,
+                    true,
+                    Footer {
+                        text: "test footer",
+                        events_open: true,
+                        events: &events,
+                    },
+                )
+            })
+            .unwrap();
+        let text = buffer_text(frame.buffer);
+
+        assert!(text.contains("current Source"));
+        assert!(text.contains("source.complete"));
+        assert!(text.contains("source=issues kind=github items=12"));
     }
 
     #[test]
@@ -389,7 +495,7 @@ cmd = "echo worktree"
             },
         ];
         let workspace = workspace_for(&snapshots);
-        let tree_area = dashboard_columns(dashboard_areas(Rect::new(0, 0, 80, 12))[1])[0];
+        let tree_area = dashboard_columns(dashboard_areas(Rect::new(0, 0, 80, 12), false)[1])[0];
         let first = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: tree_area.x + 1,
@@ -416,7 +522,7 @@ cmd = "echo worktree"
 
     #[test]
     fn mouse_clicks_toggle_watch_button() {
-        let button = watch_button_area(dashboard_areas(Rect::new(0, 0, 80, 12))[0]);
+        let button = watch_button_area(dashboard_areas(Rect::new(0, 0, 80, 12), false)[0]);
         let click = MouseEvent {
             kind: MouseEventKind::Down(MouseButton::Left),
             column: button.x + 1,
@@ -445,6 +551,10 @@ cmd = "echo worktree"
         assert_eq!(
             dashboard_command(KeyCode::Left, KeyModifiers::NONE),
             DashboardCommand::Previous
+        );
+        assert_eq!(
+            dashboard_command(KeyCode::Char('e'), KeyModifiers::NONE),
+            DashboardCommand::ToggleEvents
         );
     }
 

@@ -1,6 +1,6 @@
 use std::{
     env,
-    fs::{File, OpenOptions},
+    fs::{self, File, OpenOptions},
     io::{self, IsTerminal, Write},
     path::Path,
     process,
@@ -96,6 +96,9 @@ impl Output {
     ) -> Result<Self> {
         let log = log_path
             .map(|path| {
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
                 OpenOptions::new()
                     .create(true)
                     .append(true)

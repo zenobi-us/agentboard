@@ -7,6 +7,7 @@ pub(super) enum DashboardCommand {
     Quit,
     Previous,
     Next,
+    ToggleEvents,
     Ignore,
 }
 
@@ -16,6 +17,7 @@ pub(super) fn dashboard_command(code: KeyCode, modifiers: KeyModifiers) -> Dashb
         KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => DashboardCommand::Quit,
         KeyCode::Left | KeyCode::Char('h') => DashboardCommand::Previous,
         KeyCode::Right | KeyCode::Char('l') => DashboardCommand::Next,
+        KeyCode::Char('e') => DashboardCommand::ToggleEvents,
         _ => DashboardCommand::Ignore,
     }
 }
