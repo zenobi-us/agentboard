@@ -1,0 +1,20 @@
+{
+  "name": "@agentboard/core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/config.ts",
+    "./config": "./src/config.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "typebox": "^1.3.4"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  }
+}

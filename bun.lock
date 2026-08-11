@@ -13,6 +13,29 @@
         "vite": "^8.0.16",
       },
     },
+    "apps/cli": {
+      "name": "@agentboard/cli",
+      "version": "0.0.1",
+      "bin": {
+        "agentboard": "dist/cli",
+      },
+      "dependencies": {
+        "@agentboard/action-run-cmd": "workspace:*",
+        "@agentboard/action-worktree": "workspace:*",
+        "@agentboard/core": "workspace:*",
+        "@agentboard/source-github": "workspace:*",
+        "@agentboard/source-jira": "workspace:*",
+        "@agentboard/source-qmd": "workspace:*",
+      },
+      "devDependencies": {
+        "@crustjs/core": "^0.0.19",
+        "@crustjs/crust": "^0.0.24",
+        "@crustjs/plugins": "^0.1.2",
+        "@types/bun": "^1.3.14",
+        "typebox": "^1.3.4",
+        "typescript": "^6.0.3",
+      },
+    },
     "apps/demo": {
       "name": "agentboard-demo",
       "devDependencies": {
@@ -49,12 +72,119 @@
         "vite": "8.0.16",
       },
     },
+    "pkgs/crates/agentboard-action-run-cmd": {
+      "name": "@agentboard/action-run-cmd",
+      "version": "0.0.1",
+      "dependencies": {
+        "@agentboard/core": "workspace:*",
+        "typebox": "^1.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "pkgs/crates/agentboard-action-worktree": {
+      "name": "@agentboard/action-worktree",
+      "version": "0.0.1",
+      "dependencies": {
+        "@agentboard/core": "workspace:*",
+        "typebox": "^1.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "pkgs/crates/agentboard-core": {
+      "name": "@agentboard/core",
+      "version": "0.0.1",
+      "dependencies": {
+        "typebox": "^1.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "pkgs/crates/agentboard-source-github": {
+      "name": "@agentboard/source-github",
+      "version": "0.0.1",
+      "dependencies": {
+        "@agentboard/core": "workspace:*",
+        "typebox": "^1.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "pkgs/crates/agentboard-source-jira": {
+      "name": "@agentboard/source-jira",
+      "version": "0.0.1",
+      "dependencies": {
+        "@agentboard/core": "workspace:*",
+        "typebox": "^1.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "pkgs/crates/agentboard-source-qmd": {
+      "name": "@agentboard/source-qmd",
+      "version": "0.0.1",
+      "dependencies": {
+        "@agentboard/core": "workspace:*",
+        "typebox": "^1.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
   },
   "overrides": {
     "vite": "8.0.16",
   },
   "packages": {
+    "@agentboard/action-run-cmd": ["@agentboard/action-run-cmd@workspace:pkgs/crates/agentboard-action-run-cmd"],
+
+    "@agentboard/action-worktree": ["@agentboard/action-worktree@workspace:pkgs/crates/agentboard-action-worktree"],
+
+    "@agentboard/cli": ["@agentboard/cli@workspace:apps/cli"],
+
+    "@agentboard/core": ["@agentboard/core@workspace:pkgs/crates/agentboard-core"],
+
     "@agentboard/docs": ["@agentboard/docs@workspace:apps/docs"],
+
+    "@agentboard/source-github": ["@agentboard/source-github@workspace:pkgs/crates/agentboard-source-github"],
+
+    "@agentboard/source-jira": ["@agentboard/source-jira@workspace:pkgs/crates/agentboard-source-jira"],
+
+    "@agentboard/source-qmd": ["@agentboard/source-qmd@workspace:pkgs/crates/agentboard-source-qmd"],
+
+    "@crustjs/core": ["@crustjs/core@0.0.19", "", { "dependencies": { "@crustjs/utils": "0.0.3" }, "peerDependencies": { "typescript": "^6.0.3" } }, "sha512-RV/1TDJ+RZ9DFSbIHXPIyZV7bvJjf9RaElly2BvNGor1HxuEfiu6BdR8SBWzAa+PyvXQk2hkXuSjmaNIE+jbCQ=="],
+
+    "@crustjs/crust": ["@crustjs/crust@0.0.24", "", { "optionalDependencies": { "@crustjs/crust-darwin-arm64": "0.0.24", "@crustjs/crust-darwin-x64": "0.0.24", "@crustjs/crust-linux-arm64": "0.0.24", "@crustjs/crust-linux-x64": "0.0.24", "@crustjs/crust-windows-arm64": "0.0.24", "@crustjs/crust-windows-x64": "0.0.24" }, "bin": { "crust": "bin/crust.js" } }, "sha512-jfiQ2g7cM/SB0Tnt9o3XdkTTJJuFrYGdB/oFespLBBK+YtNeNFTjLRohD68U6HN1VR1LggGW1ty6hpdV3sO15w=="],
+
+    "@crustjs/crust-darwin-arm64": ["@crustjs/crust-darwin-arm64@0.0.24", "", { "os": "darwin", "cpu": "arm64", "bin": { "crust": "bin/crust-bun-darwin-arm64" } }, "sha512-h/OnmSpQSOf/c5hTOIkoaMP9aSrU8xSI5qm57Y3zHtXvnmn/RGcQmClvu90lDc3cRCd3KggcwJoUSVlyIcyN8w=="],
+
+    "@crustjs/crust-darwin-x64": ["@crustjs/crust-darwin-x64@0.0.24", "", { "os": "darwin", "cpu": "x64", "bin": { "crust": "bin/crust-bun-darwin-x64" } }, "sha512-Gzry4h4WqO/jukiOcFVadBaTZJf3XPMJQPsY+s9hAv1CZVUcZSGsJ394wixHVL7NeCTTyop27y+ZyQ8vPhh76Q=="],
+
+    "@crustjs/crust-linux-arm64": ["@crustjs/crust-linux-arm64@0.0.24", "", { "os": "linux", "cpu": "arm64", "bin": { "crust": "bin/crust-bun-linux-arm64" } }, "sha512-5b/kBysZqk3cLSgt6ou9Wd2K5xE+w0/WDEMZ3S7C4nzXkbd1ru8EfQvGNEiUTTkBi7h4tuq90scDwxEzbm1tww=="],
+
+    "@crustjs/crust-linux-x64": ["@crustjs/crust-linux-x64@0.0.24", "", { "os": "linux", "cpu": "x64", "bin": { "crust": "bin/crust-bun-linux-x64-baseline" } }, "sha512-9DSSUmjK1zJrilZrVl6CdYcLy6TPjHEOfUyToHnojklq1nAqp7dWnkA6j/OPA+HXyCiBzNFI4LAB7qQAZ/uEbQ=="],
+
+    "@crustjs/crust-windows-arm64": ["@crustjs/crust-windows-arm64@0.0.24", "", { "os": "win32", "cpu": "arm64", "bin": { "crust": "bin/crust-bun-windows-arm64.exe" } }, "sha512-utoyb/epsObcW4sSLUo5IbE15rnccg+VSuZ9FPBU0nKZdRzNe0G31QHyhpyh0wRujpjwFLnnpp32edpE3rLrxg=="],
+
+    "@crustjs/crust-windows-x64": ["@crustjs/crust-windows-x64@0.0.24", "", { "os": "win32", "cpu": "x64", "bin": { "crust": "bin/crust-bun-windows-x64-baseline.exe" } }, "sha512-YMABnWy531E0uHWt5YQXyxuZQot535CT7AEuzAYNDfRJjDBHngxtoPnHU7sxjOtcGuA4SWRaG8DZokxk9dt7hw=="],
+
+    "@crustjs/plugins": ["@crustjs/plugins@0.1.2", "", { "dependencies": { "@crustjs/style": "0.2.0" }, "peerDependencies": { "@crustjs/core": "0.0.19", "typescript": "^6.0.3" } }, "sha512-sX9eaN1c30T2PEel6RZZpSfBp/vOAWoIAV2/a+mbi7OxvLBLMJy3+WGxx5OlTDCXe/MJ6c8KWLIzFY2Cg71idA=="],
+
+    "@crustjs/style": ["@crustjs/style@0.2.0", "", { "peerDependencies": { "typescript": "^6.0.3" } }, "sha512-WPJ/l630OSb9aaZEVpZhs8myBf6ItlXivABnx3jzyl4SUYr0Ztrky6D2Xw+rRUp7i7m26KsJHkvi7YiOmsr0BQ=="],
+
+    "@crustjs/utils": ["@crustjs/utils@0.0.3", "", { "peerDependencies": { "@standard-schema/spec": "^1.1.0", "typescript": "^6.0.3" }, "optionalPeers": ["@standard-schema/spec"] }, "sha512-5J/CeFpUTDX6F8EHc62blJQEQmr+tcH9Ojc26QTkQ08LoGZBT56kxL+XjHzp9m2QAg8T69omjwL25bmB3AWZig=="],
 
     "@emnapi/core": ["@emnapi/core@1.10.0", "", { "dependencies": { "@emnapi/wasi-threads": "1.2.1", "tslib": "^2.4.0" } }, "sha512-yq6OkJ4p82CAfPl0u9mQebQHKPJkY7WrIuk205cTYnYe+k2Z8YBh11FrbRG/H6ihirqcacOgl2BIO8oyMQLeXw=="],
 

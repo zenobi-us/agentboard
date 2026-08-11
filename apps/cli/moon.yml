@@ -5,6 +5,30 @@ language: rust
 layer: application
 
 tasks:
+  ts-dev:
+    command: "bun run dev"
+    toolchains: ["javascript", "bun"]
+    options:
+      runInCI: false
+
+  ts-typecheck:
+    command: "bun run typecheck"
+    toolchains: ["javascript", "bun"]
+    inputs:
+      - "package.json"
+      - "tsconfig.json"
+      - "src/**/*.ts"
+
+  ts-build:
+    command: "bun run build"
+    toolchains: ["javascript", "bun"]
+    inputs:
+      - "package.json"
+      - "tsconfig.json"
+      - "src/**/*.ts"
+    outputs:
+      - "dist/cli"
+
   build:
     command: "cargo build -p agentboard"
     inputs:

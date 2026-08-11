@@ -1,0 +1,34 @@
+{
+  "name": "@agentboard/cli",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "bin": {
+    "agentboard": "dist/cli"
+  },
+  "scripts": {
+    "dev": "bun run src/cli/index.ts",
+    "build": "crust build --entry src/cli/index.ts",
+    "typecheck": "tsc --noEmit",
+    "start": "./dist/cli"
+  },
+  "dependencies": {
+    "@agentboard/action-run-cmd": "workspace:*",
+    "@agentboard/action-worktree": "workspace:*",
+    "@agentboard/source-github": "workspace:*",
+    "@agentboard/source-jira": "workspace:*",
+    "@agentboard/source-qmd": "workspace:*",
+    "@agentboard/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@crustjs/core": "^0.0.19",
+    "@crustjs/crust": "^0.0.24",
+    "@crustjs/plugins": "^0.1.2",
+    "@types/bun": "^1.3.14",
+    "typebox": "^1.3.4",
+    "typescript": "^6.0.3"
+  }
+}
