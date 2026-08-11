@@ -4,7 +4,25 @@ language: rust
 layer: library
 
 tasks:
+  ts-test:
+    command: "bun run test"
+    toolchains: ["javascript", "bun"]
+    inputs:
+      - "package.json"
+      - "tsconfig.json"
+      - "src/**/*.ts"
+
+  ts-typecheck:
+    command: "bun run typecheck"
+    toolchains: ["javascript", "bun"]
+    inputs:
+      - "package.json"
+      - "tsconfig.json"
+      - "src/**/*.ts"
+
   check:
+    deps:
+      - "~:ts-typecheck"
     command: "cargo check"
     inputs:
       - "Cargo.toml"
@@ -16,10 +34,15 @@ tasks:
     command: "noop"
 
   test:
+    deps:
+      - "~:ts-test"
     command: "cargo test"
     inputs:
       - "Cargo.toml"
+      - "package.json"
+      - "tsconfig.json"
       - "src/**/*.rs"
+      - "src/**/*.ts"
 
   build:
     deps:
