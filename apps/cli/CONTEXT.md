@@ -1,12 +1,32 @@
 # AgentBoard CLI Context
 
-The CLI crate is the public entrypoint for AgentBoard. It loads workspace config, coordinates runs, persists local store records, renders action inputs, and dispatches source/action crates.
+The CLI is the public entrypoint for AgentBoard. It loads Workspace configuration, coordinates Runs, persists Store records, renders Action inputs, and dispatches Source and Action packages.
 
 ## Language
 
 **Workspace**:
-A TOML config file that names sources and the actions to run for each source. A Workspace may be empty while being initialized before Sources are configured.
+Configuration that names Sources and the Actions to run for each Source. A Workspace can use an executable TypeScript or JavaScript file, or a serialized data file.
 _Avoid_: Project config, repo config
+
+**Plugin**:
+A package descriptor that provides one Source or Action. It declares the package role, TypeBox schema, runtime factory, and health check.
+_Avoid_: Configured Source, configured Action, runtime instance
+
+**Plugin Package**:
+An installed package marked with the `agentboard-package` keyword. One Plugin Package provides one Plugin.
+_Avoid_: Extension package, adapter package
+
+**Executable Configuration**:
+A TypeScript or JavaScript Workspace file that imports Plugin Descriptors and creates resolved configuration nodes.
+_Avoid_: Scripted settings, dynamic config
+
+**Data Configuration**:
+A JSON, YAML, or TOML Workspace file. Each Source and Action uses a package name in its `uses` field.
+_Avoid_: Static configuration
+
+**Resolved Configuration**:
+Workspace configuration with validated Plugin references and Plugin data. It is the input to Source collection and Action execution.
+_Avoid_: Raw configuration, parsed settings
 
 **Workspace Initialization**:
 Creation of a named, empty Workspace ready for Source configuration.
@@ -46,9 +66,9 @@ _Avoid_: Cache shard, config hash
 
 ## Boundaries
 
-- The CLI owns config loading, explicit built-in registration, validation orchestration, store paths, locking, runtime orchestration, and user commands.
-- The CLI does not know source-specific query semantics or branch on Source kinds; it invokes registered Source behavior.
-- The CLI does not implement action side effects or branch on Action identifiers; it invokes registered Action behavior.
+- The CLI owns config loading, Plugin discovery, registry resolution, validation orchestration, Store paths, locking, runtime orchestration, and user commands.
+- The CLI does not know Source-specific query semantics or branch on Source package names; it invokes resolved Source behavior.
+- The CLI does not implement Action side effects or branch on Action package names; it invokes resolved Action behavior.
 - The CLI persists raw source payloads with normalized items so source schemas can evolve without bloating the core item model.
 
 ## Pipeline
