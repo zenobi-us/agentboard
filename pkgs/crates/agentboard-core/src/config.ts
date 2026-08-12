@@ -81,6 +81,23 @@ export type ResolvedAction<Schema extends TSchema> = ResolvedConfiguration<
   Schema
 >;
 
+export interface WorkspaceConfig {
+  readonly sources: readonly WorkspaceSourceConfig[];
+}
+
+export interface WorkspaceSourceConfig {
+  readonly id: string;
+  readonly source: ResolvedSource<TSchema>;
+  readonly actions?: readonly ResolvedAction<TSchema>[];
+}
+
+/** Preserve inferred Source and Action types for executable Workspace authors. */
+export function defineConfig<const Config extends WorkspaceConfig>(
+  config: Config,
+): Config {
+  return config;
+}
+
 type ConfigWithId<Schema extends TSchema> = Static<Schema> & {
   id?: string;
 };

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { extname, resolve } from "node:path";
 import Type, { type TSchema } from "typebox";
 import {
@@ -7,6 +7,7 @@ import {
   source,
   type ResolvedAction,
   type ResolvedSource,
+  type WorkspaceConfig,
 } from "@agentboard/core/config";
 
 import { pathToFileURL } from "node:url";
@@ -38,6 +39,17 @@ export interface LoadedWorkspace {
   readonly sources: readonly LoadedWorkspaceSource[];
 }
 
+export function resolveWorkspaceConfigPath(configPath = ".agentboard.toml"): string {
+  const path = resolve(configPath);
+  if (path.endsWith(".agentboard.toml")) {
+    for (const name of ["agentboard.config.ts", "agentboard.config.js"]) {
+      const executable = resolve(path, "..", name);
+      if (existsSync(executable)) return executable;
+    }
+  }
+  return path;
+}
+
 export async function loadWorkspacePlugins(
   configPath: string,
   packageNames: readonly string[],
@@ -59,27 +71,25 @@ export async function loadExecutableWorkspace(
   configPath: string,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
-  const module = await import(pathToFileURL(path).href);
-  const data = module.default ?? module;
-  if (!data || typeof data !== "object" || Array.isArray(data)) {
-    throw new Error(`Workspace data validation failed for ${path}: expected an object`);
+  let data: unknown;
+  try {
+    const module = await import(pathToFileURL(path).href);
+    data = module.default ?? module;
+  } catch (error) {
+    throw new Error(`Executable Workspace configuration failed for ${path}: ${String(error)}`);
   }
-  const sources = (data as { sources?: unknown }).sources;
-  if (!Array.isArray(sources)) {
-    throw new Error(`Workspace data validation failed for ${path}: "sources" must be an array`);
-  }
+  validateExecutableWorkspace(data, path);
   return {
     path,
     registry: { sources: new Map(), actions: new Map() },
-    sources: sources.map((item) => {
-      const record = item as LoadedWorkspaceSource;
+    sources: data.sources.map((record) => {
       const sourcePlugin = pluginFor(record.source);
       return {
         ...record,
         packageName: sourcePlugin.meta.packageName ?? sourcePlugin.meta.url,
         actions: (record.actions ?? []).map((configured) => ({
           ...configured,
-          packageName: pluginFor(configured).meta.packageName ?? pluginFor(configured).meta.url,
+          packageName: packageNameFor(configured),
         })),
       };
     }),
@@ -148,6 +158,46 @@ function parseDataWorkspace(path: string): {
   }
   validateWorkspaceData(value, path);
   return value;
+}
+
+function validateExecutableWorkspace(
+  value: unknown,
+  path: string,
+): asserts value is WorkspaceConfig {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Executable Workspace configuration failed for ${path}: expected an object`);
+  }
+  const sources = (value as Record<string, unknown>)["sources"];
+  if (!Array.isArray(sources)) {
+    throw new Error(`Executable Workspace configuration failed for ${path}: "sources" must be an array`);
+  }
+  for (const [index, item] of sources.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`Executable Workspace configuration failed for ${path}: source ${index} must be an object`);
+    }
+    const record = item as Partial<WorkspaceConfig["sources"][number]> & { actions?: unknown };
+    if (typeof record.id !== "string" || record.id.length === 0) {
+      throw new Error(`Executable Workspace configuration failed for ${path}: source ${index} must define a string "id"`);
+    }
+    if (record.actions !== undefined && !Array.isArray(record.actions)) {
+      throw new Error(`Executable Workspace configuration failed for ${path}: source ${record.id} actions must be an array`);
+    }
+    try {
+      const sourcePlugin = pluginFor(record.source as object);
+      if (sourcePlugin.kind !== "source") throw new TypeError("configuration node is not a Source");
+      for (const configured of record.actions ?? []) {
+        const actionPlugin = pluginFor(configured as object);
+        if (actionPlugin.kind !== "action") throw new TypeError("configuration node is not an Action");
+      }
+    } catch (error) {
+      throw new Error(`Executable Workspace configuration failed for ${path}: source ${record.id} is invalid: ${String(error)}`);
+    }
+  }
+}
+
+function packageNameFor(configured: ResolvedAction<TSchema>): string {
+  const plugin = pluginFor(configured);
+  return plugin.meta.packageName ?? plugin.meta.url;
 }
 
 function validateWorkspaceData(value: unknown, path: string): asserts value is {

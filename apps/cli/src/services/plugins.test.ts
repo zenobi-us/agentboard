@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
@@ -14,6 +14,7 @@ import {
   createWorkspaceSchemas,
   loadAllWorkspacePlugins,
   loadDataWorkspace,
+  loadExecutableWorkspace,
   loadWorkspacePlugins,
 } from "./config/workspace.ts";
 import { loadRunWorkspace } from "../cli/run.ts";
@@ -61,6 +62,12 @@ function packageFixture(
     join(directory, "package.json"),
     JSON.stringify({ name, keywords, exports: "./index.ts" }),
   );
+}
+
+function workspacePackage(root: string, name: string, directory: string): void {
+  const path = join(root, "node_modules", ...name.split("/"));
+  mkdirSync(join(path, ".."), { recursive: true });
+  symlinkSync(directory, path, "dir");
 }
 
 afterEach(() => {
@@ -249,6 +256,60 @@ describe("Plugin Package discovery", () => {
     expect(loaded.registry.sources.get("selected")?.plugin.meta.packageName).toBe("selected");
     expect(Bun.file(selectedMarker).size).toBeGreaterThan(0);
     expect(Bun.file(ignoredMarker).size).toBe(0);
+  });
+
+  test("loads TypeScript defineConfig output through the resolved configuration seam", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    workspacePackage(
+      root,
+      "@agentboard/core",
+      new URL("../../../../pkgs/crates/agentboard-core", import.meta.url).pathname,
+    );
+    writeFileSync(
+      configPath,
+      `
+        import { action, defineConfig, definePlugin, source } from "@agentboard/core/config";
+        const sourcePlugin = definePlugin(import.meta, {
+          kind: "source",
+          schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+          runtime: (config) => config,
+          healthCheck: () => undefined,
+        });
+        const actionPlugin = definePlugin(import.meta, {
+          kind: "action",
+          schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+          runtime: (config) => config,
+          healthCheck: () => undefined,
+        });
+        export default defineConfig({
+          sources: [{
+            id: "one",
+            source: source(sourcePlugin, { query: "runtime" }, import.meta.url),
+            actions: [action(actionPlugin, { command: "echo ready" }, import.meta.url)],
+          }],
+        });
+      `,
+    );
+
+    const loaded = await loadExecutableWorkspace(configPath);
+
+    expect(loaded.sources[0]?.source.config).toEqual({ query: "runtime" });
+    expect(loaded.sources[0]?.actions[0]?.config).toEqual({ command: "echo ready" });
+    expect(loaded.sources[0]?.source.identity.role).toBe("source");
+    expect(loaded.sources[0]?.actions[0]?.identity.role).toBe("action");
+  });
+
+  test("executable Workspace errors include the config source", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    writeFileSync(configPath, "export default { sources: [{ id: \"one\", actions: {} }] };\n");
+
+    await expect(loadExecutableWorkspace(configPath)).rejects.toThrow(
+      `Executable Workspace configuration failed for ${configPath}: source one actions must be an array`,
+    );
   });
 
   test("the production run loader loads executable Workspace configuration", async () => {
