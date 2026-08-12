@@ -1,36 +1,246 @@
-import Type from "typebox";
+import { readFileSync } from "node:fs";
+import { extname, resolve } from "node:path";
+import Type, { type TSchema } from "typebox";
+import {
+  action,
+  pluginFor,
+  source,
+  type ResolvedAction,
+  type ResolvedSource,
+} from "@agentboard/core/config";
 
-import { RunCmdActionSchema } from "@agentboard/action-run-cmd";
-import { WorktreeActionSchema } from "@agentboard/action-worktree";
-import { GithubSourceSchema } from "@agentboard/source-github";
-import { JiraSourceSchema } from "@agentboard/source-jira";
-import { QmdSourceSchema } from "@agentboard/source-qmd";
+import { pathToFileURL } from "node:url";
 
-export const SourceConfigSchema = Type.Union([
-  GithubSourceSchema,
-  JiraSourceSchema,
-  QmdSourceSchema,
-]);
+import {
+  discoverPluginPackages,
+  loadAllPlugins,
+  loadSelectedPlugins,
+  registerPlugins,
+  type PluginRegistry,
+} from "../plugins.ts";
 
-export type SourceConfig = Type.Static<typeof SourceConfigSchema>;
+export interface WorkspaceSchemas {
+  readonly source: TSchema;
+  readonly action: TSchema;
+  readonly workspace: TSchema;
+}
 
-export const ActionConfigSchema = Type.Union([
-  RunCmdActionSchema,
-  WorktreeActionSchema,
-]);
+export interface LoadedWorkspaceSource {
+  readonly id: string;
+  readonly packageName: string;
+  readonly source: ResolvedSource<TSchema>;
+  readonly actions: readonly (ResolvedAction<TSchema> & { readonly packageName: string })[];
+}
 
-export type ActionConfig = Type.Static<typeof ActionConfigSchema>;
+export interface LoadedWorkspace {
+  readonly path: string;
+  readonly registry: PluginRegistry;
+  readonly sources: readonly LoadedWorkspaceSource[];
+}
 
-export const WorkspaceSourceSchema = Type.Object({
-  id: Type.String(),
-  source: SourceConfigSchema,
-  actions: Type.Optional(Type.Array(ActionConfigSchema, { default: [] })),
-});
+export async function loadWorkspacePlugins(
+  configPath: string,
+  packageNames: readonly string[],
+  globalRoot?: string,
+): Promise<PluginRegistry> {
+  const packages = discoverPluginPackages(configPath, globalRoot);
+  return registerPlugins(await loadSelectedPlugins(packageNames, packages));
+}
 
-export type WorkspaceSource = Type.Static<typeof WorkspaceSourceSchema>;
+export async function loadAllWorkspacePlugins(
+  configPath: string,
+  globalRoot?: string,
+): Promise<PluginRegistry> {
+  const packages = discoverPluginPackages(configPath, globalRoot);
+  return registerPlugins(await loadAllPlugins(packages));
+}
 
-export const WorkspaceConfigSchema = Type.Object({
-  sources: Type.Array(WorkspaceSourceSchema),
-});
+export async function loadExecutableWorkspace(
+  configPath: string,
+): Promise<LoadedWorkspace> {
+  const path = resolve(configPath);
+  const module = await import(pathToFileURL(path).href);
+  const data = module.default ?? module;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error(`Workspace data validation failed for ${path}: expected an object`);
+  }
+  const sources = (data as { sources?: unknown }).sources;
+  if (!Array.isArray(sources)) {
+    throw new Error(`Workspace data validation failed for ${path}: "sources" must be an array`);
+  }
+  return {
+    path,
+    registry: { sources: new Map(), actions: new Map() },
+    sources: sources.map((item) => {
+      const record = item as LoadedWorkspaceSource;
+      const sourcePlugin = pluginFor(record.source);
+      return {
+        ...record,
+        packageName: sourcePlugin.meta.packageName ?? sourcePlugin.meta.url,
+        actions: (record.actions ?? []).map((configured) => ({
+          ...configured,
+          packageName: pluginFor(configured).meta.packageName ?? pluginFor(configured).meta.url,
+        })),
+      };
+    }),
+  };
+}
 
-export type WorkspaceConfig = Type.Static<typeof WorkspaceConfigSchema>;
+export async function loadDataWorkspace(
+  configPath: string,
+  globalRoot?: string,
+): Promise<LoadedWorkspace> {
+  const path = resolve(configPath);
+  const data = parseDataWorkspace(path);
+  const packageNames = new Set<string>();
+  for (const item of data.sources ?? []) {
+    packageNames.add(readPackageName(item.source, `source ${item.id}`));
+    for (const configured of item.actions ?? []) {
+      packageNames.add(readPackageName(configured, `action in source ${item.id}`));
+    }
+  }
+  const registry = await loadWorkspacePlugins(path, [...packageNames], globalRoot);
+  const sources = (data.sources ?? []).map((item) => {
+    const sourceName = readPackageName(item.source, `source ${item.id}`);
+    const sourcePackage = registry.sources.get(sourceName);
+    if (!sourcePackage) throw new Error(`Plugin Package "${sourceName}" is an Action`);
+    const { uses: _uses, ...sourceConfig } = item.source;
+    const resolvedSource = source(sourcePackage.plugin as never, {
+      ...sourceConfig,
+      id: item.id,
+    } as never, path) as ResolvedSource<TSchema>;
+    const actions = (item.actions ?? []).map((configured) => {
+      const actionName = readPackageName(configured, `action in source ${item.id}`);
+      const actionPackage = registry.actions.get(actionName);
+      if (!actionPackage) throw new Error(`Plugin Package "${actionName}" is a Source`);
+      const { uses: _actionUses, with: inputs, ...metadata } = configured;
+      return {
+        ...action(
+          actionPackage.plugin as never,
+          { ...metadata, ...(inputs ?? {}) } as never,
+          path,
+        ),
+        packageName: actionName,
+      } as ResolvedAction<TSchema> & { readonly packageName: string };
+    });
+    return { id: item.id, packageName: sourceName, source: resolvedSource, actions };
+  });
+  return { path, registry, sources };
+}
+
+function parseDataWorkspace(path: string): {
+  sources: Array<{
+    id: string;
+    source: Record<string, unknown>;
+    actions?: Array<Record<string, unknown>>;
+  }>;
+} {
+  const text = readFileSync(path, "utf8");
+  let value: unknown;
+  try {
+    value = extname(path) === ".json"
+      ? JSON.parse(text)
+      : extname(path) === ".yaml" || extname(path) === ".yml"
+        ? Bun.YAML.parse(text)
+        : Bun.TOML.parse(text);
+  } catch (error) {
+    throw new Error(`Workspace data parse failed for ${path}: ${String(error)}`);
+  }
+  validateWorkspaceData(value, path);
+  return value;
+}
+
+function validateWorkspaceData(value: unknown, path: string): asserts value is {
+  sources: Array<{
+    id: string;
+    source: Record<string, unknown>;
+    actions?: Array<Record<string, unknown>>;
+  }>;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Workspace data validation failed for ${path}: expected an object`);
+  }
+  const sources = (value as Record<string, unknown>)["sources"];
+  if (!Array.isArray(sources)) {
+    throw new Error(`Workspace data validation failed for ${path}: "sources" must be an array`);
+  }
+  for (const [index, item] of sources.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`Workspace data validation failed for ${path}: source ${index} must be an object`);
+    }
+    const record = item as Record<string, unknown>;
+    const id = record["id"];
+    const source = record["source"];
+    const actions = record["actions"];
+    if (typeof id !== "string" || id.length === 0) {
+      throw new Error(`Workspace data validation failed for ${path}: source ${index} must define a string "id"`);
+    }
+    if (!source || typeof source !== "object" || Array.isArray(source)) {
+      throw new Error(`Workspace data validation failed for ${path}: source ${id} must define an object "source"`);
+    }
+    if (actions !== undefined && (!Array.isArray(actions) || actions.some((action) => !action || typeof action !== "object" || Array.isArray(action)))) {
+      throw new Error(`Workspace data validation failed for ${path}: source ${id} actions must be an array of objects`);
+    }
+  }
+}
+
+
+function readPackageName(value: Record<string, unknown>, location: string): string {
+  const name = value["uses"];
+  if (typeof name !== "string" || name.length === 0) {
+    throw new Error(`${location} must define a Plugin Package in "uses"`);
+  }
+  return name;
+}
+
+export function createWorkspaceSchemas(registry: PluginRegistry): WorkspaceSchemas {
+  const source = union(
+    [...registry.sources.values()].map(({ package: item, plugin }) =>
+      flatSourceSchema(item.name, plugin.schema),
+    ),
+  );
+  const action = union(
+    [...registry.actions.values()].map(({ package: item, plugin }) =>
+      Type.Object({ uses: Type.Literal(item.name), with: plugin.schema }),
+    ),
+  );
+  const workspaceSource = Type.Object({
+    id: Type.String(),
+    source,
+    actions: Type.Optional(Type.Array(action, { default: [] })),
+  });
+
+  return {
+    source,
+    action,
+    workspace: Type.Object({ sources: Type.Array(workspaceSource) }),
+  };
+}
+
+function flatSourceSchema(name: string, schema: TSchema): TSchema {
+  if (
+    typeof schema === "object" &&
+    schema !== null &&
+    "type" in schema &&
+    schema.type === "object"
+  ) {
+    const objectSchema = schema as TSchema & {
+      properties?: Record<string, TSchema>;
+      required?: readonly string[];
+    };
+    const properties = objectSchema.properties ?? {};
+    const required = objectSchema.required ?? [];
+    return {
+      ...schema,
+      properties: { ...properties, uses: Type.Literal(name) },
+      required: ["uses", ...required.filter((item) => item !== "uses")],
+    };
+  }
+  return Type.Intersect([Type.Object({ uses: Type.Literal(name) }), schema]);
+}
+
+function union(schemas: TSchema[]): TSchema {
+  if (schemas.length === 0) return Type.Never();
+  if (schemas.length === 1) return schemas[0]!;
+  return Type.Union(schemas);
+}

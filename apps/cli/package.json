@@ -13,6 +13,7 @@
     "dev": "bun run src/cli/index.ts",
     "build": "crust build --entry src/cli/index.ts",
     "typecheck": "tsc --noEmit",
+    "test": "bun test ./src",
     "start": "./dist/cli"
   },
   "dependencies": {

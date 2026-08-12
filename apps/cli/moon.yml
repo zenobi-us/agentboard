@@ -52,7 +52,17 @@ tasks:
       - "~:check"
     command: "noop"
 
+  ts-test:
+    command: "bun run test"
+    toolchains: ["javascript", "bun"]
+    inputs:
+      - "package.json"
+      - "tsconfig.json"
+      - "src/**/*.ts"
+
   test:
+    deps:
+      - "~:ts-test"
     command: "cargo test -p agentboard"
     inputs:
       - "Cargo.toml"

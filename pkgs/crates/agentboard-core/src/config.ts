@@ -16,6 +16,7 @@ export type PluginKind = PluginRole;
 
 export interface PluginMeta {
   readonly url: string;
+  readonly packageName?: string;
 }
 
 export interface Plugin<
@@ -86,11 +87,32 @@ type ConfigWithId<Schema extends TSchema> = Static<Schema> & {
 
 type AnyPlugin = Plugin<PluginRole, TSchema, unknown>;
 
+export function isPluginDescriptor(value: unknown): value is AnyPlugin {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<AnyPlugin>;
+  return (
+    (candidate.kind === "source" || candidate.kind === "action") &&
+    typeof candidate.schema === "object" &&
+    candidate.schema !== null &&
+    typeof candidate.runtime === "function" &&
+    typeof candidate.healthCheck === "function" &&
+    typeof candidate.meta?.url === "string"
+  );
+}
+
 const positions = new Map<PluginRole, Map<string, number>>([
   ["source", new Map()],
   ["action", new Map()],
 ]);
 const pluginReferences = new WeakMap<object, AnyPlugin>();
+
+export function pluginFor(
+  value: object,
+): Plugin<PluginRole, TSchema, unknown> {
+  const plugin = pluginReferences.get(value);
+  if (!plugin) throw new TypeError("configuration node has no Plugin Descriptor");
+  return plugin;
+}
 
 function nextPosition(role: PluginRole, path: string): number {
   const rolePositions = positions.get(role)!;

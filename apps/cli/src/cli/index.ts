@@ -8,6 +8,7 @@ import { doctorCmd } from "./doctor.ts";
 import { initCmd } from "./init.ts";
 import { listCmd } from "./list.ts";
 import { runCmd } from "./run.ts";
+import { schemaCmd } from "./schema.ts";
 
 await app
   .use(versionPlugin(pkg.version))
@@ -17,4 +18,5 @@ await app
   .command(initCmd)
   .command(listCmd)
   .command(runCmd)
+  .command(schemaCmd)
   .execute();
