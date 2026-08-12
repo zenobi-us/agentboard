@@ -42,7 +42,7 @@ function pluginSource(kind: "source" | "action"): string {
         required: ["query"],
         additionalProperties: false,
       },
-      runtime: () => undefined,
+      runtime: () => ({ collect: () => [] }),
       healthCheck: () => undefined,
     });
   `;
@@ -67,7 +67,9 @@ function configurablePluginSource(
         required: ["query"],
         ${additionalProperties === undefined ? "" : `additionalProperties: ${additionalProperties},`}
       },
-      runtime: (config) => config,
+      runtime: () => ${kind === "source"
+        ? "({ collect: () => [] })"
+        : "({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) })"},
       healthCheck: () => undefined,
     });
   `;
@@ -324,7 +326,7 @@ describe("Plugin Package discovery", () => {
       export default definePlugin(import.meta, {
         kind: "source",
         schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-        runtime: (config) => config,
+        runtime: () => ({ collect: () => [] }),
         healthCheck: () => undefined,
       });
     `;
@@ -510,7 +512,7 @@ describe("Plugin Package discovery", () => {
             type: "object",
             properties: { timeout: { type: "integer", default: 30 } },
           },
-          runtime: (config) => config,
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -544,7 +546,7 @@ describe("Plugin Package discovery", () => {
         export default definePlugin(import.meta, {
           kind: "action",
           schema: { type: "string" },
-          runtime: (config) => config,
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -579,13 +581,13 @@ describe("Plugin Package discovery", () => {
         const sourcePlugin = definePlugin(import.meta, {
           kind: "source",
           schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-          runtime: (config) => config,
+          runtime: () => ({ collect: () => [] }),
           healthCheck: () => undefined,
         });
         const actionPlugin = definePlugin(import.meta, {
           kind: "action",
           schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
-          runtime: (config) => config,
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
         export default defineConfig({
@@ -630,7 +632,7 @@ describe("Plugin Package discovery", () => {
         const plugin = definePlugin(import.meta, {
           kind: "source",
           schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-          runtime: (config) => config,
+          runtime: () => ({ collect: () => [] }),
           healthCheck: () => undefined,
         });
         export default { sources: [{ id: "one", source: source(plugin, { query: "runtime" }, import.meta.url) }] };
@@ -745,7 +747,7 @@ describe("Plugin Package discovery", () => {
       export default definePlugin(import.meta, {
         kind: "source",
         schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-        runtime: (config) => config,
+        runtime: () => ({ collect: () => [] }),
         healthCheck: () => undefined,
       });
     `;

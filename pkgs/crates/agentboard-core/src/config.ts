@@ -19,28 +19,85 @@ export interface PluginMeta {
   readonly packageName?: string;
 }
 
+export interface Item {
+  readonly id: string;
+  readonly reference_id: string;
+  readonly title: string;
+  readonly status: string;
+  readonly url: string;
+  readonly source_id: string;
+  readonly source_kind: string;
+  readonly raw: unknown;
+}
+
+export interface ActionResult {
+  readonly outcome: "success" | "failure" | "cancelled";
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly message?: string;
+}
+
+export interface SourceRuntimeContext {
+  readonly sourceId: string;
+}
+
+export interface ActionRuntimeContext {
+  readonly workspaceId: string;
+  readonly sourceId: string;
+  readonly item: Item;
+}
+
+export interface ActionRuntimeFactoryContext {
+  readonly workspaceId: string;
+  readonly sourceId: string;
+}
+
+export type HealthCheckContext = SourceRuntimeContext;
+
+export interface SourceRuntime {
+  collect(): Promise<readonly Item[]> | readonly Item[];
+}
+
+export interface ActionRuntime {
+  execute(context: ActionRuntimeContext): Promise<ActionResult> | ActionResult;
+}
+
+type RuntimeFor<Role extends PluginRole> = Role extends "source"
+  ? SourceRuntime
+  : ActionRuntime;
+
+type RuntimeContextFor<Role extends PluginRole> = Role extends "source"
+  ? SourceRuntimeContext
+  : ActionRuntimeFactoryContext;
+
 export interface Plugin<
   Role extends PluginRole,
   Schema extends TSchema,
-  Runtime = unknown,
+  Runtime extends RuntimeFor<Role> = RuntimeFor<Role>,
 > {
   readonly kind: Role;
   readonly schema: Schema;
-  readonly runtime: (config: Static<Schema>) => Runtime;
-  readonly healthCheck: (config: Static<Schema>) => unknown;
+  readonly runtime: (
+    config: Static<Schema>,
+    context: RuntimeContextFor<Role>,
+  ) => Runtime;
+  readonly healthCheck: (
+    config: Static<Schema>,
+    context: HealthCheckContext,
+  ) => unknown;
   readonly meta: PluginMeta;
 }
 
 type PluginDefinition<
   Role extends PluginRole,
   Schema extends TSchema,
-  Runtime,
+  Runtime extends RuntimeFor<Role>,
 > = Omit<Plugin<Role, Schema, Runtime>, "meta">;
 
 export function definePlugin<
   const Role extends PluginRole,
   const Schema extends TSchema,
-  Runtime,
+  Runtime extends RuntimeFor<Role>,
 >(
   module: Pick<ImportMeta, "url">,
   definition: PluginDefinition<Role, Schema, Runtime>,
@@ -102,7 +159,7 @@ type ConfigWithId<Schema extends TSchema> = Static<Schema> & {
   id?: string;
 };
 
-type AnyPlugin = Plugin<PluginRole, TSchema, unknown>;
+type AnyPlugin = Plugin<PluginRole, TSchema>;
 
 export function isPluginDescriptor(value: unknown): value is AnyPlugin {
   if (!value || typeof value !== "object") return false;
@@ -125,10 +182,14 @@ const pluginReferences = new WeakMap<object, AnyPlugin>();
 
 export function pluginFor(
   value: object,
-): Plugin<PluginRole, TSchema, unknown> {
+): AnyPlugin {
   const plugin = pluginReferences.get(value);
   if (!plugin) throw new TypeError("configuration node has no Plugin Descriptor");
   return plugin;
+}
+
+export function copyPluginReference(from: object, to: object): void {
+  pluginReferences.set(to, pluginFor(from));
 }
 
 function nextPosition(role: PluginRole, path: string): number {
@@ -166,7 +227,7 @@ function splitConfig(config: unknown): { id: string | undefined; payload: unknow
 function resolve<
   const Role extends PluginRole,
   const Schema extends TSchema,
-  Runtime,
+  Runtime extends RuntimeFor<Role>,
 >(
   expectedRole: Role,
   plugin: Plugin<Role, Schema, Runtime>,
@@ -200,7 +261,7 @@ function resolve<
   return resolved;
 }
 
-export function source<const Schema extends TSchema, Runtime>(
+export function source<const Schema extends TSchema, Runtime extends SourceRuntime>(
   plugin: Plugin<"source", Schema, Runtime>,
   config: ConfigWithId<Schema>,
   path: string,
@@ -208,7 +269,7 @@ export function source<const Schema extends TSchema, Runtime>(
   return resolve("source", plugin, config, path);
 }
 
-export function action<const Schema extends TSchema, Runtime>(
+export function action<const Schema extends TSchema, Runtime extends ActionRuntime>(
   plugin: Plugin<"action", Schema, Runtime>,
   config: ConfigWithId<Schema>,
   path: string,

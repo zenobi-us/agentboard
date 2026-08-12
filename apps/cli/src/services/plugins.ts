@@ -9,7 +9,7 @@ import {
 } from "@agentboard/core/config";
 import type { TSchema } from "typebox";
 
-type AnyPlugin = Plugin<PluginRole, TSchema, unknown>;
+type AnyPlugin = Plugin<PluginRole, TSchema>;
 
 type PackageManifest = {
   readonly name?: unknown;

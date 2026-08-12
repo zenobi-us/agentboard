@@ -4,6 +4,7 @@ import {
   resolveWorkspaceConfigPath,
   type LoadedWorkspace,
 } from "../services/config/workspace.ts";
+import { runWorkspace } from "../services/runtime.ts";
 import { app } from "./app.ts";
 
 export function loadRunWorkspace(
@@ -22,5 +23,5 @@ export const runCmd = app
   .meta({ description: "Execute one workspace run" })
   .run(async ({ args }) => {
     const workspace = await loadRunWorkspace(args.workspace);
-    console.log(`loaded ${workspace.sources.length} sources`);
+    console.log(JSON.stringify(await runWorkspace(workspace)));
   });

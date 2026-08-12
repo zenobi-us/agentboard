@@ -26,6 +26,7 @@
         "@agentboard/source-github": "workspace:*",
         "@agentboard/source-jira": "workspace:*",
         "@agentboard/source-qmd": "workspace:*",
+        "minijinja-js": "^2.24.0",
       },
       "devDependencies": {
         "@crustjs/core": "^0.0.19",
@@ -985,6 +986,8 @@
     "micromark-util-types": ["micromark-util-types@2.0.2", "", {}, "sha512-Yw0ECSpJoViF1qTU4DC6NwtC4aWGt1EkzaQB8KPPyCRR8z9TWeV0HbEFGTO+ZY1wB22zmxnJqhPyTpOVCpeHTA=="],
 
     "mime-db": ["mime-db@1.54.0", "", {}, "sha512-aU5EJuIN2WDemCcAp2vFBfp/m4EAhWJnUNSSw0ixs7/kXbd6Pg64EmwJkNdFhB8aWt1sH2CTXrLxo/iAGV3oPQ=="],
+
+    "minijinja-js": ["minijinja-js@2.24.0", "", {}, "sha512-pqiv3Eguce6Bnr3R1kZ6nVo0mL13kmGbpVlphFL/S6Ha8baMi8GN2EoBvI8amVu8XQT3cYrYB11w6kxeD9CZhQ=="],
 
     "minimatch": ["minimatch@10.2.5", "", { "dependencies": { "brace-expansion": "^5.0.5" } }, "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg=="],
 

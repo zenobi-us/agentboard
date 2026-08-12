@@ -3,6 +3,7 @@ import { extname, resolve } from "node:path";
 import Type, { type TSchema } from "typebox";
 import {
   action,
+  copyPluginReference,
   pluginFor,
   source,
   strictPluginSchema,
@@ -13,6 +14,11 @@ import {
 
 import { pathToFileURL } from "node:url";
 
+import {
+  createSourceRuntime,
+  type LoadedSourceRuntime,
+} from "../sources.ts";
+import { validateActionInputs } from "../template.ts";
 import {
   discoverPluginPackages,
   loadAllPlugins,
@@ -36,8 +42,9 @@ export interface LoadedWorkspaceSource {
 
 export interface LoadedWorkspace {
   readonly path: string;
+  readonly id: string;
   readonly registry: PluginRegistry;
-  readonly sources: readonly LoadedWorkspaceSource[];
+  readonly sources: readonly LoadedSourceRuntime[];
 }
 
 export function resolveWorkspaceConfigPath(configPath = ".agentboard.toml"): string {
@@ -70,30 +77,42 @@ export async function loadAllWorkspacePlugins(
 
 export async function loadExecutableWorkspace(
   configPath: string,
+  configuration?: unknown,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
-  let data: unknown;
-  try {
-    const module = await import(pathToFileURL(path).href);
-    data = module.default ?? module;
-  } catch (error) {
-    throw new Error(`Executable Workspace configuration failed for ${path}: ${String(error)}`);
+  let data = configuration;
+  if (data === undefined) {
+    try {
+      const module = await import(pathToFileURL(path).href);
+      data = module.default ?? module;
+    } catch (error) {
+      throw new Error(`Executable Workspace configuration failed for ${path}: ${String(error)}`);
+    }
   }
   validateExecutableWorkspace(data, path);
+  const sources = data.sources.map((record) => {
+    const sourcePlugin = pluginFor(record.source);
+    validateActionIds(record.actions ?? [], path, record.id);
+    const actions = (record.actions ?? []).map((configured) => {
+      validateActionInputs(configured.config);
+      const loaded = {
+        ...configured,
+        packageName: packageNameFor(configured),
+      };
+      copyPluginReference(configured, loaded);
+      return loaded;
+    });
+    return {
+      ...record,
+      packageName: sourcePlugin.meta.packageName ?? sourcePlugin.meta.url,
+      actions,
+    };
+  });
   return {
     path,
+    id: workspaceId(path),
     registry: { sources: new Map(), actions: new Map() },
-    sources: data.sources.map((record) => {
-      const sourcePlugin = pluginFor(record.source);
-      return {
-        ...record,
-        packageName: sourcePlugin.meta.packageName ?? sourcePlugin.meta.url,
-        actions: (record.actions ?? []).map((configured) => ({
-          ...configured,
-          packageName: packageNameFor(configured),
-        })),
-      };
-    }),
+    sources: await buildSourceRuntimes(sources, path),
   };
 }
 
@@ -122,6 +141,7 @@ export async function loadDataWorkspace(
       sourceConfig as never,
       path,
     ) as ResolvedSource<TSchema>;
+    validateActionIds(item.actions ?? [], path, item.id);
     const actions = (item.actions ?? []).map((configured) => {
       const actionName = readPackageName(configured, `action in source ${item.id}`);
       const actionPackage = registry.actions.get(actionName);
@@ -138,19 +158,67 @@ export async function loadDataWorkspace(
       if (id !== undefined && typeof id !== "string") {
         throw new TypeError("configuration id must be a string");
       }
-      return {
-        ...action(
-          actionPackage.plugin as never,
-          inputs as never,
-          path,
-        ),
+      validateActionInputs(inputs);
+      const resolved = action(
+        actionPackage.plugin as never,
+        inputs as never,
+        path,
+      ) as ResolvedAction<TSchema>;
+      const loaded = {
+        ...resolved,
         id,
         packageName: actionName,
       } as ResolvedAction<TSchema> & { readonly packageName: string };
+      copyPluginReference(resolved, loaded);
+      return loaded;
     });
     return { id: item.id, packageName: sourceName, source: resolvedSource, actions };
   });
-  return { path, registry, sources };
+  return {
+    path,
+    id: workspaceId(path),
+    registry,
+    sources: await buildSourceRuntimes(sources, path),
+  };
+}
+
+async function buildSourceRuntimes(
+  sources: readonly LoadedWorkspaceSource[],
+  path: string,
+): Promise<LoadedSourceRuntime[]> {
+  try {
+    return await Promise.all(
+      sources.map((source) => createSourceRuntime(source, workspaceId(path))),
+    );
+  } catch (error) {
+    throw new Error(`Workspace runtime factory failed for ${path}: ${String(error)}`);
+  }
+}
+
+function workspaceId(path: string): string {
+  return path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "workspace";
+}
+
+function validateActionIds(
+  actions: readonly { readonly id?: unknown }[],
+  path: string,
+  sourceId: string,
+): void {
+  const ids = new Set<string>();
+  for (const action of actions) {
+    if (action.id === undefined) continue;
+    if (typeof action.id !== "string" || !/^[A-Za-z_]\w*$/.test(action.id)) {
+      throw new Error(
+        `Workspace configuration failed for ${path}: source ${sourceId} has invalid Action id`,
+      );
+    }
+    if (ids.has(action.id)) {
+      throw new Error(
+        `Workspace configuration failed for ${path}: source ${sourceId} has duplicate Action id "${action.id}"`,
+      );
+    }
+    ids.add(action.id);
+  }
 }
 
 function parseDataWorkspace(path: string): {
