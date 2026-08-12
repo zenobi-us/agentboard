@@ -5,6 +5,7 @@ import {
   action,
   pluginFor,
   source,
+  strictPluginSchema,
   type ResolvedAction,
   type ResolvedSource,
   type WorkspaceConfig,
@@ -115,21 +116,35 @@ export async function loadDataWorkspace(
     const sourcePackage = registry.sources.get(sourceName);
     if (!sourcePackage) throw new Error(`Plugin Package "${sourceName}" is an Action`);
     const { uses: _uses, ...sourceConfig } = item.source;
-    const resolvedSource = source(sourcePackage.plugin as never, {
-      ...sourceConfig,
-      id: item.id,
-    } as never, path) as ResolvedSource<TSchema>;
+    rejectReservedPluginId(sourceConfig);
+    const resolvedSource = source(
+      sourcePackage.plugin as never,
+      sourceConfig as never,
+      path,
+    ) as ResolvedSource<TSchema>;
     const actions = (item.actions ?? []).map((configured) => {
       const actionName = readPackageName(configured, `action in source ${item.id}`);
       const actionPackage = registry.actions.get(actionName);
       if (!actionPackage) throw new Error(`Plugin Package "${actionName}" is a Source`);
+      if (!("with" in configured)) {
+        throw new Error(`action in source ${item.id} must define "with"`);
+      }
       const { uses: _actionUses, with: inputs, ...metadata } = configured;
+      rejectReservedPluginId(inputs);
+      const { id, ...unexpectedFields } = metadata;
+      if (Object.keys(unexpectedFields).length > 0) {
+        throw new Error(`action in source ${item.id} payload fields must be inside "with"`);
+      }
+      if (id !== undefined && typeof id !== "string") {
+        throw new TypeError("configuration id must be a string");
+      }
       return {
         ...action(
           actionPackage.plugin as never,
-          { ...metadata, ...(inputs ?? {}) } as never,
+          inputs as never,
           path,
         ),
+        id,
         packageName: actionName,
       } as ResolvedAction<TSchema> & { readonly packageName: string };
     });
@@ -243,6 +258,12 @@ function readPackageName(value: Record<string, unknown>, location: string): stri
   return name;
 }
 
+function rejectReservedPluginId(value: unknown): void {
+  if (value !== null && typeof value === "object" && Object.hasOwn(value, "id")) {
+    throw new Error('Plugin payload must not define reserved field "id"');
+  }
+}
+
 export function createWorkspaceSchemas(registry: PluginRegistry): WorkspaceSchemas {
   const source = union(
     [...registry.sources.values()].map(({ package: item, plugin }) =>
@@ -251,7 +272,14 @@ export function createWorkspaceSchemas(registry: PluginRegistry): WorkspaceSchem
   );
   const action = union(
     [...registry.actions.values()].map(({ package: item, plugin }) =>
-      Type.Object({ uses: Type.Literal(item.name), with: plugin.schema }),
+      Type.Object(
+        {
+          id: Type.Optional(Type.String()),
+          uses: Type.Literal(item.name),
+          with: reservePluginId(strictPluginSchema(plugin.schema)),
+        },
+        { additionalProperties: false },
+      ),
     ),
   );
   const workspaceSource = Type.Object({
@@ -282,11 +310,36 @@ function flatSourceSchema(name: string, schema: TSchema): TSchema {
     const required = objectSchema.required ?? [];
     return {
       ...schema,
-      properties: { ...properties, uses: Type.Literal(name) },
+      additionalProperties: "additionalProperties" in schema
+        ? schema.additionalProperties
+        : false,
+      properties: {
+        ...properties,
+        id: Type.Optional(Type.Never()),
+        uses: Type.Literal(name),
+      },
       required: ["uses", ...required.filter((item) => item !== "uses")],
     };
   }
   return Type.Intersect([Type.Object({ uses: Type.Literal(name) }), schema]);
+}
+
+function reservePluginId(schema: TSchema): TSchema {
+  if (
+    typeof schema === "object" &&
+    schema !== null &&
+    "type" in schema &&
+    schema.type === "object"
+  ) {
+    const properties = "properties" in schema
+      ? schema.properties as Record<string, TSchema>
+      : {};
+    return {
+      ...schema,
+      properties: { ...properties, id: Type.Optional(Type.Never()) },
+    };
+  }
+  return schema;
 }
 
 function union(schemas: TSchema[]): TSchema {

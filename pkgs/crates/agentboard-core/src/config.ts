@@ -138,7 +138,7 @@ function nextPosition(role: PluginRole, path: string): number {
   return position;
 }
 
-function strictObjectSchema(schema: TSchema): TSchema {
+export function strictPluginSchema(schema: TSchema): TSchema {
   if (
     typeof schema === "object" &&
     schema !== null &&
@@ -181,7 +181,7 @@ function resolve<
 
   const { id, payload } = splitConfig(config);
   const normalized = Compile(plugin.schema).Default(payload);
-  const validated = Compile(strictObjectSchema(plugin.schema)).Parse(
+  const validated = Compile(strictPluginSchema(plugin.schema)).Parse(
     normalized,
   ) as Static<Schema>;
   const identity = {

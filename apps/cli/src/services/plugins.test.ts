@@ -16,6 +16,7 @@ import {
   loadDataWorkspace,
   loadExecutableWorkspace,
   loadWorkspacePlugins,
+  type LoadedWorkspace,
 } from "./config/workspace.ts";
 import { loadRunWorkspace } from "../cli/run.ts";
 import { loadSchemaWorkspace } from "../cli/schema.ts";
@@ -47,6 +48,31 @@ function pluginSource(kind: "source" | "action"): string {
   `;
 }
 
+function configurablePluginSource(
+  kind: "source" | "action",
+  additionalProperties?: boolean,
+): string {
+  return `
+    import { definePlugin } from ${JSON.stringify(
+      new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+    )};
+    export default definePlugin(import.meta, {
+      kind: ${JSON.stringify(kind)},
+      schema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          limit: { type: "integer", default: 50 },
+        },
+        required: ["query"],
+        ${additionalProperties === undefined ? "" : `additionalProperties: ${additionalProperties},`}
+      },
+      runtime: (config) => config,
+      healthCheck: () => undefined,
+    });
+  `;
+}
+
 function packageFixture(
   root: string,
   packagePath: string,
@@ -68,6 +94,20 @@ function workspacePackage(root: string, name: string, directory: string): void {
   const path = join(root, "node_modules", ...name.split("/"));
   mkdirSync(join(path, ".."), { recursive: true });
   symlinkSync(directory, path, "dir");
+}
+
+function comparableWorkspace(workspace: LoadedWorkspace) {
+  return workspace.sources.map(({ id, source, actions }) => ({
+    id,
+    source: {
+      ...source,
+      identity: { ...source.identity, path: "<workspace>" },
+    },
+    actions: actions.map(({ packageName: _packageName, ...configured }) => ({
+      ...configured,
+      identity: { ...configured.identity, path: "<workspace>" },
+    })),
+  }));
 }
 
 afterEach(() => {
@@ -150,7 +190,52 @@ describe("Plugin Package discovery", () => {
     expect(JSON.stringify(schemas.workspace)).toContain("first");
     expect(JSON.stringify(schemas.workspace)).toContain("second");
     expect(Compile(schemas.source).Check({ uses: "first", query: "ready" })).toBe(true);
+    expect(Compile(schemas.source).Check({ uses: "first", query: "ready", extra: true })).toBe(false);
+    expect(Compile(schemas.source).Check({ uses: "first", query: "ready", id: "reserved" })).toBe(false);
     expect(Compile(schemas.source).Check({ uses: "first", with: { query: "ready" } })).toBe(false);
+    expect(Compile(schemas.action).Check({ id: "named", uses: "second", with: { query: "ready" } })).toBe(true);
+    expect(Compile(schemas.action).Check({ uses: "second", with: { query: "ready", id: "reserved" } })).toBe(false);
+    expect(Compile(schemas.action).Check({ uses: "second", query: "flat", with: { query: "ready" } })).toBe(false);
+    expect(Compile(schemas.action).Check({ uses: "unknown", with: { query: "ready" } })).toBe(false);
+  });
+
+  test("reserves Source payload id in open generated schemas", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/selected", "selected", configurablePluginSource("source", true));
+
+    const registry = await loadAllWorkspacePlugins(configPath, join(root, "global"));
+    const schema = Compile(createWorkspaceSchemas(registry).source);
+
+    expect(schema.Check({ uses: "selected", query: "ready", extra: true })).toBe(true);
+    expect(schema.Check({ uses: "selected", query: "ready", id: "reserved" })).toBe(false);
+  });
+
+  test("reserves Action payload id in open generated schemas", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/selected", "selected", configurablePluginSource("action", true));
+
+    const registry = await loadAllWorkspacePlugins(configPath, join(root, "global"));
+    const schema = Compile(createWorkspaceSchemas(registry).action);
+
+    expect(schema.Check({ uses: "selected", with: { query: "ready", extra: true } })).toBe(true);
+    expect(schema.Check({ uses: "selected", with: { query: "ready", id: "reserved" } })).toBe(false);
+  });
+
+  test("uses the runtime strict object rule in generated Action schemas", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/selected", "selected", configurablePluginSource("action"));
+
+    const registry = await loadAllWorkspacePlugins(configPath, join(root, "global"));
+    const schema = Compile(createWorkspaceSchemas(registry).action);
+
+    expect(schema.Check({ uses: "selected", with: { query: "ready" } })).toBe(true);
+    expect(schema.Check({ uses: "selected", with: { query: "ready", extra: true } })).toBe(false);
   });
 
   test("accepts a descriptor from another core package copy", async () => {
@@ -256,6 +341,226 @@ describe("Plugin Package discovery", () => {
     expect(loaded.registry.sources.get("selected")?.plugin.meta.packageName).toBe("selected");
     expect(Bun.file(selectedMarker).size).toBeGreaterThan(0);
     expect(Bun.file(ignoredMarker).size).toBe(0);
+  });
+
+  test("preserves explicit Source additional property rules in generated schemas", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.json");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(
+      root,
+      "node_modules/open-source",
+      "open-source",
+      configurablePluginSource("source", true),
+    );
+    writeFileSync(configPath, JSON.stringify({
+      sources: [{
+        id: "one",
+        source: { uses: "open-source", query: "runtime", extra: true },
+      }],
+    }));
+
+    const loaded = await loadDataWorkspace(configPath, join(root, "global"));
+    const schemas = createWorkspaceSchemas(loaded.registry);
+
+    expect(loaded.sources[0]?.source.config).toEqual({ query: "runtime", extra: true });
+    expect(Compile(schemas.source).Check({ uses: "open-source", query: "runtime", extra: true })).toBe(true);
+  });
+
+  test("loads equivalent executable and data Workspace files through the resolved configuration seam", async () => {
+    const root = fixture();
+    const executablePath = join(root, "agentboard.config.ts");
+    const formats = [
+      {
+        name: "JSON",
+        path: join(root, "agentboard.json"),
+        data: JSON.stringify({
+          sources: [{
+            id: "one",
+            source: { uses: "source-package", query: "runtime" },
+            actions: [{ uses: "action-package", with: { query: "echo ready" } }],
+          }],
+        }),
+      },
+      {
+        name: "YAML",
+        path: join(root, "agentboard.yaml"),
+        data: "sources:\n  - id: one\n    source:\n      uses: source-package\n      query: runtime\n    actions:\n      - uses: action-package\n        with:\n          query: echo ready\n",
+      },
+      {
+        name: "TOML",
+        path: join(root, "agentboard.toml"),
+        data: `[[sources]]\nid = "one"\n[sources.source]\nuses = "source-package"\nquery = "runtime"\n[[sources.actions]]\nuses = "action-package"\n[sources.actions.with]\nquery = "echo ready"\n`,
+      },
+    ] as const;
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/source-package", "source-package", configurablePluginSource("source"));
+    packageFixture(root, "node_modules/action-package", "action-package", configurablePluginSource("action"));
+    workspacePackage(
+      root,
+      "@agentboard/core",
+      new URL("../../../../pkgs/crates/agentboard-core", import.meta.url).pathname,
+    );
+    writeFileSync(
+      executablePath,
+      `
+        import { action, defineConfig, source } from "@agentboard/core/config";
+        import sourcePlugin from "source-package";
+        import actionPlugin from "action-package";
+        export default defineConfig({
+          sources: [{
+            id: "one",
+            source: source(sourcePlugin, { query: "runtime" }, import.meta.url),
+            actions: [action(actionPlugin, { query: "echo ready" }, import.meta.url)],
+          }],
+        });
+      `,
+    );
+    const executable = await loadExecutableWorkspace(executablePath);
+
+    for (const format of formats) {
+      writeFileSync(format.path, format.data);
+      const serialized = await loadDataWorkspace(format.path, join(root, "global"));
+
+      expect(
+        comparableWorkspace(serialized),
+        format.name,
+      ).toEqual(comparableWorkspace(executable));
+    }
+  });
+
+  test("rejects invalid Plugin payloads in every data Workspace format", async () => {
+    const root = fixture();
+    const formats = [
+      [join(root, "agentboard.json"), JSON.stringify({ sources: [{ id: "one", source: { uses: "selected", query: "ready", extra: true } }] })],
+      [join(root, "agentboard.yaml"), "sources:\n  - id: one\n    source:\n      uses: selected\n      query: ready\n      extra: true\n"],
+      [join(root, "agentboard.toml"), `[[sources]]\nid = "one"\n[sources.source]\nuses = "selected"\nquery = "ready"\nextra = true\n`],
+    ] as const;
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/selected", "selected", configurablePluginSource("source"));
+
+    for (const [path, data] of formats) {
+      writeFileSync(path, data);
+      await expect(loadDataWorkspace(path, join(root, "global"))).rejects.toThrow();
+    }
+  });
+
+  test("keeps Action payload fields inside with", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.json");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/source-package", "source-package", configurablePluginSource("source"));
+    packageFixture(root, "node_modules/action-package", "action-package", configurablePluginSource("action"));
+    writeFileSync(configPath, JSON.stringify({
+      sources: [{
+        id: "one",
+        source: { uses: "source-package", query: "runtime" },
+        actions: [{ uses: "action-package", query: "flat", with: { query: "nested" } }],
+      }],
+    }));
+
+    await expect(loadDataWorkspace(configPath, join(root, "global"))).rejects.toThrow();
+  });
+
+  test("rejects reserved id fields in serialized Plugin payloads", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.json");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/source-package", "source-package", configurablePluginSource("source"));
+    packageFixture(root, "node_modules/action-package", "action-package", configurablePluginSource("action"));
+
+    for (const data of [
+      {
+        sources: [{
+          id: "one",
+          source: { uses: "source-package", query: "runtime", id: "reserved" },
+        }],
+      },
+      {
+        sources: [{
+          id: "one",
+          source: { uses: "source-package", query: "runtime" },
+          actions: [{ uses: "action-package", with: { query: "nested", id: "reserved" } }],
+        }],
+      },
+    ]) {
+      writeFileSync(configPath, JSON.stringify(data));
+      await expect(loadDataWorkspace(configPath, join(root, "global"))).rejects.toThrow(
+        'Plugin payload must not define reserved field "id"',
+      );
+    }
+  });
+
+  test("requires with before loading a defaulted Action payload", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.json");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/source-package", "source-package", configurablePluginSource("source"));
+    packageFixture(
+      root,
+      "node_modules/action-package",
+      "action-package",
+      `
+        import { definePlugin } from ${JSON.stringify(
+          new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+        )};
+        export default definePlugin(import.meta, {
+          kind: "action",
+          schema: {
+            type: "object",
+            properties: { timeout: { type: "integer", default: 30 } },
+          },
+          runtime: (config) => config,
+          healthCheck: () => undefined,
+        });
+      `,
+    );
+    writeFileSync(configPath, JSON.stringify({
+      sources: [{
+        id: "one",
+        source: { uses: "source-package", query: "runtime" },
+        actions: [{ uses: "action-package" }],
+      }],
+    }));
+
+    await expect(loadDataWorkspace(configPath, join(root, "global"))).rejects.toThrow(
+      'action in source one must define "with"',
+    );
+  });
+
+  test("loads primitive Action payloads from with", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.json");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/source-package", "source-package", configurablePluginSource("source"));
+    packageFixture(
+      root,
+      "node_modules/action-package",
+      "action-package",
+      `
+        import { definePlugin } from ${JSON.stringify(
+          new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+        )};
+        export default definePlugin(import.meta, {
+          kind: "action",
+          schema: { type: "string" },
+          runtime: (config) => config,
+          healthCheck: () => undefined,
+        });
+      `,
+    );
+    writeFileSync(configPath, JSON.stringify({
+      sources: [{
+        id: "one",
+        source: { uses: "source-package", query: "runtime" },
+        actions: [{ id: "named", uses: "action-package", with: "echo ready" }],
+      }],
+    }));
+
+    const loaded = await loadDataWorkspace(configPath, join(root, "global"));
+
+    expect(loaded.sources[0]?.actions[0]?.id).toBe("named");
+    expect(loaded.sources[0]?.actions[0]?.config).toBe("echo ready");
   });
 
   test("loads TypeScript defineConfig output through the resolved configuration seam", async () => {
