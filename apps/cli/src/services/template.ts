@@ -1,4 +1,9 @@
+import { homedir } from "node:os";
 import { Environment } from "minijinja-js";
+
+export interface RenderActionInputsOptions {
+  readonly pathInputs?: readonly string[];
+}
 
 export function validateActionInputs(value: unknown): void {
   visitStrings(value, (template) => environment().addTemplate("input", template));
@@ -7,17 +12,34 @@ export function validateActionInputs(value: unknown): void {
 export function renderActionInputs(
   value: unknown,
   context: Record<string, unknown>,
+  options: RenderActionInputsOptions = {},
 ): unknown {
-  if (typeof value === "string") return environment().renderStr(value, context);
-  if (Array.isArray(value)) return value.map((item) => renderActionInputs(item, context));
+  return render(value, context, new Set(options.pathInputs ?? []));
+}
+
+function render(
+  value: unknown,
+  context: Record<string, unknown>,
+  pathInputs: ReadonlySet<string>,
+  key?: string,
+): unknown {
+  if (typeof value === "string") {
+    const rendered = environment().renderStr(value, context);
+    return key !== undefined && pathInputs.has(key) ? expandPath(rendered) : rendered;
+  }
+  if (Array.isArray(value)) return value.map((item) => render(item, context, pathInputs));
   if (value === null || typeof value !== "object") return value;
   return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, renderActionInputs(item, context)]),
+    Object.entries(value).map(([itemKey, item]) => [
+      itemKey,
+      render(item, context, pathInputs, itemKey),
+    ]),
   );
 }
 
 function environment(): Environment {
   const environment = new Environment();
+  environment.undefinedBehavior = "strict";
   environment.addFilter("slugify", slugify);
   return environment;
 }
@@ -34,6 +56,18 @@ function visitStrings(value: unknown, visit: (value: string) => void): void {
   if (value !== null && typeof value === "object") {
     for (const item of Object.values(value)) visitStrings(item, visit);
   }
+}
+
+function expandPath(value: string): string {
+  let expanded = value === "~" || value.startsWith("~/")
+    ? `${homedir()}${value.slice(1)}`
+    : value;
+  expanded = expanded.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (
+    match,
+    braced: string | undefined,
+    plain: string | undefined,
+  ) => process.env[braced ?? plain ?? ""] ?? match);
+  return expanded;
 }
 
 function slugify(value: string): string {

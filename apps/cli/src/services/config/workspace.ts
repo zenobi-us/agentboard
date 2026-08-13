@@ -1,5 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import { extname, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { basename, extname, resolve } from "node:path";
 import Type, { type TSchema } from "typebox";
 import {
   action,
@@ -36,6 +37,7 @@ export interface WorkspaceSchemas {
 export interface LoadedWorkspaceSource {
   readonly id: string;
   readonly packageName: string;
+  readonly itemBucketIdentity: string;
   readonly source: ResolvedSource<TSchema>;
   readonly actions: readonly (ResolvedAction<TSchema> & { readonly packageName: string })[];
 }
@@ -78,6 +80,7 @@ export async function loadAllWorkspacePlugins(
 export async function loadExecutableWorkspace(
   configPath: string,
   configuration?: unknown,
+  cancellation: AbortSignal = new AbortController().signal,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   let data = configuration;
@@ -105,6 +108,7 @@ export async function loadExecutableWorkspace(
     return {
       ...record,
       packageName: sourcePlugin.meta.packageName ?? sourcePlugin.meta.url,
+      itemBucketIdentity: sourcePlugin.itemBucketIdentity!(record.source.config),
       actions,
     };
   });
@@ -112,13 +116,14 @@ export async function loadExecutableWorkspace(
     path,
     id: workspaceId(path),
     registry: { sources: new Map(), actions: new Map() },
-    sources: await buildSourceRuntimes(sources, path),
+    sources: await buildSourceRuntimes(sources, path, cancellation),
   };
 }
 
 export async function loadDataWorkspace(
   configPath: string,
   globalRoot?: string,
+  cancellation: AbortSignal = new AbortController().signal,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   const data = parseDataWorkspace(path);
@@ -172,23 +177,30 @@ export async function loadDataWorkspace(
       copyPluginReference(resolved, loaded);
       return loaded;
     });
-    return { id: item.id, packageName: sourceName, source: resolvedSource, actions };
+    return {
+      id: item.id,
+      packageName: sourceName,
+      itemBucketIdentity: sourcePackage.plugin.itemBucketIdentity!(resolvedSource.config),
+      source: resolvedSource,
+      actions,
+    };
   });
   return {
     path,
     id: workspaceId(path),
     registry,
-    sources: await buildSourceRuntimes(sources, path),
+    sources: await buildSourceRuntimes(sources, path, cancellation),
   };
 }
 
 async function buildSourceRuntimes(
   sources: readonly LoadedWorkspaceSource[],
   path: string,
+  cancellation: AbortSignal,
 ): Promise<LoadedSourceRuntime[]> {
   try {
     return await Promise.all(
-      sources.map((source) => createSourceRuntime(source, workspaceId(path))),
+      sources.map((source) => createSourceRuntime(source, workspaceId(path), cancellation)),
     );
   } catch (error) {
     throw new Error(`Workspace runtime factory failed for ${path}: ${String(error)}`);
@@ -196,7 +208,10 @@ async function buildSourceRuntimes(
 }
 
 function workspaceId(path: string): string {
-  return path.split(/[\\/]/).pop()?.replace(/\.[^.]+$/, "") ?? "workspace";
+  const canonical = existsSync(path) ? realpathSync(path) : resolve(path);
+  const stem = basename(path).replace(/\.[^.]+$/, "") || "workspace";
+  const hash = createHash("sha256").update(canonical).digest("hex").slice(0, 12);
+  return `${stem}-${hash}`;
 }
 
 function validateActionIds(

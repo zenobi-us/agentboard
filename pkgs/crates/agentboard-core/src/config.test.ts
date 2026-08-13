@@ -5,6 +5,7 @@ import { action, definePlugin, source } from "./config.ts";
 
 const sourcePlugin = definePlugin(import.meta, {
   kind: "source",
+  itemBucketIdentity: () => "memory",
   schema: Type.Object({
     query: Type.String(),
     limit: Type.Optional(Type.Integer({ default: 50 })),
@@ -80,12 +81,14 @@ test("gives each inline configuration node a position", () => {
 test("separates distinct inline plugins by configuration path and role", () => {
   const firstPlugin = definePlugin(import.meta, {
     kind: "source",
+    itemBucketIdentity: () => "memory",
     schema: Type.Object({ query: Type.String() }),
     runtime: (config) => config,
     healthCheck: () => undefined,
   });
   const secondPlugin = definePlugin(import.meta, {
     kind: "source",
+    itemBucketIdentity: () => "memory",
     schema: Type.Object({ query: Type.String() }),
     runtime: (config) => config,
     healthCheck: () => undefined,

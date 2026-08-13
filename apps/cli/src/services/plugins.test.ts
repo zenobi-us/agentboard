@@ -36,6 +36,7 @@ function pluginSource(kind: "source" | "action"): string {
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : ""}
       schema: {
         type: "object",
         properties: { query: { type: "string" } },
@@ -58,6 +59,7 @@ function configurablePluginSource(
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : ""}
       schema: {
         type: "object",
         properties: {
@@ -252,6 +254,7 @@ describe("Plugin Package discovery", () => {
         const brand = Symbol.for("agentboard.pluginDescriptor");
         export default {
           kind: "source",
+          itemBucketIdentity: () => "memory",
           schema: { type: "object" },
           runtime: () => undefined,
           healthCheck: () => undefined,
@@ -278,6 +281,7 @@ describe("Plugin Package discovery", () => {
           new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
         )};
         const definition = {
+          itemBucketIdentity: () => "memory",
           schema: { type: "object" },
           runtime: () => undefined,
           healthCheck: () => undefined,
@@ -325,6 +329,7 @@ describe("Plugin Package discovery", () => {
       writeFileSync(${JSON.stringify(marker)}, "imported");
       export default definePlugin(import.meta, {
         kind: "source",
+        itemBucketIdentity: () => "memory",
         schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
         runtime: () => ({ collect: () => [] }),
         healthCheck: () => undefined,
@@ -580,6 +585,7 @@ describe("Plugin Package discovery", () => {
         import { action, defineConfig, definePlugin, source } from "@agentboard/core/config";
         const sourcePlugin = definePlugin(import.meta, {
           kind: "source",
+          itemBucketIdentity: () => "memory",
           schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
           runtime: () => ({ collect: () => [] }),
           healthCheck: () => undefined,
@@ -631,6 +637,7 @@ describe("Plugin Package discovery", () => {
         )};
         const plugin = definePlugin(import.meta, {
           kind: "source",
+          itemBucketIdentity: () => "memory",
           schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
           runtime: () => ({ collect: () => [] }),
           healthCheck: () => undefined,
@@ -746,6 +753,7 @@ describe("Plugin Package discovery", () => {
       writeFileSync(${JSON.stringify(marker)}, "imported");
       export default definePlugin(import.meta, {
         kind: "source",
+        itemBucketIdentity: () => "memory",
         schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
         runtime: () => ({ collect: () => [] }),
         healthCheck: () => undefined,

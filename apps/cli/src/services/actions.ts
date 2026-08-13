@@ -33,9 +33,10 @@ export function createActionRuntime(
 export async function checkActionHealth(
   sourceId: string,
   configured: ResolvedAction<TSchema>,
+  cancellation: AbortSignal,
 ): Promise<void> {
   const plugin = pluginFor(configured);
-  const context: HealthCheckContext = { sourceId };
+  const context: HealthCheckContext = { sourceId, cancellation };
   await plugin.healthCheck(configured.config, context);
 }
 

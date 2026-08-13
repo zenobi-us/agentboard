@@ -39,20 +39,26 @@ export interface ActionResult {
 
 export interface SourceRuntimeContext {
   readonly sourceId: string;
+  readonly cancellation: AbortSignal;
 }
 
 export interface ActionRuntimeContext {
   readonly workspaceId: string;
   readonly sourceId: string;
   readonly item: Item;
+  readonly cancellation: AbortSignal;
 }
 
 export interface ActionRuntimeFactoryContext {
   readonly workspaceId: string;
   readonly sourceId: string;
+  readonly cancellation: AbortSignal;
 }
 
-export type HealthCheckContext = SourceRuntimeContext;
+export interface HealthCheckContext {
+  readonly sourceId: string;
+  readonly cancellation: AbortSignal;
+}
 
 export interface SourceRuntime {
   collect(): Promise<readonly Item[]> | readonly Item[];
@@ -85,6 +91,7 @@ export interface Plugin<
     config: Static<Schema>,
     context: HealthCheckContext,
   ) => unknown;
+  readonly itemBucketIdentity?: (config: Static<Schema>) => string;
   readonly meta: PluginMeta;
 }
 
@@ -92,7 +99,10 @@ type PluginDefinition<
   Role extends PluginRole,
   Schema extends TSchema,
   Runtime extends RuntimeFor<Role>,
-> = Omit<Plugin<Role, Schema, Runtime>, "meta">;
+> = Omit<Plugin<Role, Schema, Runtime>, "meta" | "itemBucketIdentity"> &
+  (Role extends "source"
+    ? { readonly itemBucketIdentity: (config: Static<Schema>) => string }
+    : { readonly itemBucketIdentity?: never });
 
 export function definePlugin<
   const Role extends PluginRole,
@@ -104,6 +114,9 @@ export function definePlugin<
 ): Plugin<Role, Schema, Runtime> {
   if (definition.kind !== "source" && definition.kind !== "action") {
     throw new TypeError(`invalid plugin role: ${String(definition.kind)}`);
+  }
+  if (definition.kind === "source" && typeof definition.itemBucketIdentity !== "function") {
+    throw new TypeError("source plugin must define itemBucketIdentity()");
   }
 
   return {
@@ -170,6 +183,7 @@ export function isPluginDescriptor(value: unknown): value is AnyPlugin {
     candidate.schema !== null &&
     typeof candidate.runtime === "function" &&
     typeof candidate.healthCheck === "function" &&
+    (candidate.kind === "action" || typeof candidate.itemBucketIdentity === "function") &&
     typeof candidate.meta?.url === "string"
   );
 }
