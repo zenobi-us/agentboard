@@ -1,6 +1,6 @@
 import Type from "typebox";
 
-import { FieldMapSchema } from "@agentboard/core/config";
+import { definePlugin, FieldMapSchema } from "@agentboard/core/config";
 
 export const JiraCredentialSchema = Type.Object({
   helper: Type.String(),
@@ -9,7 +9,6 @@ export const JiraCredentialSchema = Type.Object({
 export type JiraCredential = Type.Static<typeof JiraCredentialSchema>;
 
 export const JiraSourceSchema = Type.Object({
-  kind: Type.Literal("jira"),
   site: Type.String(),
   email_env: Type.Optional(Type.String({ default: "JIRA_EMAIL" })),
   token_env: Type.Optional(Type.String({ default: "JIRA_API_TOKEN" })),
@@ -26,3 +25,19 @@ export const JiraSourceSchema = Type.Object({
 });
 
 export type JiraSource = Type.Static<typeof JiraSourceSchema>;
+
+export default definePlugin(import.meta, {
+  kind: "source",
+  schema: JiraSourceSchema,
+  itemBucketIdentity: (config) => {
+    try {
+      return new URL(config.site).host.toLowerCase();
+    } catch {
+      return config.site.toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
+    }
+  },
+  runtime: () => ({
+    collect: () => Promise.reject(new Error("Jira Bun Source runtime is not available")),
+  }),
+  healthCheck: () => undefined,
+});

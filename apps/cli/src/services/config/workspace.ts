@@ -13,7 +13,7 @@ import {
   type WorkspaceConfig,
 } from "@agentboard/core/config";
 
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   createSourceRuntime,
@@ -98,16 +98,17 @@ export async function loadExecutableWorkspace(
     validateActionIds(record.actions ?? [], path, record.id);
     const actions = (record.actions ?? []).map((configured) => {
       validateActionInputs(configured.config);
+      pluginFor(configured).validate!(configured.config);
       const loaded = {
         ...configured,
-        packageName: packageNameFor(configured),
+        packageName: packageNameForPlugin(pluginFor(configured)),
       };
       copyPluginReference(configured, loaded);
       return loaded;
     });
     return {
       ...record,
-      packageName: sourcePlugin.meta.packageName ?? sourcePlugin.meta.url,
+      packageName: packageNameForPlugin(sourcePlugin),
       itemBucketIdentity: sourcePlugin.itemBucketIdentity!(record.source.config),
       actions,
     };
@@ -164,6 +165,7 @@ export async function loadDataWorkspace(
         throw new TypeError("configuration id must be a string");
       }
       validateActionInputs(inputs);
+      actionPackage.plugin.validate!(inputs);
       const resolved = action(
         actionPackage.plugin as never,
         inputs as never,
@@ -293,9 +295,28 @@ function validateExecutableWorkspace(
   }
 }
 
-function packageNameFor(configured: ResolvedAction<TSchema>): string {
-  const plugin = pluginFor(configured);
-  return plugin.meta.packageName ?? plugin.meta.url;
+function packageNameForPlugin(plugin: ReturnType<typeof pluginFor>): string {
+  if (plugin.meta.packageName) return plugin.meta.packageName;
+  if (!plugin.meta.url.startsWith("file:")) return plugin.meta.url;
+  let directory = resolve(fileURLToPath(plugin.meta.url), "..");
+  while (true) {
+    const manifestPath = resolve(directory, "package.json");
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        name?: unknown;
+        keywords?: unknown;
+      };
+      if (
+        typeof manifest.name === "string" &&
+        Array.isArray(manifest.keywords) &&
+        manifest.keywords.includes("agentboard-package")
+      ) return manifest.name;
+    }
+    const parent = resolve(directory, "..");
+    if (parent === directory) break;
+    directory = parent;
+  }
+  return plugin.meta.url;
 }
 
 function validateWorkspaceData(value: unknown, path: string): asserts value is {

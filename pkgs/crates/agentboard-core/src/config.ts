@@ -64,8 +64,15 @@ export interface SourceRuntime {
   collect(): Promise<readonly Item[]> | readonly Item[];
 }
 
+export interface SourceCollection {
+  readonly items: readonly Item[];
+  readonly available?: number;
+  readonly limit?: number;
+}
+
 export interface ActionRuntime {
   execute(context: ActionRuntimeContext): Promise<ActionResult> | ActionResult;
+  cachedSuccessIsValid?(context: ActionRuntimeContext): Promise<boolean> | boolean;
 }
 
 type RuntimeFor<Role extends PluginRole> = Role extends "source"
@@ -91,6 +98,8 @@ export interface Plugin<
     config: Static<Schema>,
     context: HealthCheckContext,
   ) => unknown;
+  readonly validate?: (config: Static<Schema>) => unknown;
+  readonly pathInputs?: readonly string[];
   readonly itemBucketIdentity?: (config: Static<Schema>) => string;
   readonly meta: PluginMeta;
 }
@@ -99,10 +108,10 @@ type PluginDefinition<
   Role extends PluginRole,
   Schema extends TSchema,
   Runtime extends RuntimeFor<Role>,
-> = Omit<Plugin<Role, Schema, Runtime>, "meta" | "itemBucketIdentity"> &
+> = Omit<Plugin<Role, Schema, Runtime>, "meta" | "itemBucketIdentity" | "validate"> &
   (Role extends "source"
-    ? { readonly itemBucketIdentity: (config: Static<Schema>) => string }
-    : { readonly itemBucketIdentity?: never });
+    ? { readonly itemBucketIdentity: (config: Static<Schema>) => string; readonly validate?: never }
+    : { readonly itemBucketIdentity?: never; readonly validate: (config: Static<Schema>) => unknown });
 
 export function definePlugin<
   const Role extends PluginRole,
@@ -117,6 +126,9 @@ export function definePlugin<
   }
   if (definition.kind === "source" && typeof definition.itemBucketIdentity !== "function") {
     throw new TypeError("source plugin must define itemBucketIdentity()");
+  }
+  if (definition.kind === "action" && typeof definition.validate !== "function") {
+    throw new TypeError("action plugin must define validate()");
   }
 
   return {
@@ -183,7 +195,9 @@ export function isPluginDescriptor(value: unknown): value is AnyPlugin {
     candidate.schema !== null &&
     typeof candidate.runtime === "function" &&
     typeof candidate.healthCheck === "function" &&
-    (candidate.kind === "action" || typeof candidate.itemBucketIdentity === "function") &&
+    (candidate.kind === "source"
+      ? typeof candidate.itemBucketIdentity === "function"
+      : typeof candidate.validate === "function") &&
     typeof candidate.meta?.url === "string"
   );
 }

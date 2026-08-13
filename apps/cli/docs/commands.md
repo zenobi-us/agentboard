@@ -132,7 +132,7 @@ Checks include:
 - Workspace config validation.
 - Store directory writability.
 - Required Source commands, for example `qmd`.
-- Required Action commands, for example `git` for `agentboard/worktree`.
+- Required Action commands, for example `git` for `@agentboard/action-worktree`.
 - Source reachability by collecting items.
 
 ## `schema`

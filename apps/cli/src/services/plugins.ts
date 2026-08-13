@@ -255,6 +255,9 @@ function isPluginShape(value: unknown): value is AnyPlugin {
     candidate.schema !== null &&
     typeof candidate.runtime === "function" &&
     typeof candidate.healthCheck === "function" &&
+    (candidate.kind === "source"
+      ? typeof candidate.itemBucketIdentity === "function"
+      : typeof candidate.validate === "function") &&
     typeof candidate.meta?.url === "string"
   );
 }

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, open, readFile, readdir, unlink } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -9,6 +9,14 @@ import type { LoadedWorkspace, LoadedWorkspaceSource } from "./config/workspace.
 
 const SNAPSHOT_KEY_FIELD = "_agentboard_snapshot_key";
 const SNAPSHOT_ID_FIELD = "_agentboard_snapshot_id";
+
+export type CollectionState = "collecting" | "complete" | "failed" | "cancelled";
+
+export interface SourceCollectionStatus {
+  readonly state: CollectionState;
+  readonly updated_at: string;
+  readonly error?: string;
+}
 
 export interface ActionAttempt extends ActionResult {
   readonly ts: string;
@@ -58,6 +66,26 @@ export async function acquireWorkspaceLock(
   };
 }
 
+export async function setSourceCollectionStatus(
+  workspace: LoadedWorkspace,
+  sourceId: string,
+  state: CollectionState,
+  error?: string,
+  root?: string,
+): Promise<void> {
+  const directory = join(workspaceStoreRoot(workspace, root), "sources", sourceId);
+  const path = join(directory, "collection-status.json");
+  const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  await mkdir(directory, { recursive: true });
+  const status: SourceCollectionStatus = {
+    state,
+    updated_at: new Date().toISOString(),
+    ...(error === undefined ? {} : { error }),
+  };
+  await writeFile(temporary, JSON.stringify(status, null, 2));
+  await rename(temporary, path);
+}
+
 export async function appendSourceSnapshot(
   workspace: LoadedWorkspace,
   source: LoadedWorkspaceSource,
@@ -99,14 +127,18 @@ export async function successfulActionKeys(
 ): Promise<Set<string>> {
   const path = actionPath(workspace, source, root);
   const attempts = await readJsonLines<ActionAttempt>(path);
-  return new Set(attempts
-    .filter((attempt) => attempt.outcome === "success")
-    .map((attempt) => actionKey(
+  const latest = new Map<string, ActionAttempt["outcome"]>();
+  for (const attempt of attempts) {
+    latest.set(actionKey(
       attempt.source_id,
       attempt.item_id,
       attempt.source_action_index,
       attempt.rendered_action_hash,
-    )));
+    ), attempt.outcome);
+  }
+  return new Set([...latest]
+    .filter(([, outcome]) => outcome === "success")
+    .map(([key]) => key));
 }
 
 export async function appendActionAttempt(

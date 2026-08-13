@@ -14,6 +14,7 @@ import {
 } from "@agentboard/core/config";
 
 import { installCancellationHandlers } from "../cli/cancellation.ts";
+import { runExitStatus } from "../cli/run.ts";
 import { loadExecutableWorkspace } from "./config/workspace.ts";
 import { checkWorkspaceHealth, runWorkspace } from "./runtime.ts";
 import { renderActionInputs } from "./template.ts";
@@ -50,6 +51,8 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
+      validate: () => undefined,
+      pathInputs: ["message"],
       schema: Type.Object({ message: Type.String(), sourceKind: Type.String() }),
       runtime: (inputs) => {
         renderedInputs.push(inputs);
@@ -71,31 +74,34 @@ describe("Workspace runtime orchestration", () => {
         id: "issues",
         source: source(sourcePlugin, { kind: "memory", title: "Runtime item" }, path),
         actions: [action(actionPlugin, {
-          message: "{{ item.title }}",
+          message: "$AGENTBOARD_RUNTIME_ROOT/{{ item.title }}",
           sourceKind: "{{ source.source.kind }}",
         }, path)],
       }],
     }));
 
+    const previousRoot = process.env["AGENTBOARD_RUNTIME_ROOT"];
+    process.env["AGENTBOARD_RUNTIME_ROOT"] = "/tmp/runtime";
     const first = await runWorkspace(workspace, { storeRoot });
     const second = await runWorkspace(workspace, { storeRoot });
 
     expect(sourceFactories).toBe(1);
     expect(renderedInputs).toEqual([
-      { message: "Runtime item", sourceKind: "memory" },
-      { message: "Runtime item", sourceKind: "memory" },
+      { message: "/tmp/runtime/Runtime item", sourceKind: "memory" },
+      { message: "/tmp/runtime/Runtime item", sourceKind: "memory" },
     ]);
     expect(first.sources[0]).toMatchObject({
       id: "issues",
       items: [{ raw: { providerId: 1 } }],
       actions: [{
         itemId: "item-1",
-        result: { outcome: "success", stdout: "AB-1:Runtime item:memory", stderr: "" },
+        result: { outcome: "success", stdout: "AB-1:/tmp/runtime/Runtime item:memory", stderr: "" },
       }],
     });
     expect(second.sources[0]?.actions).toEqual([{
       itemId: "item-1",
       actionIndex: 0,
+      uses: import.meta.url,
       skipped: true,
     }]);
     const files = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: storeRoot }));
@@ -103,6 +109,8 @@ describe("Workspace runtime orchestration", () => {
     const attempts = files.find((file) => file.includes("actions-") && file.endsWith(".jsonl"));
     expect(attempts).toBeDefined();
     expect((await readFile(join(storeRoot, attempts!), "utf8")).trim().split("\n")).toHaveLength(1);
+    if (previousRoot === undefined) delete process.env["AGENTBOARD_RUNTIME_ROOT"];
+    else process.env["AGENTBOARD_RUNTIME_ROOT"] = previousRoot;
     await rm(storeRoot, { recursive: true, force: true });
   });
 
@@ -148,6 +156,63 @@ describe("Workspace runtime orchestration", () => {
     await rm(storeRoot, { recursive: true, force: true });
   });
 
+  test("retries when the latest attempt after a success is not successful", async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+    let executions = 0;
+    let outcome: ActionResult["outcome"] = "success";
+    let cachedSuccessIsValid = false;
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: (_config, context) => ({
+        collect: (): Item[] => [{
+          id: "one",
+          reference_id: "one",
+          title: "one",
+          status: "ready",
+          url: "https://example.test/one",
+          source_id: context.sourceId,
+          source_kind: "memory",
+          raw: {},
+        }],
+      }),
+      healthCheck: () => undefined,
+    });
+    const actionPlugin = definePlugin(import.meta, {
+      kind: "action",
+      validate: () => undefined,
+      schema: Type.Object({}),
+      runtime: () => ({
+        cachedSuccessIsValid: () => cachedSuccessIsValid,
+        execute: (): ActionResult => {
+          executions += 1;
+          return { outcome, stdout: "", stderr: "" };
+        },
+      }),
+      healthCheck: () => undefined,
+    });
+    const path = new URL("./latest-attempt.test.ts", import.meta.url).pathname;
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{
+        id: "issues",
+        source: source(sourcePlugin, {}, path),
+        actions: [action(actionPlugin, {}, path)],
+      }],
+    }));
+
+    await runWorkspace(workspace, { storeRoot });
+    outcome = "cancelled";
+    await runWorkspace(workspace, { storeRoot });
+    outcome = "success";
+    cachedSuccessIsValid = true;
+    const third = await runWorkspace(workspace, { storeRoot });
+
+    expect(executions).toBe(3);
+    expect(third.sources[0]?.actions[0]?.skipped).not.toBe(true);
+    await rm(storeRoot, { recursive: true, force: true });
+  });
+
   test("skips a duplicate Rendered Action identity within one Run", async () => {
     let calls = 0;
     const sourcePlugin = definePlugin(import.meta, {
@@ -170,6 +235,7 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
+      validate: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
         execute: (): ActionResult => {
@@ -218,6 +284,7 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
+      validate: () => undefined,
       schema: Type.Object({ name: Type.String() }),
       runtime: (inputs) => ({
         execute: async (context): Promise<ActionResult> => {
@@ -275,6 +342,7 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
+      validate: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
         execute: (context): ActionResult => {
@@ -323,6 +391,7 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
+      validate: () => undefined,
       schema: Type.Object({ itemId: Type.String() }),
       runtime: () => ({
         execute: async (context): Promise<ActionResult> => {
@@ -345,14 +414,34 @@ describe("Workspace runtime orchestration", () => {
     const result = await runWorkspace(workspace, { storeRoot });
 
     expect(result.sources[0]?.actions).toEqual([
-      { itemId: "one", actionIndex: 0, error: "action failed" },
+      { itemId: "one", actionIndex: 0, uses: import.meta.url, error: "action failed" },
       {
         itemId: "two",
         actionIndex: 0,
+        uses: import.meta.url,
         result: { outcome: "success", stdout: "two", stderr: "" },
       },
     ]);
     await rm(storeRoot, { recursive: true, force: true });
+  });
+
+  test("maps Run failures to status 1 and cancellation to status 130", () => {
+    expect(runExitStatus({
+      sources: [{ id: "one", uses: "source", items: [], actions: [], error: "failed" }],
+    })).toBe(1);
+    expect(runExitStatus({
+      sources: [{
+        id: "one",
+        uses: "source",
+        items: [],
+        actions: [{ itemId: "one", actionIndex: 0, uses: "action", result: {
+          outcome: "failure",
+          stdout: "",
+          stderr: "failed",
+        } }],
+      }],
+    })).toBe(1);
+    expect(runExitStatus({ sources: [], cancelled: true })).toBe(130);
   });
 
   test("cancels on the first interrupt and force-exits on the second", () => {
@@ -419,6 +508,7 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
+      validate: () => undefined,
       schema: Type.Object({}),
       runtime: (_inputs, context) => {
         signals.push(context.cancellation);
@@ -448,6 +538,51 @@ describe("Workspace runtime orchestration", () => {
     await rm(storeRoot, { recursive: true, force: true });
   });
 
+  test("writes Source Collection Status and preserves the prior Snapshot after failure", async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+    let fail = false;
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: (_config, context) => ({
+        collect: (): Item[] => {
+          if (fail) throw new Error("collection failed");
+          return [{
+            id: "one",
+            reference_id: "one",
+            title: "one",
+            status: "ready",
+            url: "https://example.test/one",
+            source_id: context.sourceId,
+            source_kind: "memory",
+            raw: {},
+          }];
+        },
+      }),
+      healthCheck: () => undefined,
+    });
+    const path = new URL("./collection-status.test.ts", import.meta.url).pathname;
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{ id: "issues", source: source(sourcePlugin, {}, path) }],
+    }));
+
+    await runWorkspace(workspace, { storeRoot });
+    const filesBefore = await Array.fromAsync(new Bun.Glob("**/*.snapshots").scan({ cwd: storeRoot }));
+    const boundaryPath = join(storeRoot, filesBefore[0]!);
+    const boundaryBefore = await readFile(boundaryPath, "utf8");
+    fail = true;
+    await runWorkspace(workspace, { storeRoot });
+    const status = JSON.parse(await readFile(
+      join(storeRoot, workspace.id, "sources", "issues", "collection-status.json"),
+      "utf8",
+    )) as { state: string; error: string };
+
+    expect(status).toMatchObject({ state: "failed", error: "collection failed" });
+    expect(await readFile(boundaryPath, "utf8")).toBe(boundaryBefore);
+    await rm(storeRoot, { recursive: true, force: true });
+  });
+
   test("does not publish a Source Snapshot after cancellation", async () => {
     const controller = new AbortController();
     const sourcePlugin = definePlugin(import.meta, {
@@ -471,7 +606,12 @@ describe("Workspace runtime orchestration", () => {
     const result = await runWorkspace(workspace, { storeRoot });
 
     expect(result.cancelled).toBe(true);
-    expect(await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: storeRoot }))).toEqual([]);
+    const files = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: storeRoot }));
+    expect(files.some((file) => file.endsWith(".snapshots"))).toBe(false);
+    expect(JSON.parse(await readFile(
+      join(storeRoot, workspace.id, "sources", "issues", "collection-status.json"),
+      "utf8",
+    ))).toMatchObject({ state: "cancelled" });
     await rm(storeRoot, { recursive: true, force: true });
   });
 
@@ -486,6 +626,7 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
+      validate: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
         execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
@@ -505,14 +646,23 @@ describe("Workspace runtime orchestration", () => {
 
     expect(calls).toEqual(["source:issues", "action:issues"]);
     expect(results).toEqual([
-      { sourceId: "issues", role: "source" },
-      { sourceId: "issues", role: "action", actionIndex: 0 },
+      { sourceId: "issues", role: "source", uses: import.meta.url },
+      { sourceId: "issues", role: "action", uses: import.meta.url, actionIndex: 0 },
     ]);
   });
 
   test("fails missing and forward named Action input references", () => {
     expect(() => renderActionInputs(
       "{{ actions.missing.inputs.root }}",
+      { actions: {} },
+    )).toThrow();
+  });
+
+  test("keeps unrelated missing Item fields and plain Action text lenient", () => {
+    expect(renderActionInputs("{{ item.missing }}", { item: {} })).toBe("");
+    expect(renderActionInputs("echo actions.missing", { actions: {} })).toBe("echo actions.missing");
+    expect(() => renderActionInputs(
+      "{{ actions . missing . inputs . root }}",
       { actions: {} },
     )).toThrow();
   });
@@ -614,6 +764,7 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
+      validate: () => undefined,
       schema: Type.Object({ value: Type.String() }),
       runtime: () => ({
         execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
@@ -642,7 +793,7 @@ describe("Workspace runtime orchestration", () => {
     }))).rejects.toThrow("syntax error");
   });
 
-  test("keeps an Action factory error scoped to its Item", async () => {
+  test("fails Workspace loading when Action validation fails", async () => {
     const sourcePlugin = definePlugin(import.meta, {
       kind: "source",
       itemBucketIdentity: () => "memory",
@@ -663,30 +814,23 @@ describe("Workspace runtime orchestration", () => {
     });
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
-      schema: Type.Object({}),
-      runtime: () => {
-        throw new Error("factory failed");
+      validate: () => {
+        throw new Error("validation failed");
       },
+      schema: Type.Object({}),
+      runtime: () => ({
+        execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
+      }),
       healthCheck: () => undefined,
     });
     const path = new URL("./factory-error.test.ts", import.meta.url).pathname;
-    const workspace = await loadExecutableWorkspace(path, defineConfig({
+    await expect(loadExecutableWorkspace(path, defineConfig({
       sources: [{
         id: "issues",
         source: source(sourcePlugin, {}, path),
         actions: [action(actionPlugin, {}, path)],
       }],
-    }));
-    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
-
-    const result = await runWorkspace(workspace, { storeRoot });
-
-    expect(result.sources[0]?.actions).toEqual([{
-      itemId: "one",
-      actionIndex: 0,
-      error: "factory failed",
-    }]);
-    await rm(storeRoot, { recursive: true, force: true });
+    }))).rejects.toThrow("validation failed");
   });
 
 });

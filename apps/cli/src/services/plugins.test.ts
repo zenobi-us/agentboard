@@ -36,7 +36,7 @@ function pluginSource(kind: "source" | "action"): string {
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
-      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : ""}
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined,"}
       schema: {
         type: "object",
         properties: { query: { type: "string" } },
@@ -59,7 +59,7 @@ function configurablePluginSource(
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
-      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : ""}
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined,"}
       schema: {
         type: "object",
         properties: {
@@ -513,6 +513,7 @@ describe("Plugin Package discovery", () => {
         )};
         export default definePlugin(import.meta, {
           kind: "action",
+          validate: () => undefined,
           schema: {
             type: "object",
             properties: { timeout: { type: "integer", default: 30 } },
@@ -550,6 +551,7 @@ describe("Plugin Package discovery", () => {
         )};
         export default definePlugin(import.meta, {
           kind: "action",
+          validate: () => undefined,
           schema: { type: "string" },
           runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
@@ -592,6 +594,7 @@ describe("Plugin Package discovery", () => {
         });
         const actionPlugin = definePlugin(import.meta, {
           kind: "action",
+          validate: () => undefined,
           schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
           runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
@@ -612,6 +615,42 @@ describe("Plugin Package discovery", () => {
     expect(loaded.sources[0]?.actions[0]?.config).toEqual({ command: "echo ready" });
     expect(loaded.sources[0]?.source.identity.role).toBe("source");
     expect(loaded.sources[0]?.actions[0]?.identity.role).toBe("action");
+  });
+
+  test("discovers built-in Plugin Packages and imports one descriptor each", async () => {
+    const configPath = join(import.meta.dir, "../..", "package.json");
+    const packages = discoverPluginPackages(configPath, join(fixture(), "global"));
+    const builtIns = [
+      "@agentboard/source-qmd",
+      "@agentboard/source-jira",
+      "@agentboard/source-github",
+      "@agentboard/action-run-cmd",
+      "@agentboard/action-worktree",
+    ];
+
+    for (const name of builtIns) {
+      expect(packages.some((item) => item.name === name)).toBe(true);
+      expect((await loadPluginPackage(name, packages)).plugin.kind).toBe(
+        name.includes("/source-") ? "source" : "action",
+      );
+    }
+  });
+
+  test("executable Workspace reports built-in Plugin Package identities", async () => {
+    const sourcePlugin = (await import("@agentboard/source-qmd")).default;
+    const actionPlugin = (await import("@agentboard/action-run-cmd")).default;
+    const { action, defineConfig, source } = await import("@agentboard/core/config");
+    const path = new URL("./built-in-identities.test.ts", import.meta.url).pathname;
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{
+        id: "issues",
+        source: source(sourcePlugin, { collections: ["tasks"], query: "ready" }, path),
+        actions: [action(actionPlugin, { cmd: "true" }, path)],
+      }],
+    }));
+
+    expect(workspace.sources[0]?.packageName).toBe("@agentboard/source-qmd");
+    expect(workspace.sources[0]?.actions[0]?.packageName).toBe("@agentboard/action-run-cmd");
   });
 
   test("executable Workspace errors include the config source", async () => {

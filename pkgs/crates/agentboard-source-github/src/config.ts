@@ -1,6 +1,6 @@
 import Type from "typebox";
 
-import { FieldMapSchema } from "@agentboard/core/config";
+import { definePlugin, FieldMapSchema } from "@agentboard/core/config";
 
 export const GithubCredentialSchema = Type.Object({
   helper: Type.String(),
@@ -9,7 +9,6 @@ export const GithubCredentialSchema = Type.Object({
 export type GithubCredential = Type.Static<typeof GithubCredentialSchema>;
 
 export const GithubSourceSchema = Type.Object({
-  kind: Type.Literal("github"),
   mode: Type.Literal("issue"),
   query: Type.String(),
   credentials: GithubCredentialSchema,
@@ -19,3 +18,13 @@ export const GithubSourceSchema = Type.Object({
 });
 
 export type GithubSource = Type.Static<typeof GithubSourceSchema>;
+
+export default definePlugin(import.meta, {
+  kind: "source",
+  schema: GithubSourceSchema,
+  itemBucketIdentity: () => "github.com",
+  runtime: () => ({
+    collect: () => Promise.reject(new Error("GitHub Bun Source runtime is not available")),
+  }),
+  healthCheck: () => undefined,
+});

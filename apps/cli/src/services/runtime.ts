@@ -1,6 +1,7 @@
-import type {
-  ActionResult,
-  Item,
+import {
+  pluginFor,
+  type ActionResult,
+  type Item,
 } from "@agentboard/core/config";
 
 import type { LoadedWorkspace } from "./config/workspace.ts";
@@ -12,6 +13,7 @@ import {
   appendActionAttempt,
   appendSourceSnapshot,
   renderedActionHash,
+  setSourceCollectionStatus,
   successfulActionKeys,
 } from "./store.ts";
 import { renderActionInputs } from "./template.ts";
@@ -19,6 +21,7 @@ import { renderActionInputs } from "./template.ts";
 export interface ActionRunResult {
   readonly itemId: string;
   readonly actionIndex: number;
+  readonly uses: string;
   readonly result?: ActionResult;
   readonly error?: string;
   readonly skipped?: boolean;
@@ -26,6 +29,7 @@ export interface ActionRunResult {
 
 export interface SourceRunResult {
   readonly id: string;
+  readonly uses: string;
   readonly items: readonly Item[];
   readonly actions: readonly ActionRunResult[];
   readonly error?: string;
@@ -43,6 +47,7 @@ export interface RunWorkspaceOptions {
 export interface HealthCheckResult {
   readonly sourceId: string;
   readonly role: "source" | "action";
+  readonly uses: string;
   readonly actionIndex?: number;
   readonly error?: string;
 }
@@ -55,19 +60,30 @@ export async function checkWorkspaceHealth(
     if (source.cancellation.aborted) break;
     try {
       await checkSourceHealth(source);
-      results.push({ sourceId: source.id, role: "source" });
+      results.push({ sourceId: source.id, role: "source", uses: source.packageName });
     } catch (error) {
-      results.push({ sourceId: source.id, role: "source", error: errorMessage(error) });
+      results.push({
+        sourceId: source.id,
+        role: "source",
+        uses: source.packageName,
+        error: errorMessage(error),
+      });
     }
     for (const [actionIndex, action] of source.actions.entries()) {
       if (source.cancellation.aborted) break;
       try {
         await checkActionHealth(source.id, action, source.cancellation);
-        results.push({ sourceId: source.id, role: "action", actionIndex });
+        results.push({
+          sourceId: source.id,
+          role: "action",
+          uses: action.packageName,
+          actionIndex,
+        });
       } catch (error) {
         results.push({
           sourceId: source.id,
           role: "action",
+          uses: action.packageName,
           actionIndex,
           error: errorMessage(error),
         });
@@ -85,10 +101,12 @@ export async function runWorkspace(
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
     for (const source of workspace.sources) {
+      if (source.cancellation.aborted) return { sources, cancelled: true };
+      await setSourceCollectionStatus(workspace, source.id, "collecting", undefined, options.storeRoot);
+      let items: readonly Item[];
       try {
-        if (source.cancellation.aborted) return { sources, cancelled: true };
-        const items = await collectSource(source);
-        if (source.cancellation.aborted) return { sources, cancelled: true };
+        items = await collectSource(source);
+        if (source.cancellation.aborted) throw source.cancellation.reason ?? new Error("cancelled");
         await appendSourceSnapshot(
           workspace,
           source,
@@ -96,18 +114,31 @@ export async function runWorkspace(
           source.cancellation,
           options.storeRoot,
         );
-        const actions = await runActions(workspace, source, items, options.storeRoot);
-        sources.push({ id: source.id, items, actions: actions.results });
-        if (actions.cancelled) return { sources, cancelled: true };
+        await setSourceCollectionStatus(workspace, source.id, "complete", undefined, options.storeRoot);
       } catch (error) {
-        if (source.cancellation.aborted) return { sources, cancelled: true };
+        if (source.cancellation.aborted) {
+          await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, options.storeRoot);
+          return { sources, cancelled: true };
+        }
+        await setSourceCollectionStatus(
+          workspace,
+          source.id,
+          "failed",
+          errorMessage(error),
+          options.storeRoot,
+        );
         sources.push({
           id: source.id,
+          uses: source.packageName,
           items: [],
           actions: [],
           error: errorMessage(error),
         });
+        continue;
       }
+      const actions = await runActions(workspace, source, items, options.storeRoot);
+      sources.push({ id: source.id, uses: source.packageName, items, actions: actions.results });
+      if (actions.cancelled) return { sources, cancelled: true };
     }
     return { sources };
   } finally {
@@ -154,7 +185,7 @@ async function runActions(
           item,
           action: { index: actionIndex, uses: action.packageName },
           actions,
-        }, { pathInputs: actionPathInputs(action.packageName) });
+        }, { pathInputs: pluginPathInputs(action) });
         if (action.id) actions[action.id] = { inputs };
         renderedHash = renderedActionHash(action.packageName, inputs);
         if (source.cancellation.aborted) return { results, cancelled: true };
@@ -164,8 +195,11 @@ async function runActions(
           cancellation: source.cancellation,
         };
         const runtime = createActionRuntime(action, inputs, context);
-        if (successes.has(actionKey(source.id, item.id, actionIndex, renderedHash))) {
-          results.push({ itemId: item.id, actionIndex, skipped: true });
+        if (
+          successes.has(actionKey(source.id, item.id, actionIndex, renderedHash)) &&
+          await (runtime.cachedSuccessIsValid?.({ ...context, item }) ?? true)
+        ) {
+          results.push({ itemId: item.id, actionIndex, uses: action.packageName, skipped: true });
           continue;
         }
         const result = await executeAction(item, runtime, context);
@@ -178,7 +212,7 @@ async function runActions(
           rendered_action_hash: renderedHash,
           ...result,
         }, storeRoot);
-        results.push({ itemId: item.id, actionIndex, result });
+        results.push({ itemId: item.id, actionIndex, uses: action.packageName, result });
         if (result.outcome === "cancelled") return { results, cancelled: true };
         if (result.outcome === "failure") break;
         successes.add(actionKey(source.id, item.id, actionIndex, renderedHash));
@@ -201,9 +235,10 @@ async function runActions(
           ? {
               itemId: item.id,
               actionIndex,
+              uses: action.packageName,
               result: { outcome: "cancelled", stdout: "", stderr: "", message },
             }
-          : { itemId: item.id, actionIndex, error: message });
+          : { itemId: item.id, actionIndex, uses: action.packageName, error: message });
         if (cancelled) return { results, cancelled: true };
         break;
       }
@@ -212,22 +247,10 @@ async function runActions(
   return { results, cancelled: false };
 }
 
-function actionPathInputs(packageName: string): readonly string[] {
-  if (
-    packageName === "agentboard/run-cmd" ||
-    packageName === "@agentboard/action-run-cmd" ||
-    packageName.includes("agentboard-action-run-cmd")
-  ) {
-    return ["cwd"];
-  }
-  if (
-    packageName === "agentboard/worktree" ||
-    packageName === "@agentboard/action-worktree" ||
-    packageName.includes("agentboard-action-worktree")
-  ) {
-    return ["repo", "root"];
-  }
-  return [];
+function pluginPathInputs(
+  action: LoadedWorkspace["sources"][number]["actions"][number],
+): readonly string[] {
+  return pluginFor(action).pathInputs ?? [];
 }
 
 function errorMessage(error: unknown): string {

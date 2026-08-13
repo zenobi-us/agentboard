@@ -24,6 +24,7 @@ function render(
   key?: string,
 ): unknown {
   if (typeof value === "string") {
+    validateActionReferences(value, context);
     const rendered = environment().renderStr(value, context);
     return key !== undefined && pathInputs.has(key) ? expandPath(rendered) : rendered;
   }
@@ -37,9 +38,29 @@ function render(
   );
 }
 
+function validateActionReferences(
+  template: string,
+  context: Record<string, unknown>,
+): void {
+  const actions = context["actions"] !== null && typeof context["actions"] === "object"
+    ? context["actions"] as Record<string, unknown>
+    : {};
+  for (const block of template.matchAll(/{[{%]([\s\S]*?)[}%]}/g)) {
+    const expression = block[1]!;
+    const references = [
+      ...expression.matchAll(/\bactions\s*\.\s*([A-Za-z_]\w*)/g),
+      ...expression.matchAll(/\bactions\s*\[\s*["']([^"']+)["']\s*\]/g),
+    ];
+    for (const reference of references) {
+      const id = reference[1]!;
+      if (!Object.hasOwn(actions, id)) throw new Error(`undefined value: actions.${id}`);
+    }
+  }
+}
+
 function environment(): Environment {
   const environment = new Environment();
-  environment.undefinedBehavior = "strict";
+  environment.undefinedBehavior = "lenient";
   environment.addFilter("slugify", slugify);
   return environment;
 }
