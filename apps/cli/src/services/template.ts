@@ -6,7 +6,7 @@ export interface RenderActionInputsOptions {
 }
 
 export function validateActionInputs(value: unknown): void {
-  visitStrings(value, (template) => environment(false).addTemplate("input", template));
+  visitStrings(value, (template) => environment().addTemplate("input", template));
 }
 
 export function renderActionInputs(
@@ -24,7 +24,8 @@ function render(
   key?: string,
 ): unknown {
   if (typeof value === "string") {
-    const rendered = environment(referencesActions(value)).renderStr(value, context);
+    validateActionReferences(value, context);
+    const rendered = environment().renderStr(value, context);
     return key !== undefined && pathInputs.has(key) ? expandPath(rendered) : rendered;
   }
   if (Array.isArray(value)) return value.map((item) => render(item, context, pathInputs));
@@ -37,46 +38,71 @@ function render(
   );
 }
 
-function referencesActions(template: string): boolean {
-  for (const block of template.matchAll(/{[{%#]([\s\S]*?)(?:}}|%}|#})/g)) {
-    if (block[0].startsWith("{#")) continue;
-    if (hasActionsIdentifier(block[1]!)) return true;
+const access = String.raw`(?:\s*\.\s*[A-Za-z_]\w*|\s*\[\s*["'][^"']+["']\s*\])`;
+
+function validateActionReferences(template: string, context: Record<string, unknown>): void {
+  const aliases = new Map<string, string[]>();
+  for (const block of template.matchAll(/{[{%]([\s\S]*?)(?:}}|%})/g)) {
+    const expression = block[1]!;
+    for (const match of unquotedMatches(
+      expression,
+      new RegExp(String.raw`\(?\s*\bactions${access}+(?:\s*\))?${access}*`, "g"),
+    )) validateActionReference(context, actionPath(match[0]));
+
+    const assignment = expression.match(new RegExp(
+      String.raw`\b(?:set|with)\s+([A-Za-z_]\w*)\s*=\s*actions(${access}*)`,
+    ));
+    const iteration = expression.match(new RegExp(
+      String.raw`\bfor\s+([A-Za-z_]\w*)\s+in\s+\[\s*actions(${access}*)\s*\]`,
+    ));
+    for (const declaration of [assignment, iteration]) {
+      if (declaration) aliases.set(declaration[1]!, actionPath(declaration[2]!));
+    }
+
+    for (const [alias, prefix] of aliases) {
+      for (const match of unquotedMatches(
+        expression,
+        new RegExp(String.raw`\b${alias}${access}+`, "g"),
+      )) validateActionReference(context, [...prefix, ...actionPath(match[0])]);
+    }
   }
-  return false;
 }
 
-function hasActionsIdentifier(expression: string): boolean {
+function* unquotedMatches(expression: string, pattern: RegExp): Generator<RegExpMatchArray> {
+  for (const match of expression.matchAll(pattern)) {
+    if (!insideQuotes(expression, match.index)) yield match;
+  }
+}
+
+function insideQuotes(value: string, end: number): boolean {
   let quote = "";
-  for (let index = 0; index < expression.length;) {
-    const character = expression[index]!;
-    if (quote) {
-      if (character === "\\") index += 2;
-      else {
-        if (character === quote) quote = "";
-        index += 1;
-      }
-      continue;
-    }
-    if (character === '"' || character === "'") {
-      quote = character;
-      index += 1;
-      continue;
-    }
-    if (/[A-Za-z_]/.test(character)) {
-      let end = index + 1;
-      while (end < expression.length && /[A-Za-z0-9_]/.test(expression[end]!)) end += 1;
-      if (expression.slice(index, end) === "actions") return true;
-      index = end;
-      continue;
-    }
-    index += 1;
+  for (let index = 0; index < end; index += 1) {
+    if (value[index] === "\\") index += 1;
+    else if (quote) {
+      if (value[index] === quote) quote = "";
+    } else if (value[index] === '"' || value[index] === "'") quote = value[index]!;
   }
-  return false;
+  return quote !== "";
 }
 
-function environment(strict: boolean): Environment {
+function actionPath(reference: string): string[] {
+  return [...reference.matchAll(/\.\s*([A-Za-z_]\w*)|\[\s*["']([^"']+)["']\s*\]/g)]
+    .map((match) => match[1] ?? match[2]!);
+}
+
+function validateActionReference(context: Record<string, unknown>, path: readonly string[]): void {
+  let value = context["actions"];
+  for (const key of path) {
+    if (value === null || typeof value !== "object" || !Object.hasOwn(value, key)) {
+      throw new Error(`undefined value: actions.${path.join(".")}`);
+    }
+    value = (value as Record<string, unknown>)[key];
+  }
+}
+
+function environment(): Environment {
   const environment = new Environment();
-  environment.undefinedBehavior = strict ? "strict" : "lenient";
+  environment.undefinedBehavior = "lenient";
   environment.addFilter("slugify", slugify);
   return environment;
 }

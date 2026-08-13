@@ -704,6 +704,10 @@ describe("Workspace runtime orchestration", () => {
 
   test("keeps unrelated missing Item fields and plain Action text lenient", () => {
     expect(renderActionInputs("{{ item.missing }}", { item: {} })).toBe("");
+    expect(renderActionInputs(
+      "{{ actions.worktree.inputs.root }} {{ item.missing }}",
+      { actions: { worktree: { inputs: { root: "/ok" } } }, item: {} },
+    )).toBe("/ok ");
     expect(renderActionInputs("echo actions.missing", { actions: {} })).toBe("echo actions.missing");
     expect(() => renderActionInputs(
       "{{ actions . missing . inputs . root }}",
