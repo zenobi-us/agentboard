@@ -36,7 +36,7 @@ function pluginSource(kind: "source" | "action"): string {
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
-      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined,"}
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined, validateRuntime: () => undefined,"}
       schema: {
         type: "object",
         properties: { query: { type: "string" } },
@@ -59,7 +59,7 @@ function configurablePluginSource(
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
-      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined,"}
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined, validateRuntime: () => undefined,"}
       schema: {
         type: "object",
         properties: {
@@ -514,6 +514,7 @@ describe("Plugin Package discovery", () => {
         export default definePlugin(import.meta, {
           kind: "action",
           validate: () => undefined,
+          validateRuntime: () => undefined,
           schema: {
             type: "object",
             properties: { timeout: { type: "integer", default: 30 } },
@@ -552,6 +553,7 @@ describe("Plugin Package discovery", () => {
         export default definePlugin(import.meta, {
           kind: "action",
           validate: () => undefined,
+          validateRuntime: () => undefined,
           schema: { type: "string" },
           runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
@@ -595,6 +597,7 @@ describe("Plugin Package discovery", () => {
         const actionPlugin = definePlugin(import.meta, {
           kind: "action",
           validate: () => undefined,
+          validateRuntime: () => undefined,
           schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
           runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
@@ -761,6 +764,22 @@ describe("Plugin Package discovery", () => {
 
     await expect(loadDataWorkspace(configPath, join(root, "global"))).rejects.toThrow(
       `Workspace data validation failed for ${configPath}`,
+    );
+  });
+
+  test("normal data Workspace loading rejects duplicate Source ids before Plugin loading", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.json");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    writeFileSync(configPath, JSON.stringify({
+      sources: [
+        { id: "same", source: { uses: "missing" } },
+        { id: "same", source: { uses: "missing" } },
+      ],
+    }));
+
+    await expect(loadDataWorkspace(configPath, join(root, "global"))).rejects.toThrow(
+      'duplicate Source id "same"',
     );
   });
 

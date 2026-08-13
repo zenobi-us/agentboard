@@ -26,6 +26,7 @@ export default definePlugin(import.meta, {
   kind: "action",
   schema: RunCmdConfigSchema,
   validate: () => undefined,
+  validateRuntime: () => undefined,
   pathInputs: ["cwd"],
   runtime: () => ({
     execute: () => ({

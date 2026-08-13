@@ -99,6 +99,10 @@ export interface Plugin<
     context: HealthCheckContext,
   ) => unknown;
   readonly validate?: (config: Static<Schema>) => unknown;
+  readonly validateRuntime?: (
+    config: Static<Schema>,
+    context: RuntimeContextFor<Role>,
+  ) => unknown;
   readonly pathInputs?: readonly string[];
   readonly itemBucketIdentity?: (config: Static<Schema>) => string;
   readonly meta: PluginMeta;
@@ -108,10 +112,21 @@ type PluginDefinition<
   Role extends PluginRole,
   Schema extends TSchema,
   Runtime extends RuntimeFor<Role>,
-> = Omit<Plugin<Role, Schema, Runtime>, "meta" | "itemBucketIdentity" | "validate"> &
+> = Omit<Plugin<Role, Schema, Runtime>, "meta" | "itemBucketIdentity" | "validate" | "validateRuntime"> &
   (Role extends "source"
-    ? { readonly itemBucketIdentity: (config: Static<Schema>) => string; readonly validate?: never }
-    : { readonly itemBucketIdentity?: never; readonly validate: (config: Static<Schema>) => unknown });
+    ? {
+        readonly itemBucketIdentity: (config: Static<Schema>) => string;
+        readonly validate?: never;
+        readonly validateRuntime?: never;
+      }
+    : {
+        readonly itemBucketIdentity?: never;
+        readonly validate: (config: Static<Schema>) => unknown;
+        readonly validateRuntime: (
+          config: Static<Schema>,
+          context: ActionRuntimeFactoryContext,
+        ) => unknown;
+      });
 
 export function definePlugin<
   const Role extends PluginRole,
@@ -130,11 +145,14 @@ export function definePlugin<
   if (definition.kind === "action" && typeof definition.validate !== "function") {
     throw new TypeError("action plugin must define validate()");
   }
+  if (definition.kind === "action" && typeof definition.validateRuntime !== "function") {
+    throw new TypeError("action plugin must define validateRuntime()");
+  }
 
   return {
     ...definition,
     meta: { url: module.url },
-  };
+  } as Plugin<Role, Schema, Runtime>;
 }
 
 export interface ResolvedIdentity {
@@ -197,7 +215,8 @@ export function isPluginDescriptor(value: unknown): value is AnyPlugin {
     typeof candidate.healthCheck === "function" &&
     (candidate.kind === "source"
       ? typeof candidate.itemBucketIdentity === "function"
-      : typeof candidate.validate === "function") &&
+      : typeof candidate.validate === "function" &&
+        typeof candidate.validateRuntime === "function") &&
     typeof candidate.meta?.url === "string"
   );
 }

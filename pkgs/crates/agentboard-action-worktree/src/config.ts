@@ -24,6 +24,7 @@ export default definePlugin(import.meta, {
   kind: "action",
   schema: WorktreeConfigSchema,
   validate: () => undefined,
+  validateRuntime: () => undefined,
   pathInputs: ["repo", "root"],
   runtime: () => ({
     cachedSuccessIsValid: () => false,

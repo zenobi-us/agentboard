@@ -15,6 +15,7 @@ import {
 
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { validateActionRuntime } from "../actions.ts";
 import {
   createSourceRuntime,
   type LoadedSourceRuntime,
@@ -93,12 +94,19 @@ export async function loadExecutableWorkspace(
     }
   }
   validateExecutableWorkspace(data, path);
+  validateUniqueSourceIds(data.sources, path, "Executable Workspace configuration");
   const sources = data.sources.map((record) => {
     const sourcePlugin = pluginFor(record.source);
     validateActionIds(record.actions ?? [], path, record.id);
     const actions = (record.actions ?? []).map((configured) => {
       validateActionInputs(configured.config);
-      pluginFor(configured).validate!(configured.config);
+      const plugin = pluginFor(configured);
+      plugin.validate!(configured.config);
+      validateActionRuntime(configured, {
+        workspaceId: workspaceId(path),
+        sourceId: record.id,
+        cancellation,
+      });
       const loaded = {
         ...configured,
         packageName: packageNameForPlugin(pluginFor(configured)),
@@ -128,6 +136,7 @@ export async function loadDataWorkspace(
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   const data = parseDataWorkspace(path);
+  validateUniqueSourceIds(data.sources, path, "Workspace data validation");
   const packageNames = new Set<string>();
   for (const item of data.sources ?? []) {
     packageNames.add(readPackageName(item.source, `source ${item.id}`));
@@ -177,6 +186,11 @@ export async function loadDataWorkspace(
         packageName: actionName,
       } as ResolvedAction<TSchema> & { readonly packageName: string };
       copyPluginReference(resolved, loaded);
+      validateActionRuntime(loaded, {
+        workspaceId: workspaceId(path),
+        sourceId: item.id,
+        cancellation,
+      });
       return loaded;
     });
     return {
@@ -235,6 +249,20 @@ function validateActionIds(
       );
     }
     ids.add(action.id);
+  }
+}
+
+function validateUniqueSourceIds(
+  sources: readonly { readonly id: string }[],
+  path: string,
+  label: string,
+): void {
+  const ids = new Set<string>();
+  for (const source of sources) {
+    if (ids.has(source.id)) {
+      throw new Error(`${label} failed for ${path}: duplicate Source id "${source.id}"`);
+    }
+    ids.add(source.id);
   }
 }
 

@@ -24,8 +24,7 @@ function render(
   key?: string,
 ): unknown {
   if (typeof value === "string") {
-    validateActionReferences(value, context);
-    const rendered = environment().renderStr(value, context);
+    const rendered = renderTemplate(value, context);
     return key !== undefined && pathInputs.has(key) ? expandPath(rendered) : rendered;
   }
   if (Array.isArray(value)) return value.map((item) => render(item, context, pathInputs));
@@ -38,6 +37,11 @@ function render(
   );
 }
 
+function renderTemplate(template: string, context: Record<string, unknown>): string {
+  validateActionReferences(template, context);
+  return environment().renderStr(template, context);
+}
+
 function validateActionReferences(
   template: string,
   context: Record<string, unknown>,
@@ -47,15 +51,38 @@ function validateActionReferences(
     : {};
   for (const block of template.matchAll(/{[{%]([\s\S]*?)[}%]}/g)) {
     const expression = block[1]!;
-    const references = [
-      ...expression.matchAll(/\bactions\s*\.\s*([A-Za-z_]\w*)/g),
-      ...expression.matchAll(/\bactions\s*\[\s*["']([^"']+)["']\s*\]/g),
+    const directReferences = [
+      ...expression.matchAll(/\bactions(?:\s*\.\s*[A-Za-z_]\w*|\s*\[\s*["'][^"']+["']\s*\])+/g),
     ];
-    for (const reference of references) {
-      const id = reference[1]!;
+    for (const reference of directReferences) {
+      const id = actionId(reference[0]);
       if (!Object.hasOwn(actions, id)) throw new Error(`undefined value: actions.${id}`);
+      strictEnvironment().renderStr(`{{ ${reference[0]} }}`, context);
+    }
+    for (const assignment of expression.matchAll(
+      /\bset\s+([A-Za-z_]\w*)\s*=\s*(actions(?:\s*\.\s*[A-Za-z_]\w*|\s*\[\s*["'][^"']+["']\s*\])+)/g,
+    )) {
+      const [statement, alias, reference] = assignment;
+      const suffix = template.match(new RegExp(`\\b${alias}((?:\\s*\\.\\s*[A-Za-z_]\\w*|\\s*\\[\\s*["'][^"']+["']\\s*\\])+)`))?.[1];
+      if (!suffix) continue;
+      const id = actionId(reference!);
+      if (!Object.hasOwn(actions, id)) throw new Error(`undefined value: actions.${id}`);
+      strictEnvironment().renderStr(`{% ${statement} %}{{ ${alias}${suffix} }}`, context);
     }
   }
+}
+
+function actionId(reference: string): string {
+  return reference.match(
+    /^actions(?:\s*\.\s*([A-Za-z_]\w*)|\s*\[\s*["']([^"']+)["']\s*\])/,
+  )!.slice(1).find(Boolean)!;
+}
+
+function strictEnvironment(): Environment {
+  const environment = new Environment();
+  environment.undefinedBehavior = "strict";
+  environment.addFilter("slugify", slugify);
+  return environment;
 }
 
 function environment(): Environment {

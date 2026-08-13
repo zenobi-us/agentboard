@@ -17,6 +17,7 @@ const sourcePlugin = definePlugin(import.meta, {
 const actionPlugin = definePlugin(import.meta, {
   kind: "action",
   validate: () => undefined,
+  validateRuntime: () => undefined,
   schema: Type.Object({
     command: Type.String(),
     timeout: Type.Optional(Type.String({ default: "30s" })),

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
-import { appendFile, mkdir, open, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, open, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { dlopen, FFIType } from "bun:ffi";
 
 import type { ActionResult, Item } from "@agentboard/core/config";
 
@@ -37,32 +38,17 @@ export async function acquireWorkspaceLock(
   workspace: LoadedWorkspace,
   root?: string,
 ): Promise<() => Promise<void>> {
-  const lockRoot = join(workspaceStoreRoot(workspace, root), "run-locks");
-  await mkdir(lockRoot, { recursive: true });
-  const name = `${process.pid}-${crypto.randomUUID()}`;
-  const path = join(lockRoot, name);
-  const handle = await open(path, "wx");
-  await handle.writeFile(String(process.pid));
-  try {
-    for (const entry of await readdir(lockRoot)) {
-      if (entry === name) continue;
-      const other = join(lockRoot, entry);
-      if (await lockIsStale(other)) {
-        await unlink(other).catch(() => undefined);
-        continue;
-      }
-      throw new Error(`workspace lock is held at ${other}`);
-    }
-  } catch (error) {
+  const directory = workspaceStoreRoot(workspace, root);
+  const path = join(directory, "run.lock");
+  await mkdir(directory, { recursive: true });
+  const handle = await open(path, "a+");
+  if (flock(handle.fd, LOCK_EX | LOCK_NB) !== 0) {
     await handle.close();
-    await unlink(path).catch(() => undefined);
-    throw error;
+    throw new Error(`workspace lock is held at ${path}`);
   }
   return async () => {
+    flock(handle.fd, LOCK_UN);
     await handle.close();
-    await unlink(path).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== "ENOENT") throw error;
-    });
   };
 }
 
@@ -187,16 +173,18 @@ function sourceSlug(source: LoadedWorkspaceSource): string {
   return `${slugify(source.packageName)}-${slugify(identity).slice(0, 48)}-${shortHash(identity)}`;
 }
 
-async function lockIsStale(path: string): Promise<boolean> {
-  try {
-    const pid = Number.parseInt(await readFile(path, "utf8"), 10);
-    if (!Number.isSafeInteger(pid) || pid <= 0) return true;
-    process.kill(pid, 0);
-    return false;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "ESRCH" ||
-      (error as NodeJS.ErrnoException).code === "ENOENT";
+const LOCK_EX = 2;
+const LOCK_NB = 4;
+const LOCK_UN = 8;
+const flock = loadFlock();
+
+function loadFlock(): (fd: number, operation: number) => number {
+  if (process.platform !== "linux") {
+    throw new Error(`Workspace run locks are not supported on ${process.platform}`);
   }
+  return dlopen("libc.so.6", {
+    flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
+  }).symbols.flock;
 }
 
 async function readJsonLines<T>(path: string): Promise<T[]> {

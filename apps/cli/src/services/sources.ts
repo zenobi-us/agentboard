@@ -32,7 +32,11 @@ export async function createSourceRuntime(
 }
 
 export async function collectSource(source: LoadedSourceRuntime): Promise<readonly Item[]> {
-  return await source.runtime.collect();
+  const items: unknown = await source.runtime.collect();
+  if (!Array.isArray(items) || !items.every(isItem)) {
+    throw new TypeError(`Source ${source.id} collect() must return normalized Items`);
+  }
+  return items;
 }
 
 export async function checkSourceHealth(source: LoadedSourceRuntime): Promise<void> {
@@ -47,4 +51,17 @@ export async function checkSourceHealth(source: LoadedSourceRuntime): Promise<vo
 function isSourceRuntime(value: unknown): value is SourceRuntime {
   return value !== null && typeof value === "object" &&
     typeof (value as Partial<SourceRuntime>).collect === "function";
+}
+
+function isItem(value: unknown): value is Item {
+  if (value === null || typeof value !== "object") return false;
+  const item = value as Partial<Item>;
+  return typeof item.id === "string" &&
+    typeof item.reference_id === "string" &&
+    typeof item.title === "string" &&
+    typeof item.status === "string" &&
+    typeof item.url === "string" &&
+    typeof item.source_id === "string" &&
+    typeof item.source_kind === "string" &&
+    Object.hasOwn(item, "raw");
 }
