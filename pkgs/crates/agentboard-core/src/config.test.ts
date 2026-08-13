@@ -17,12 +17,15 @@ const sourcePlugin = definePlugin(import.meta, {
 const actionPlugin = definePlugin(import.meta, {
   kind: "action",
   validate: () => undefined,
-  validateRuntime: () => undefined,
   schema: Type.Object({
     command: Type.String(),
     timeout: Type.Optional(Type.String({ default: "30s" })),
   }),
-  runtime: (config) => config,
+  runtime: () => ({
+    create: () => ({
+      execute: () => ({ outcome: "success" as const, stdout: "", stderr: "" }),
+    }),
+  }),
   healthCheck: () => undefined,
 });
 

@@ -75,9 +75,13 @@ export interface ActionRuntime {
   cachedSuccessIsValid?(context: ActionRuntimeContext): Promise<boolean> | boolean;
 }
 
+export interface PreparedActionRuntime<Runtime extends ActionRuntime = ActionRuntime> {
+  create(inputs: unknown): Runtime;
+}
+
 type RuntimeFor<Role extends PluginRole> = Role extends "source"
   ? SourceRuntime
-  : ActionRuntime;
+  : PreparedActionRuntime;
 
 type RuntimeContextFor<Role extends PluginRole> = Role extends "source"
   ? SourceRuntimeContext
@@ -99,10 +103,6 @@ export interface Plugin<
     context: HealthCheckContext,
   ) => unknown;
   readonly validate?: (config: Static<Schema>) => unknown;
-  readonly validateRuntime?: (
-    config: Static<Schema>,
-    context: RuntimeContextFor<Role>,
-  ) => unknown;
   readonly pathInputs?: readonly string[];
   readonly itemBucketIdentity?: (config: Static<Schema>) => string;
   readonly meta: PluginMeta;
@@ -112,20 +112,15 @@ type PluginDefinition<
   Role extends PluginRole,
   Schema extends TSchema,
   Runtime extends RuntimeFor<Role>,
-> = Omit<Plugin<Role, Schema, Runtime>, "meta" | "itemBucketIdentity" | "validate" | "validateRuntime"> &
+> = Omit<Plugin<Role, Schema, Runtime>, "meta" | "itemBucketIdentity" | "validate"> &
   (Role extends "source"
     ? {
         readonly itemBucketIdentity: (config: Static<Schema>) => string;
         readonly validate?: never;
-        readonly validateRuntime?: never;
       }
     : {
         readonly itemBucketIdentity?: never;
         readonly validate: (config: Static<Schema>) => unknown;
-        readonly validateRuntime: (
-          config: Static<Schema>,
-          context: ActionRuntimeFactoryContext,
-        ) => unknown;
       });
 
 export function definePlugin<
@@ -144,9 +139,6 @@ export function definePlugin<
   }
   if (definition.kind === "action" && typeof definition.validate !== "function") {
     throw new TypeError("action plugin must define validate()");
-  }
-  if (definition.kind === "action" && typeof definition.validateRuntime !== "function") {
-    throw new TypeError("action plugin must define validateRuntime()");
   }
 
   return {
@@ -215,8 +207,7 @@ export function isPluginDescriptor(value: unknown): value is AnyPlugin {
     typeof candidate.healthCheck === "function" &&
     (candidate.kind === "source"
       ? typeof candidate.itemBucketIdentity === "function"
-      : typeof candidate.validate === "function" &&
-        typeof candidate.validateRuntime === "function") &&
+      : typeof candidate.validate === "function") &&
     typeof candidate.meta?.url === "string"
   );
 }
@@ -316,7 +307,7 @@ export function source<const Schema extends TSchema, Runtime extends SourceRunti
   return resolve("source", plugin, config, path);
 }
 
-export function action<const Schema extends TSchema, Runtime extends ActionRuntime>(
+export function action<const Schema extends TSchema, Runtime extends PreparedActionRuntime>(
   plugin: Plugin<"action", Schema, Runtime>,
   config: ConfigWithId<Schema>,
   path: string,

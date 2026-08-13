@@ -15,7 +15,7 @@ import {
 
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { validateActionRuntime } from "../actions.ts";
+import { prepareActionRuntime } from "../actions.ts";
 import {
   createSourceRuntime,
   type LoadedSourceRuntime,
@@ -40,7 +40,10 @@ export interface LoadedWorkspaceSource {
   readonly packageName: string;
   readonly itemBucketIdentity: string;
   readonly source: ResolvedSource<TSchema>;
-  readonly actions: readonly (ResolvedAction<TSchema> & { readonly packageName: string })[];
+  readonly actions: readonly (ResolvedAction<TSchema> & {
+    readonly packageName: string;
+    readonly preparedRuntime: ReturnType<typeof prepareActionRuntime>;
+  })[];
 }
 
 export interface LoadedWorkspace {
@@ -102,7 +105,7 @@ export async function loadExecutableWorkspace(
       validateActionInputs(configured.config);
       const plugin = pluginFor(configured);
       plugin.validate!(configured.config);
-      validateActionRuntime(configured, {
+      const preparedRuntime = prepareActionRuntime(configured, {
         workspaceId: workspaceId(path),
         sourceId: record.id,
         cancellation,
@@ -110,6 +113,7 @@ export async function loadExecutableWorkspace(
       const loaded = {
         ...configured,
         packageName: packageNameForPlugin(pluginFor(configured)),
+        preparedRuntime,
       };
       copyPluginReference(configured, loaded);
       return loaded;
@@ -180,17 +184,21 @@ export async function loadDataWorkspace(
         inputs as never,
         path,
       ) as ResolvedAction<TSchema>;
-      const loaded = {
-        ...resolved,
-        id,
-        packageName: actionName,
-      } as ResolvedAction<TSchema> & { readonly packageName: string };
-      copyPluginReference(resolved, loaded);
-      validateActionRuntime(loaded, {
+      const preparedRuntime = prepareActionRuntime(resolved, {
         workspaceId: workspaceId(path),
         sourceId: item.id,
         cancellation,
       });
+      const loaded = {
+        ...resolved,
+        id,
+        packageName: actionName,
+        preparedRuntime,
+      } as ResolvedAction<TSchema> & {
+        readonly packageName: string;
+        readonly preparedRuntime: ReturnType<typeof prepareActionRuntime>;
+      };
+      copyPluginReference(resolved, loaded);
       return loaded;
     });
     return {

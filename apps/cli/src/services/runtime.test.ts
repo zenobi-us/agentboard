@@ -24,6 +24,7 @@ describe("Workspace runtime orchestration", () => {
   test("persists Source Snapshots and skips a Rendered Action after success", async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
     let sourceFactories = 0;
+    let actionPreparations = 0;
     const renderedInputs: unknown[] = [];
 
     const sourcePlugin = definePlugin(import.meta, {
@@ -53,17 +54,22 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       pathInputs: ["message"],
       schema: Type.Object({ message: Type.String(), sourceKind: Type.String() }),
-      runtime: (inputs) => {
-        renderedInputs.push(inputs);
+      runtime: () => {
+        actionPreparations += 1;
         return {
-          execute: async (context): Promise<ActionResult> => ({
-            outcome: "success",
-            stdout: `${context.item.reference_id}:${inputs.message}:${inputs.sourceKind}`,
-            stderr: "",
-          }),
+          create: (inputs: unknown) => {
+            const rendered = inputs as { message: string; sourceKind: string };
+            renderedInputs.push(inputs);
+            return {
+              execute: async (context): Promise<ActionResult> => ({
+                outcome: "success",
+                stdout: `${context.item.reference_id}:${rendered.message}:${rendered.sourceKind}`,
+                stderr: "",
+              }),
+            };
+          },
         };
       },
       healthCheck: async (_config, context) => {
@@ -88,6 +94,7 @@ describe("Workspace runtime orchestration", () => {
     const second = await runWorkspace(workspace, { storeRoot });
 
     expect(sourceFactories).toBe(1);
+    expect(actionPreparations).toBe(1);
     expect(renderedInputs).toEqual([
       { message: "/tmp/runtime/Runtime item", sourceKind: "memory" },
       { message: "/tmp/runtime/Runtime item", sourceKind: "memory" },
@@ -184,14 +191,15 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
-        cachedSuccessIsValid: () => cachedSuccessIsValid,
-        execute: (): ActionResult => {
-          executions += 1;
-          return { outcome, stdout: "", stderr: "" };
-        },
+        create: () => ({
+          cachedSuccessIsValid: () => cachedSuccessIsValid,
+          execute: (): ActionResult => {
+            executions += 1;
+            return { outcome, stdout: "", stderr: "" };
+          },
+        }),
       }),
       healthCheck: () => undefined,
     });
@@ -239,13 +247,14 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
-        execute: (): ActionResult => {
-          calls += 1;
-          return { outcome: "success", stdout: "", stderr: "" };
-        },
+        create: () => ({
+          execute: (): ActionResult => {
+            calls += 1;
+            return { outcome: "success", stdout: "", stderr: "" };
+          },
+        }),
       }),
       healthCheck: () => undefined,
     });
@@ -289,15 +298,17 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({ name: Type.String() }),
-      runtime: (inputs) => ({
-        execute: async (context): Promise<ActionResult> => {
-          calls.push(`${context.item.id}:${inputs.name}`);
-          return context.item.id === "one" && inputs.name === "first"
-            ? { outcome: "failure", stdout: "", stderr: "failed" }
-            : { outcome: "success", stdout: "", stderr: "" };
-        },
+      runtime: () => ({
+        create: (inputs: unknown) => ({
+          execute: async (context): Promise<ActionResult> => {
+            const name = (inputs as { name: string }).name;
+            calls.push(`${context.item.id}:${name}`);
+            return context.item.id === "one" && name === "first"
+              ? { outcome: "failure", stdout: "", stderr: "failed" }
+              : { outcome: "success", stdout: "", stderr: "" };
+          },
+        }),
       }),
       healthCheck: () => undefined,
     });
@@ -348,13 +359,14 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
-        execute: (context): ActionResult => {
-          calls.push(context.item.id);
-          return { outcome: "cancelled", stdout: "partial", stderr: "" };
-        },
+        create: () => ({
+          execute: (context): ActionResult => {
+            calls.push(context.item.id);
+            return { outcome: "cancelled", stdout: "partial", stderr: "" };
+          },
+        }),
       }),
       healthCheck: () => undefined,
     });
@@ -398,13 +410,14 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({ itemId: Type.String() }),
       runtime: () => ({
-        execute: async (context): Promise<ActionResult> => {
-          if (context.item.id === "one") throw new Error("action failed");
-          return { outcome: "success", stdout: context.item.id, stderr: "" };
-        },
+        create: () => ({
+          execute: async (context): Promise<ActionResult> => {
+            if (context.item.id === "one") throw new Error("action failed");
+            return { outcome: "success", stdout: context.item.id, stderr: "" };
+          },
+        }),
       }),
       healthCheck: () => undefined,
     });
@@ -516,15 +529,16 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({}),
       runtime: (_inputs, context) => {
         signals.push(context.cancellation);
         return {
-          execute: (executeContext): ActionResult => {
-            signals.push(executeContext.cancellation);
-            return { outcome: "success", stdout: "", stderr: "" };
-          },
+          create: () => ({
+            execute: (executeContext): ActionResult => {
+              signals.push(executeContext.cancellation);
+              return { outcome: "success", stdout: "", stderr: "" };
+            },
+          }),
         };
       },
       healthCheck: (_config, context) => signals.push(context.cancellation),
@@ -635,10 +649,11 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
-        execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
+        create: () => ({
+          execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
+        }),
       }),
       healthCheck: (_config, context) => calls.push(`action:${context.sourceId}`),
     });
@@ -673,6 +688,18 @@ describe("Workspace runtime orchestration", () => {
       "{% set prior = actions.worktree %}{{ prior.inputs.rooot }}",
       { actions: { worktree: { inputs: { root: "/tmp/worktree" } } } },
     )).toThrow("undefined value");
+    for (const template of [
+      "{{ (actions.worktree).inputs.rooot }}",
+      "{% with prior = actions.worktree %}{{ prior.inputs.rooot }}{% endwith %}",
+      "{% set named = actions %}{{ named.worktree.inputs.rooot }}",
+      "{% for prior in [actions.worktree] %}{{ prior.inputs.rooot }}{% endfor %}",
+    ]) {
+      expect(() => renderActionInputs(
+        template,
+        { actions: { worktree: { inputs: { root: "/tmp/worktree" } } } },
+      )).toThrow("undefined value");
+    }
+    expect(renderActionInputs('{{ "actions.missing" }}', { actions: {} })).toBe("actions.missing");
   });
 
   test("keeps unrelated missing Item fields and plain Action text lenient", () => {
@@ -782,10 +809,11 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({ value: Type.String() }),
       runtime: () => ({
-        execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
+        create: () => ({
+          execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
+        }),
       }),
       healthCheck: () => undefined,
     });
@@ -835,10 +863,11 @@ describe("Workspace runtime orchestration", () => {
       validate: () => {
         throw new Error("validation failed");
       },
-      validateRuntime: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
-        execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
+        create: () => ({
+          execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
+        }),
       }),
       healthCheck: () => undefined,
     });
@@ -852,7 +881,7 @@ describe("Workspace runtime orchestration", () => {
     }))).rejects.toThrow("validation failed");
   });
 
-  test("fails Workspace loading when Action runtime validation fails", async () => {
+  test("fails Workspace loading when Action runtime preparation fails", async () => {
     const sourcePlugin = definePlugin(import.meta, {
       kind: "source",
       itemBucketIdentity: () => "memory",
@@ -863,13 +892,10 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => {
+      schema: Type.Object({}),
+      runtime: () => {
         throw new Error("factory exploded");
       },
-      schema: Type.Object({}),
-      runtime: () => ({
-        execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
-      }),
       healthCheck: () => undefined,
     });
     const path = new URL("./factory-error.test.ts", import.meta.url).pathname;
@@ -907,10 +933,11 @@ describe("Workspace runtime orchestration", () => {
     const actionPlugin = definePlugin(import.meta, {
       kind: "action",
       validate: () => undefined,
-      validateRuntime: () => undefined,
       schema: Type.Object({}),
       runtime: () => ({
-        execute: () => ({ outcome: "bogus", stdout: "", stderr: "" }) as never,
+        create: () => ({
+          execute: () => ({ outcome: "bogus", stdout: "", stderr: "" }) as never,
+        }),
       }),
       healthCheck: () => undefined,
     });

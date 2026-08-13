@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import { appendFile, mkdir, open, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { dlopen, FFIType } from "bun:ffi";
 
 import type { ActionResult, Item } from "@agentboard/core/config";
 
@@ -42,12 +41,15 @@ export async function acquireWorkspaceLock(
   const path = join(directory, "run.lock");
   await mkdir(directory, { recursive: true });
   const handle = await open(path, "a+");
-  if (flock(handle.fd, LOCK_EX | LOCK_NB) !== 0) {
+  let unlock: () => void;
+  try {
+    unlock = await acquireNativeLock(handle.fd);
+  } catch (error) {
     await handle.close();
-    throw new Error(`workspace lock is held at ${path}`);
+    throw new Error(`workspace lock is held at ${path}: ${String(error)}`);
   }
   return async () => {
-    flock(handle.fd, LOCK_UN);
+    unlock();
     await handle.close();
   };
 }
@@ -173,18 +175,46 @@ function sourceSlug(source: LoadedWorkspaceSource): string {
   return `${slugify(source.packageName)}-${slugify(identity).slice(0, 48)}-${shortHash(identity)}`;
 }
 
-const LOCK_EX = 2;
-const LOCK_NB = 4;
-const LOCK_UN = 8;
-const flock = loadFlock();
-
-function loadFlock(): (fd: number, operation: number) => number {
-  if (process.platform !== "linux") {
-    throw new Error(`Workspace run locks are not supported on ${process.platform}`);
+async function acquireNativeLock(fd: number): Promise<() => void> {
+  const { dlopen, FFIType, ptr } = await import("bun:ffi");
+  if (process.platform === "win32") {
+    const runtime = dlopen("msvcrt.dll", {
+      _get_osfhandle: { args: [FFIType.i32], returns: FFIType.i64 },
+    });
+    const kernel = dlopen("kernel32.dll", {
+      LockFileEx: {
+        args: [FFIType.i64, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.ptr],
+        returns: FFIType.bool,
+      },
+      UnlockFileEx: {
+        args: [FFIType.i64, FFIType.u32, FFIType.u32, FFIType.u32, FFIType.ptr],
+        returns: FFIType.bool,
+      },
+    });
+    const handle = runtime.symbols._get_osfhandle(fd);
+    const overlapped = new Uint8Array(32);
+    if (!kernel.symbols.LockFileEx(handle, 3, 0, 1, 0, ptr(overlapped))) {
+      runtime.close();
+      kernel.close();
+      throw new Error("LockFileEx failed");
+    }
+    return () => {
+      kernel.symbols.UnlockFileEx(handle, 0, 1, 0, ptr(overlapped));
+      runtime.close();
+      kernel.close();
+    };
   }
-  return dlopen("libc.so.6", {
+  const library = dlopen(process.platform === "darwin" ? "libSystem.B.dylib" : "libc.so.6", {
     flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 },
-  }).symbols.flock;
+  });
+  if (library.symbols.flock(fd, 6) !== 0) {
+    library.close();
+    throw new Error("flock failed");
+  }
+  return () => {
+    library.symbols.flock(fd, 8);
+    library.close();
+  };
 }
 
 async function readJsonLines<T>(path: string): Promise<T[]> {

@@ -6,7 +6,7 @@ export interface RenderActionInputsOptions {
 }
 
 export function validateActionInputs(value: unknown): void {
-  visitStrings(value, (template) => environment().addTemplate("input", template));
+  visitStrings(value, (template) => environment(false).addTemplate("input", template));
 }
 
 export function renderActionInputs(
@@ -24,7 +24,7 @@ function render(
   key?: string,
 ): unknown {
   if (typeof value === "string") {
-    const rendered = renderTemplate(value, context);
+    const rendered = environment(referencesActions(value)).renderStr(value, context);
     return key !== undefined && pathInputs.has(key) ? expandPath(rendered) : rendered;
   }
   if (Array.isArray(value)) return value.map((item) => render(item, context, pathInputs));
@@ -37,57 +37,46 @@ function render(
   );
 }
 
-function renderTemplate(template: string, context: Record<string, unknown>): string {
-  validateActionReferences(template, context);
-  return environment().renderStr(template, context);
-}
-
-function validateActionReferences(
-  template: string,
-  context: Record<string, unknown>,
-): void {
-  const actions = context["actions"] !== null && typeof context["actions"] === "object"
-    ? context["actions"] as Record<string, unknown>
-    : {};
-  for (const block of template.matchAll(/{[{%]([\s\S]*?)[}%]}/g)) {
-    const expression = block[1]!;
-    const directReferences = [
-      ...expression.matchAll(/\bactions(?:\s*\.\s*[A-Za-z_]\w*|\s*\[\s*["'][^"']+["']\s*\])+/g),
-    ];
-    for (const reference of directReferences) {
-      const id = actionId(reference[0]);
-      if (!Object.hasOwn(actions, id)) throw new Error(`undefined value: actions.${id}`);
-      strictEnvironment().renderStr(`{{ ${reference[0]} }}`, context);
-    }
-    for (const assignment of expression.matchAll(
-      /\bset\s+([A-Za-z_]\w*)\s*=\s*(actions(?:\s*\.\s*[A-Za-z_]\w*|\s*\[\s*["'][^"']+["']\s*\])+)/g,
-    )) {
-      const [statement, alias, reference] = assignment;
-      const suffix = template.match(new RegExp(`\\b${alias}((?:\\s*\\.\\s*[A-Za-z_]\\w*|\\s*\\[\\s*["'][^"']+["']\\s*\\])+)`))?.[1];
-      if (!suffix) continue;
-      const id = actionId(reference!);
-      if (!Object.hasOwn(actions, id)) throw new Error(`undefined value: actions.${id}`);
-      strictEnvironment().renderStr(`{% ${statement} %}{{ ${alias}${suffix} }}`, context);
-    }
+function referencesActions(template: string): boolean {
+  for (const block of template.matchAll(/{[{%#]([\s\S]*?)(?:}}|%}|#})/g)) {
+    if (block[0].startsWith("{#")) continue;
+    if (hasActionsIdentifier(block[1]!)) return true;
   }
+  return false;
 }
 
-function actionId(reference: string): string {
-  return reference.match(
-    /^actions(?:\s*\.\s*([A-Za-z_]\w*)|\s*\[\s*["']([^"']+)["']\s*\])/,
-  )!.slice(1).find(Boolean)!;
+function hasActionsIdentifier(expression: string): boolean {
+  let quote = "";
+  for (let index = 0; index < expression.length;) {
+    const character = expression[index]!;
+    if (quote) {
+      if (character === "\\") index += 2;
+      else {
+        if (character === quote) quote = "";
+        index += 1;
+      }
+      continue;
+    }
+    if (character === '"' || character === "'") {
+      quote = character;
+      index += 1;
+      continue;
+    }
+    if (/[A-Za-z_]/.test(character)) {
+      let end = index + 1;
+      while (end < expression.length && /[A-Za-z0-9_]/.test(expression[end]!)) end += 1;
+      if (expression.slice(index, end) === "actions") return true;
+      index = end;
+      continue;
+    }
+    index += 1;
+  }
+  return false;
 }
 
-function strictEnvironment(): Environment {
+function environment(strict: boolean): Environment {
   const environment = new Environment();
-  environment.undefinedBehavior = "strict";
-  environment.addFilter("slugify", slugify);
-  return environment;
-}
-
-function environment(): Environment {
-  const environment = new Environment();
-  environment.undefinedBehavior = "lenient";
+  environment.undefinedBehavior = strict ? "strict" : "lenient";
   environment.addFilter("slugify", slugify);
   return environment;
 }

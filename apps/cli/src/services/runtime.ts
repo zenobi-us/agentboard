@@ -194,7 +194,7 @@ async function runActions(
           sourceId: source.id,
           cancellation: source.cancellation,
         };
-        const runtime = createActionRuntime(action, inputs, context);
+        const runtime = createActionRuntime(action.preparedRuntime, inputs);
         if (
           successes.has(actionKey(source.id, item.id, actionIndex, renderedHash)) &&
           await (runtime.cachedSuccessIsValid?.({ ...context, item }) ?? true)

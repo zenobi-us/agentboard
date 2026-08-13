@@ -36,7 +36,7 @@ function pluginSource(kind: "source" | "action"): string {
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
-      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined, validateRuntime: () => undefined,"}
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined,"}
       schema: {
         type: "object",
         properties: { query: { type: "string" } },
@@ -59,7 +59,7 @@ function configurablePluginSource(
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
-      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined, validateRuntime: () => undefined,"}
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined,"}
       schema: {
         type: "object",
         properties: {
@@ -71,7 +71,7 @@ function configurablePluginSource(
       },
       runtime: () => ${kind === "source"
         ? "({ collect: () => [] })"
-        : "({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) })"},
+        : "({ create: () => ({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) }) })"},
       healthCheck: () => undefined,
     });
   `;
@@ -107,7 +107,7 @@ function comparableWorkspace(workspace: LoadedWorkspace) {
       ...source,
       identity: { ...source.identity, path: "<workspace>" },
     },
-    actions: actions.map(({ packageName: _packageName, ...configured }) => ({
+    actions: actions.map(({ packageName: _packageName, preparedRuntime: _preparedRuntime, ...configured }) => ({
       ...configured,
       identity: { ...configured.identity, path: "<workspace>" },
     })),
@@ -514,12 +514,11 @@ describe("Plugin Package discovery", () => {
         export default definePlugin(import.meta, {
           kind: "action",
           validate: () => undefined,
-          validateRuntime: () => undefined,
-          schema: {
+              schema: {
             type: "object",
             properties: { timeout: { type: "integer", default: 30 } },
           },
-          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
+          runtime: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -553,9 +552,8 @@ describe("Plugin Package discovery", () => {
         export default definePlugin(import.meta, {
           kind: "action",
           validate: () => undefined,
-          validateRuntime: () => undefined,
-          schema: { type: "string" },
-          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
+              schema: { type: "string" },
+          runtime: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -597,9 +595,8 @@ describe("Plugin Package discovery", () => {
         const actionPlugin = definePlugin(import.meta, {
           kind: "action",
           validate: () => undefined,
-          validateRuntime: () => undefined,
-          schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
-          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
+              schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+          runtime: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
           healthCheck: () => undefined,
         });
         export default defineConfig({
@@ -654,6 +651,21 @@ describe("Plugin Package discovery", () => {
 
     expect(workspace.sources[0]?.packageName).toBe("@agentboard/source-qmd");
     expect(workspace.sources[0]?.actions[0]?.packageName).toBe("@agentboard/action-run-cmd");
+  });
+
+  test("Jira Item Bucket identity preserves normalized site paths", async () => {
+    const jira = (await import("@agentboard/source-jira")).default;
+
+    expect(jira.itemBucketIdentity!({
+      site: "https://EXAMPLE.test/jira/team/",
+      email_env: "JIRA_EMAIL",
+      token_env: "JIRA_API_TOKEN",
+      credentials: null,
+      jql: "status = Ready",
+      limit: 50,
+      fields: [],
+      status_map: {},
+    })).toBe("example.test/jira/team");
   });
 
   test("executable Workspace errors include the config source", async () => {

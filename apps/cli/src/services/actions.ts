@@ -6,6 +6,7 @@ import {
   type ActionRuntimeFactoryContext,
   type HealthCheckContext,
   type Item,
+  type PreparedActionRuntime,
   type ResolvedAction,
 } from "@agentboard/core/config";
 import type { TSchema } from "typebox";
@@ -22,24 +23,25 @@ export async function executeAction(
   return result;
 }
 
-export function validateActionRuntime(
+export function prepareActionRuntime(
   configured: ResolvedAction<TSchema>,
   context: ActionRuntimeFactoryContext,
-): void {
+): PreparedActionRuntime {
   const plugin = pluginFor(configured);
   if (plugin.kind !== "action") throw new TypeError("configuration node is not an Action");
-  plugin.validateRuntime!(configured.config, context);
+  const prepared = plugin.runtime(configured.config, context);
+  if (!isPreparedActionRuntime(prepared)) {
+    throw new TypeError("Action runtime factory must return create()");
+  }
+  return prepared;
 }
 
 export function createActionRuntime(
-  configured: ResolvedAction<TSchema>,
+  prepared: PreparedActionRuntime,
   inputs: unknown,
-  context: ActionRuntimeFactoryContext,
 ): ActionRuntime {
-  const plugin = pluginFor(configured);
-  if (plugin.kind !== "action") throw new TypeError("configuration node is not an Action");
-  const runtime = plugin.runtime(inputs, context);
-  if (!isActionRuntime(runtime)) throw new TypeError("Action runtime factory must return execute()");
+  const runtime = prepared.create(inputs);
+  if (!isActionRuntime(runtime)) throw new TypeError("Action runtime create() must return execute()");
   return runtime;
 }
 
@@ -56,6 +58,11 @@ export async function checkActionHealth(
 function isActionRuntime(value: unknown): value is ActionRuntime {
   return value !== null && typeof value === "object" &&
     typeof (value as Partial<ActionRuntime>).execute === "function";
+}
+
+function isPreparedActionRuntime(value: unknown): value is PreparedActionRuntime {
+  return value !== null && typeof value === "object" &&
+    typeof (value as Partial<PreparedActionRuntime>).create === "function";
 }
 
 function isActionResult(value: unknown): value is ActionResult {

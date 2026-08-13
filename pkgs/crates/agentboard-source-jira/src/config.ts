@@ -31,7 +31,8 @@ export default definePlugin(import.meta, {
   schema: JiraSourceSchema,
   itemBucketIdentity: (config) => {
     try {
-      return new URL(config.site).host.toLowerCase();
+      const site = new URL(config.site);
+      return `${site.host}${site.pathname.replace(/\/+$/, "")}`.toLowerCase();
     } catch {
       return config.site.toLowerCase().replace(/^https?:\/\//, "").replace(/\/$/, "");
     }
