@@ -25,6 +25,7 @@ function render(
 ): unknown {
   if (typeof value === "string") {
     validateActionReferences(value, context);
+    validateStrictActionExpressions(value, context);
     const rendered = environment().renderStr(value, context);
     return key !== undefined && pathInputs.has(key) ? expandPath(rendered) : rendered;
   }
@@ -38,34 +39,152 @@ function render(
   );
 }
 
-const access = String.raw`(?:\s*\.\s*[A-Za-z_]\w*|\s*\[\s*["'][^"']+["']\s*\])`;
+const access = String.raw`(?:\s*\.\s*[A-Za-z_]\w*|\s*\[\s*(?:["'][^"']+["']|[A-Za-z_]\w*)\s*\])`;
+
+function validateStrictActionExpressions(
+  template: string,
+  context: Record<string, unknown>,
+): void {
+  const validation = transformActionExpressions(template);
+  if (validation === template) return;
+  let missing = false;
+  const strict = environment();
+  strict.addFilter("requiredActionReference", (value: unknown) => {
+    if (value === undefined) missing = true;
+    return value;
+  });
+  strict.renderStr(validation, context);
+  if (missing) throw new Error("undefined value in named Action reference");
+}
+
+function transformActionExpressions(template: string): string {
+  let output = "";
+  let offset = 0;
+  while (offset < template.length) {
+    const start = template.indexOf("{", offset);
+    if (start < 0) return output + template.slice(offset);
+    output += template.slice(offset, start);
+    const opener = template.slice(start, start + 2);
+    if (opener === "{#") {
+      const end = template.indexOf("#}", start + 2);
+      if (end < 0) return output + template.slice(start);
+      output += template.slice(start, end + 2);
+      offset = end + 2;
+      continue;
+    }
+    if (opener !== "{{" && opener !== "{%") {
+      output += template[start];
+      offset = start + 1;
+      continue;
+    }
+    const closer = opener === "{{" ? "}}" : "%}";
+    const end = template.indexOf(closer, start + 2);
+    if (end < 0) return output + template.slice(start);
+    const expression = template.slice(start + 2, end);
+    if (opener === "{%" && /^\s*-?\s*raw\b/.test(expression)) {
+      const rawEnd = /{%\s*-?\s*endraw\s*-?\s*%}/g;
+      rawEnd.lastIndex = end + 2;
+      const match = rawEnd.exec(template);
+      if (!match) return output + template.slice(start);
+      output += template.slice(start, match.index + match[0].length);
+      offset = match.index + match[0].length;
+      continue;
+    }
+    const statement = opener === "{%" ? strictActionStatement(expression) : undefined;
+    output += opener === "{{" && /\bactions\b/.test(expression)
+      ? `{{ (${expression})|requiredActionReference }}`
+      : statement === undefined
+        ? template.slice(start, end + 2)
+        : `{% ${statement} %}`;
+    offset = end + 2;
+  }
+  return output;
+}
+
+function strictActionStatement(expression: string): string | undefined {
+  const match = expression.match(/^(\s*-?\s*(?:if|elif)\s+)([\s\S]*?)(\s*-?\s*)$/);
+  if (!match || !/\bactions\b/.test(match[2]!)) return undefined;
+  return `${match[1]}(${match[2]})|requiredActionReference${match[3]}`;
+}
 
 function validateActionReferences(template: string, context: Record<string, unknown>): void {
-  const aliases = new Map<string, string[]>();
-  for (const block of template.matchAll(/{[{%]([\s\S]*?)(?:}}|%})/g)) {
-    const expression = block[1]!;
-    for (const match of unquotedMatches(
-      expression,
-      new RegExp(String.raw`\(?\s*\bactions${access}+(?:\s*\))?${access}*`, "g"),
-    )) validateActionReference(context, actionPath(match[0]));
+  const aliases = new Map<string, string[]>([["actions", []]]);
+  const stringVariables = new Map<string, string>();
+  const evaluationContext = { ...context };
+  for (const expression of activeExpressions(template)) {
+    const roots = [...aliases.keys()].map(escapeRegExp).join("|");
+    const referencePattern = new RegExp(
+      String.raw`\(?\s*\b(${roots})${access}*(?:\s*\))?${access}*`,
+      "g",
+    );
+    for (const match of unquotedMatches(expression, referencePattern)) {
+      const prefix = aliases.get(match[1]!)!;
+      const path = [...prefix, ...actionPath(match[0], stringVariables)];
+      if (path.length > 0) validateActionReference(context, path);
+    }
 
     const assignment = expression.match(new RegExp(
-      String.raw`\b(?:set|with)\s+([A-Za-z_]\w*)\s*=\s*actions(${access}*)`,
+      String.raw`\b(?:set|with)\s+([A-Za-z_]\w*)\s*=\s*\(?\s*(${roots})(${access}*)\s*\)?`,
     ));
     const iteration = expression.match(new RegExp(
-      String.raw`\bfor\s+([A-Za-z_]\w*)\s+in\s+\[\s*actions(${access}*)\s*\]`,
+      String.raw`\bfor\s+([A-Za-z_]\w*)\s+in\s+\[\s*\(?\s*(${roots})(${access}*)\s*\)?\s*\]`,
     ));
     for (const declaration of [assignment, iteration]) {
-      if (declaration) aliases.set(declaration[1]!, actionPath(declaration[2]!));
+      if (!declaration) continue;
+      aliases.set(declaration[1]!, [
+        ...aliases.get(declaration[2]!)!,
+        ...actionPath(declaration[3]!, stringVariables),
+      ]);
     }
 
-    for (const [alias, prefix] of aliases) {
-      for (const match of unquotedMatches(
-        expression,
-        new RegExp(String.raw`\b${alias}${access}+`, "g"),
-      )) validateActionReference(context, [...prefix, ...actionPath(match[0])]);
+    const valueAssignment = expression.match(
+      /^\s*-?\s*set\s+([A-Za-z_]\w*)\s*=\s*([\s\S]*?)\s*-?\s*$/,
+    );
+    if (valueAssignment) {
+      try {
+        const value = environment().evalExpr(valueAssignment[2]!, evaluationContext);
+        evaluationContext[valueAssignment[1]!] = value;
+        if (typeof value === "string") stringVariables.set(valueAssignment[1]!, value);
+      } catch {
+        // The normal MiniJinja render reports expression errors with template context.
+      }
     }
   }
+}
+
+function* activeExpressions(template: string): Generator<string> {
+  let offset = 0;
+  while (offset < template.length) {
+    const start = template.indexOf("{", offset);
+    if (start < 0) return;
+    const opener = template.slice(start, start + 2);
+    if (opener === "{#") {
+      const end = template.indexOf("#}", start + 2);
+      offset = end < 0 ? template.length : end + 2;
+      continue;
+    }
+    if (opener !== "{{" && opener !== "{%") {
+      offset = start + 1;
+      continue;
+    }
+    const closer = opener === "{{" ? "}}" : "%}";
+    const end = template.indexOf(closer, start + 2);
+    if (end < 0) return;
+    const expression = template.slice(start + 2, end);
+    if (opener === "{%" && /^\s*-?\s*raw\b/.test(expression)) {
+      const rawEnd = /{%\s*-?\s*endraw\s*-?\s*%}/g;
+      rawEnd.lastIndex = end + 2;
+      const match = rawEnd.exec(template);
+      offset = match ? match.index + match[0].length : template.length;
+      continue;
+    }
+    yield expression;
+    offset = end + 2;
+  }
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function* unquotedMatches(expression: string, pattern: RegExp): Generator<RegExpMatchArray> {
@@ -85,9 +204,10 @@ function insideQuotes(value: string, end: number): boolean {
   return quote !== "";
 }
 
-function actionPath(reference: string): string[] {
-  return [...reference.matchAll(/\.\s*([A-Za-z_]\w*)|\[\s*["']([^"']+)["']\s*\]/g)]
-    .map((match) => match[1] ?? match[2]!);
+function actionPath(reference: string, stringVariables: ReadonlyMap<string, string>): string[] {
+  return [...reference.matchAll(
+    /\.\s*([A-Za-z_]\w*)|\[\s*(?:["']([^"']+)["']|([A-Za-z_]\w*))\s*\]/g,
+  )].map((match) => match[1] ?? match[2] ?? stringVariables.get(match[3]!) ?? match[3]!);
 }
 
 function validateActionReference(context: Record<string, unknown>, path: readonly string[]): void {

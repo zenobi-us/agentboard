@@ -2,7 +2,7 @@
 id = "implement"
 
 [sources.source]
-uses = "@agentboard/source-github"
+kind = "github"
 mode = "issue"
 query = '''repo:zenobi-us/agentboard is:open label:"ready-for-agent" -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
 limit = 1
@@ -16,7 +16,7 @@ helper = "gh auth token"
 
 [[sources.actions]]
 id = "worktree"
-uses = "@agentboard/action-worktree"
+uses = "agentboard/worktree"
 
 [sources.actions.with]
 repo = "."
@@ -24,7 +24,7 @@ root = "../AgentBoard.worktrees/{{ item.id | slugify }}"
 branch = "agentboard/{{ item.id | slugify }}"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 cwd = "{{ actions.worktree.inputs.root }}"
@@ -60,7 +60,7 @@ exit "$status"
 id = "review"
 
 [sources.source]
-uses = "@agentboard/source-github"
+kind = "github"
 mode = "issue"
 query = '''repo:zenobi-us/agentboard is:open label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:updated-asc'''
 limit = 1
@@ -74,7 +74,7 @@ helper = "gh auth token"
 
 [[sources.actions]]
 id = "worktree"
-uses = "@agentboard/action-worktree"
+uses = "agentboard/worktree"
 
 [sources.actions.with]
 repo = "."
@@ -82,7 +82,7 @@ root = "../AgentBoard.worktrees/{{ item.id | slugify }}"
 branch = "agentboard/{{ item.id | slugify }}"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 cwd = "{{ actions.worktree.inputs.root }}"

@@ -98,30 +98,34 @@ export async function loadExecutableWorkspace(
   }
   validateExecutableWorkspace(data, path);
   validateUniqueSourceIds(data.sources, path, "Executable Workspace configuration");
-  const sources = data.sources.map((record) => {
+  let actionPosition = 0;
+  const sources = data.sources.map((record, sourcePosition) => {
     const sourcePlugin = pluginFor(record.source);
     validateActionIds(record.actions ?? [], path, record.id);
     const actions = (record.actions ?? []).map((configured) => {
       validateActionInputs(configured.config);
       const plugin = pluginFor(configured);
       plugin.validate!(configured.config);
-      const preparedRuntime = prepareActionRuntime(configured, {
+      const normalized = normalizeInlineIdentity(configured, path, "action", actionPosition++);
+      const preparedRuntime = prepareActionRuntime(normalized, {
         workspaceId: workspaceId(path),
         sourceId: record.id,
         cancellation,
       });
       const loaded = {
-        ...configured,
-        packageName: packageNameForPlugin(pluginFor(configured)),
+        ...normalized,
+        packageName: packageNameForPlugin(plugin, normalized.identity),
         preparedRuntime,
       };
-      copyPluginReference(configured, loaded);
+      copyPluginReference(normalized, loaded);
       return loaded;
     });
+    const normalizedSource = normalizeInlineIdentity(record.source, path, "source", sourcePosition);
     return {
       ...record,
-      packageName: packageNameForPlugin(sourcePlugin),
-      itemBucketIdentity: sourcePlugin.itemBucketIdentity!(record.source.config),
+      source: normalizedSource,
+      packageName: packageNameForPlugin(sourcePlugin, normalizedSource.identity),
+      itemBucketIdentity: sourcePlugin.itemBucketIdentity!(normalizedSource.config),
       actions,
     };
   });
@@ -331,7 +335,10 @@ function validateExecutableWorkspace(
   }
 }
 
-function packageNameForPlugin(plugin: ReturnType<typeof pluginFor>): string {
+function packageNameForPlugin(
+  plugin: ReturnType<typeof pluginFor>,
+  identity?: ResolvedAction<TSchema>["identity"],
+): string {
   if (plugin.meta.packageName) return plugin.meta.packageName;
   if (!plugin.meta.url.startsWith("file:")) return plugin.meta.url;
   let directory = resolve(fileURLToPath(plugin.meta.url), "..");
@@ -352,7 +359,22 @@ function packageNameForPlugin(plugin: ReturnType<typeof pluginFor>): string {
     if (parent === directory) break;
     directory = parent;
   }
+  if (identity) return `inline:${identity.path}:${identity.role}:${identity.position}`;
   return plugin.meta.url;
+}
+
+function normalizeInlineIdentity<Configuration extends ResolvedSource<TSchema> | ResolvedAction<TSchema>>(
+  configured: Configuration,
+  path: string,
+  role: Configuration["kind"],
+  position: number,
+): Configuration {
+  const normalized = {
+    ...configured,
+    identity: { path, role, position },
+  };
+  copyPluginReference(configured, normalized);
+  return normalized;
 }
 
 function validateWorkspaceData(value: unknown, path: string): asserts value is {

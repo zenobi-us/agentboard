@@ -29,20 +29,28 @@ export function prepareActionRuntime(
 ): PreparedActionRuntime {
   const plugin = pluginFor(configured);
   if (plugin.kind !== "action") throw new TypeError("configuration node is not an Action");
-  const prepared = plugin.runtime(configured.config, context);
-  if (!isPreparedActionRuntime(prepared)) {
-    throw new TypeError("Action runtime factory must return create()");
+  try {
+    const prepared = plugin.runtime(configured.config, context);
+    if (!isPreparedActionRuntime(prepared)) throw new TypeError("must return create()");
+    return prepared;
+  } catch (error) {
+    throw new Error(`Action runtime preparation failed: ${errorMessage(error)}`);
   }
-  return prepared;
 }
+
+export class ActionRuntimeFactoryError extends Error {}
 
 export function createActionRuntime(
   prepared: PreparedActionRuntime,
   inputs: unknown,
 ): ActionRuntime {
-  const runtime = prepared.create(inputs);
-  if (!isActionRuntime(runtime)) throw new TypeError("Action runtime create() must return execute()");
-  return runtime;
+  try {
+    const runtime = prepared.create(inputs);
+    if (!isActionRuntime(runtime)) throw new TypeError("must return execute()");
+    return runtime;
+  } catch (error) {
+    throw new ActionRuntimeFactoryError(`Action runtime factory failed: ${errorMessage(error)}`);
+  }
 }
 
 export async function checkActionHealth(
@@ -63,6 +71,10 @@ function isActionRuntime(value: unknown): value is ActionRuntime {
 function isPreparedActionRuntime(value: unknown): value is PreparedActionRuntime {
   return value !== null && typeof value === "object" &&
     typeof (value as Partial<PreparedActionRuntime>).create === "function";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isActionResult(value: unknown): value is ActionResult {

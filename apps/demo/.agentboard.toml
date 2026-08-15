@@ -2,7 +2,7 @@
 id = "implement"
 
 [sources.source]
-uses = "@agentboard/source-github"
+kind = "github"
 mode = "issue"
 query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-agent" -label:"agentboard:ready-for-review" -label:"agentboard:in-progress"'''
 limit = 12
@@ -16,7 +16,7 @@ helper = "gh auth token"
 
 [[sources.actions]]
 id = "claim"
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 # ponytail: updated_at rearms this claim after label transitions; production workflows need explicit retry generations.
@@ -25,7 +25,7 @@ cwd = "."
 
 [[sources.actions]]
 id = "worktree"
-uses = "@agentboard/action-worktree"
+uses = "agentboard/worktree"
 
 [sources.actions.with]
 repo = "."
@@ -33,7 +33,7 @@ root = "worktrees/issue-{{ item.reference_id }}"
 branch = "agentboard/issue-{{ item.reference_id }}"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 # ponytail: updated_at rearms this demo after label transitions; production workflows need explicit retry generations.
@@ -44,7 +44,7 @@ cwd = "{{ actions.worktree.inputs.root }}"
 id = "review"
 
 [sources.source]
-uses = "@agentboard/source-github"
+kind = "github"
 mode = "issue"
 query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-review" -label:"agentboard:review-in-progress"'''
 limit = 12
@@ -58,7 +58,7 @@ helper = "gh auth token"
 
 [[sources.actions]]
 id = "claim"
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 # ponytail: updated_at rearms this claim after label transitions; production workflows need explicit retry generations.
@@ -67,7 +67,7 @@ cwd = "."
 
 [[sources.actions]]
 id = "worktree"
-uses = "@agentboard/action-worktree"
+uses = "agentboard/worktree"
 
 [sources.actions.with]
 repo = "."
@@ -75,7 +75,7 @@ root = "worktrees/issue-{{ item.reference_id }}"
 branch = "agentboard/issue-{{ item.reference_id }}"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 # ponytail: updated_at rearms this demo after label transitions; production workflows need explicit retry generations.
@@ -86,7 +86,7 @@ cwd = "{{ actions.worktree.inputs.root }}"
 id = "cleanup"
 
 [sources.source]
-uses = "@agentboard/source-github"
+kind = "github"
 mode = "issue"
 query = '''repo:__GITHUB_REPOSITORY__ is:closed label:"agentboard:review-complete" label:"agentboard:cleanup-approved"'''
 limit = 12
@@ -99,7 +99,7 @@ helper = "gh auth token"
 "agentboard:review-complete" = "review-complete"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 cmd = '''./launch-agent.sh cleanup "{{ item.reference_id }}"'''

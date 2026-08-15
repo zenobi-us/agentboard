@@ -5,7 +5,12 @@ import {
 } from "@agentboard/core/config";
 
 import type { LoadedWorkspace } from "./config/workspace.ts";
-import { checkActionHealth, createActionRuntime, executeAction } from "./actions.ts";
+import {
+  ActionRuntimeFactoryError,
+  checkActionHealth,
+  createActionRuntime,
+  executeAction,
+} from "./actions.ts";
 import { checkSourceHealth, collectSource } from "./sources.ts";
 import {
   acquireWorkspaceLock,
@@ -97,53 +102,62 @@ export async function runWorkspace(
   workspace: LoadedWorkspace,
   options: RunWorkspaceOptions = {},
 ): Promise<WorkspaceRunResult> {
-  const sources: SourceRunResult[] = [];
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
-    for (const source of workspace.sources) {
-      if (source.cancellation.aborted) return { sources, cancelled: true };
-      await setSourceCollectionStatus(workspace, source.id, "collecting", undefined, options.storeRoot);
-      let items: readonly Item[];
-      try {
-        items = await collectSource(source);
-        if (source.cancellation.aborted) throw source.cancellation.reason ?? new Error("cancelled");
-        await appendSourceSnapshot(
-          workspace,
-          source,
-          items,
-          source.cancellation,
-          options.storeRoot,
-        );
-        await setSourceCollectionStatus(workspace, source.id, "complete", undefined, options.storeRoot);
-      } catch (error) {
-        if (source.cancellation.aborted) {
-          await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, options.storeRoot);
-          return { sources, cancelled: true };
-        }
-        await setSourceCollectionStatus(
-          workspace,
-          source.id,
-          "failed",
-          errorMessage(error),
-          options.storeRoot,
-        );
-        sources.push({
-          id: source.id,
-          uses: source.packageName,
-          items: [],
-          actions: [],
-          error: errorMessage(error),
-        });
-        continue;
-      }
-      const actions = await runActions(workspace, source, items, options.storeRoot);
-      sources.push({ id: source.id, uses: source.packageName, items, actions: actions.results });
-      if (actions.cancelled) return { sources, cancelled: true };
-    }
-    return { sources };
+    const settled = await Promise.allSettled(workspace.sources.map((source) =>
+      runSource(workspace, source, options.storeRoot)
+    ));
+    const sources = settled.map((result) => {
+      if (result.status === "rejected") throw result.reason;
+      return result.value;
+    });
+    return {
+      sources: sources.map(({ result }) => result),
+      ...(sources.some(({ cancelled }) => cancelled) ? { cancelled: true } : {}),
+    };
   } finally {
     await releaseLock();
   }
+}
+
+async function runSource(
+  workspace: LoadedWorkspace,
+  source: LoadedWorkspace["sources"][number],
+  storeRoot?: string,
+): Promise<{ readonly result: SourceRunResult; readonly cancelled: boolean }> {
+  if (source.cancellation.aborted) {
+    return {
+      result: { id: source.id, uses: source.packageName, items: [], actions: [] },
+      cancelled: true,
+    };
+  }
+  await setSourceCollectionStatus(workspace, source.id, "collecting", undefined, storeRoot);
+  let items: readonly Item[];
+  try {
+    items = await collectSource(source);
+    if (source.cancellation.aborted) throw source.cancellation.reason ?? new Error("cancelled");
+    await appendSourceSnapshot(workspace, source, items, source.cancellation, storeRoot);
+    await setSourceCollectionStatus(workspace, source.id, "complete", undefined, storeRoot);
+  } catch (error) {
+    if (source.cancellation.aborted) {
+      await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
+      return {
+        result: { id: source.id, uses: source.packageName, items: [], actions: [] },
+        cancelled: true,
+      };
+    }
+    const message = errorMessage(error);
+    await setSourceCollectionStatus(workspace, source.id, "failed", message, storeRoot);
+    return {
+      result: { id: source.id, uses: source.packageName, items: [], actions: [], error: message },
+      cancelled: false,
+    };
+  }
+  const actions = await runActions(workspace, source, items, storeRoot);
+  return {
+    result: { id: source.id, uses: source.packageName, items, actions: actions.results },
+    cancelled: actions.cancelled,
+  };
 }
 
 async function runActions(
@@ -199,9 +213,11 @@ async function runActions(
           successes.has(actionKey(source.id, item.id, actionIndex, renderedHash)) &&
           await (runtime.cachedSuccessIsValid?.({ ...context, item }) ?? true)
         ) {
+          if (source.cancellation.aborted) return { results, cancelled: true };
           results.push({ itemId: item.id, actionIndex, uses: action.packageName, skipped: true });
           continue;
         }
+        if (source.cancellation.aborted) return { results, cancelled: true };
         const result = await executeAction(item, runtime, context);
         await appendActionAttempt(workspace, source, {
           ts: new Date().toISOString(),
@@ -217,6 +233,7 @@ async function runActions(
         if (result.outcome === "failure") break;
         successes.add(actionKey(source.id, item.id, actionIndex, renderedHash));
       } catch (error) {
+        if (error instanceof ActionRuntimeFactoryError) throw error;
         const cancelled = source.cancellation.aborted;
         const message = errorMessage(error);
         await appendActionAttempt(workspace, source, {

@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  isPluginDescriptor,
   type Plugin,
   type PluginRole,
 } from "@agentboard/core/config";
@@ -196,9 +197,9 @@ function hasPluginKeyword(keywords: unknown): boolean {
 async function importPlugin(item: PluginPackage): Promise<LoadedPluginPackage> {
   const module = await import(pathToFileURL(packageEntry(item)).href);
   const values = Object.values(module);
-  const descriptors = [...new Set(values.filter(isPluginShape))];
+  const descriptors = [...new Set(values.filter(isPluginDescriptor))];
   if (descriptors.length !== 1) {
-    if (descriptors.length === 0 && values.some(isPluginShape)) {
+    if (descriptors.length === 0 && values.some(isPluginDescriptor)) {
       throw new Error(
         `Plugin Package "${item.name}" must export one Plugin Descriptor created by definePlugin`,
       );
@@ -214,7 +215,7 @@ export function adaptExternalPlugin(
   item: PluginPackage,
   descriptor: unknown,
 ): LoadedPluginPackage {
-  if (!isPluginShape(descriptor)) {
+  if (!isPluginDescriptor(descriptor)) {
     throw new TypeError(
       `Plugin Package "${item.name}" must export one Plugin Descriptor created by definePlugin`,
     );
@@ -244,20 +245,4 @@ function exportTarget(exportsField: unknown): string | undefined {
     if (target) return target;
   }
   return undefined;
-}
-
-function isPluginShape(value: unknown): value is AnyPlugin {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<AnyPlugin>;
-  return (
-    (candidate.kind === "source" || candidate.kind === "action") &&
-    typeof candidate.schema === "object" &&
-    candidate.schema !== null &&
-    typeof candidate.runtime === "function" &&
-    typeof candidate.healthCheck === "function" &&
-    (candidate.kind === "source"
-      ? typeof candidate.itemBucketIdentity === "function"
-      : typeof candidate.validate === "function") &&
-    typeof candidate.meta?.url === "string"
-  );
 }

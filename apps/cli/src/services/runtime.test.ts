@@ -110,7 +110,7 @@ describe("Workspace runtime orchestration", () => {
     expect(second.sources[0]?.actions).toEqual([{
       itemId: "item-1",
       actionIndex: 0,
-      uses: import.meta.url,
+      uses: `inline:${path}:action:0`,
       skipped: true,
     }]);
     const files = await Array.fromAsync(new Bun.Glob("**/*").scan({ cwd: storeRoot }));
@@ -120,6 +120,65 @@ describe("Workspace runtime orchestration", () => {
     expect((await readFile(join(storeRoot, attempts!), "utf8")).trim().split("\n")).toHaveLength(1);
     if (previousRoot === undefined) delete process.env["AGENTBOARD_RUNTIME_ROOT"];
     else process.env["AGENTBOARD_RUNTIME_ROOT"] = previousRoot;
+    await rm(storeRoot, { recursive: true, force: true });
+  });
+
+  test("starts all Source pipelines before an earlier Source finishes", async () => {
+    let startSecond!: () => void;
+    const secondStarted = new Promise<void>((resolve) => {
+      startSecond = resolve;
+    });
+    const events: string[] = [];
+    const first = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "first",
+      schema: Type.Object({}),
+      runtime: () => ({
+        collect: async () => {
+          events.push("first:start");
+          await Promise.race([
+            secondStarted,
+            Bun.sleep(100).then(() => {
+              throw new Error("second Source did not start");
+            }),
+          ]);
+          events.push("first:end");
+          return [];
+        },
+      }),
+      healthCheck: () => undefined,
+    });
+    const second = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "second",
+      schema: Type.Object({}),
+      runtime: () => ({
+        collect: () => {
+          events.push("second:start");
+          startSecond();
+          return [];
+        },
+      }),
+      healthCheck: () => undefined,
+    });
+    const path = new URL("./source-concurrency.test.ts", import.meta.url).pathname;
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [
+        { id: "first", source: source(first, {}, path) },
+        { id: "second", source: source(second, {}, path) },
+      ],
+    }));
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+
+    const result = await runWorkspace(workspace, { storeRoot });
+
+    expect(events).toContain("first:start");
+    expect(events).toContain("second:start");
+    expect(events.at(-1)).toBe("first:end");
+    expect(result.sources.map(({ id, error }) => ({ id, error }))).toEqual([
+      { id: "first", error: undefined },
+      { id: "second", error: undefined },
+    ]);
     await rm(storeRoot, { recursive: true, force: true });
   });
 
@@ -336,6 +395,66 @@ describe("Workspace runtime orchestration", () => {
     await rm(storeRoot, { recursive: true, force: true });
   });
 
+  test("does not start Action execution after cached success validation observes cancellation", async () => {
+    const controller = new AbortController();
+    let executions = 0;
+    let cancelDuringValidation = false;
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: (_config, context) => ({
+        collect: (): Item[] => [{
+          id: "one",
+          reference_id: "one",
+          title: "one",
+          status: "ready",
+          url: "https://example.test/one",
+          source_id: context.sourceId,
+          source_kind: "memory",
+          raw: {},
+        }],
+      }),
+      healthCheck: () => undefined,
+    });
+    const actionPlugin = definePlugin(import.meta, {
+      kind: "action",
+      validate: () => undefined,
+      schema: Type.Object({}),
+      runtime: () => ({
+        create: () => ({
+          cachedSuccessIsValid: async () => {
+            if (cancelDuringValidation) controller.abort(new Error("cancelled"));
+            return false;
+          },
+          execute: (): ActionResult => {
+            executions += 1;
+            return { outcome: "success", stdout: "", stderr: "" };
+          },
+        }),
+      }),
+      healthCheck: () => undefined,
+    });
+    const path = new URL("./cancel-after-cache-validation.test.ts", import.meta.url).pathname;
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{
+        id: "issues",
+        source: source(sourcePlugin, {}, path),
+        actions: [action(actionPlugin, {}, path)],
+      }],
+    }), controller.signal);
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+
+    await runWorkspace(workspace, { storeRoot });
+    cancelDuringValidation = true;
+    const result = await runWorkspace(workspace, { storeRoot });
+
+    expect(executions).toBe(1);
+    expect(result.cancelled).toBe(true);
+    expect(runExitStatus(result)).toBe(130);
+    await rm(storeRoot, { recursive: true, force: true });
+  });
+
   test("persists cancellation and stops new work", async () => {
     const calls: string[] = [];
     const sourcePlugin = definePlugin(import.meta, {
@@ -388,7 +507,143 @@ describe("Workspace runtime orchestration", () => {
     await rm(storeRoot, { recursive: true, force: true });
   });
 
-  test("keeps Action runtime errors scoped to their Item", async () => {
+  test("fails the Run when a rendered Action runtime factory fails", async () => {
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: (_config, context) => ({
+        collect: (): Item[] => [{
+          id: "one",
+          reference_id: "one",
+          title: "one",
+          status: "ready",
+          url: "https://example.test/one",
+          source_id: context.sourceId,
+          source_kind: "memory",
+          raw: {},
+        }],
+      }),
+      healthCheck: () => undefined,
+    });
+    const actionPlugin = definePlugin(import.meta, {
+      kind: "action",
+      validate: () => undefined,
+      schema: Type.Object({ itemId: Type.String() }),
+      runtime: () => ({
+        create: () => {
+          throw new Error("creation exploded");
+        },
+      }),
+      healthCheck: () => undefined,
+    });
+    const path = new URL("./action-creation-error.test.ts", import.meta.url).pathname;
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{
+        id: "issues",
+        source: source(sourcePlugin, {}, path),
+        actions: [action(actionPlugin, { itemId: "{{ item.id }}" }, path)],
+      }],
+    }));
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+
+    await expect(runWorkspace(workspace, { storeRoot })).rejects.toThrow(
+      "Action runtime factory failed: creation exploded",
+    );
+    await rm(storeRoot, { recursive: true, force: true });
+  });
+
+  test("keeps run.lock until every Source pipeline stops after a fatal Action factory error", async () => {
+    let releaseSlowSource!: () => void;
+    const slowSourceReleased = new Promise<void>((resolve) => {
+      releaseSlowSource = resolve;
+    });
+    let slowSourceStarted!: () => void;
+    const slowSourceStart = new Promise<void>((resolve) => {
+      slowSourceStarted = resolve;
+    });
+    let actionFactoryFailed!: () => void;
+    const actionFactoryFailure = new Promise<void>((resolve) => {
+      actionFactoryFailed = resolve;
+    });
+    const item = (sourceId: string): Item => ({
+      id: "one",
+      reference_id: "one",
+      title: "one",
+      status: "ready",
+      url: "https://example.test/one",
+      source_id: sourceId,
+      source_kind: "memory",
+      raw: {},
+    });
+    const fastSource = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "fast",
+      schema: Type.Object({}),
+      runtime: (_config, context) => ({ collect: () => [item(context.sourceId)] }),
+      healthCheck: () => undefined,
+    });
+    const slowSource = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "slow",
+      schema: Type.Object({}),
+      runtime: () => ({
+        collect: async () => {
+          slowSourceStarted();
+          await slowSourceReleased;
+          return [];
+        },
+      }),
+      healthCheck: () => undefined,
+    });
+    const actionPlugin = definePlugin(import.meta, {
+      kind: "action",
+      validate: () => undefined,
+      schema: Type.Object({}),
+      runtime: () => ({
+        create: () => {
+          actionFactoryFailed();
+          throw new Error("creation exploded");
+        },
+      }),
+      healthCheck: () => undefined,
+    });
+    const path = new URL("./fatal-action-factory-lock.test.ts", import.meta.url).pathname;
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [
+        {
+          id: "fast",
+          source: source(fastSource, {}, path),
+          actions: [action(actionPlugin, {}, path)],
+        },
+        { id: "slow", source: source(slowSource, {}, path) },
+      ],
+    }));
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+    let settled = false;
+    let runError: unknown;
+    const run = runWorkspace(workspace, { storeRoot })
+      .catch((error) => {
+        runError = error;
+      })
+      .finally(() => {
+        settled = true;
+      });
+
+    await Promise.all([slowSourceStart, actionFactoryFailure]);
+    await Bun.sleep(10);
+
+    expect(settled).toBe(false);
+    await expect(acquireWorkspaceLock(workspace, storeRoot)).rejects.toThrow("workspace lock is held");
+    releaseSlowSource();
+    await run;
+    expect(runError).toEqual(new Error("Action runtime factory failed: creation exploded"));
+    const release = await acquireWorkspaceLock(workspace, storeRoot);
+    await release();
+    await rm(storeRoot, { recursive: true, force: true });
+  });
+
+  test("keeps Action execution errors scoped to their Item", async () => {
     const sourcePlugin = definePlugin(import.meta, {
       kind: "source",
       itemBucketIdentity: () => "memory",
@@ -434,11 +689,11 @@ describe("Workspace runtime orchestration", () => {
     const result = await runWorkspace(workspace, { storeRoot });
 
     expect(result.sources[0]?.actions).toEqual([
-      { itemId: "one", actionIndex: 0, uses: import.meta.url, error: "action failed" },
+      { itemId: "one", actionIndex: 0, uses: `inline:${path}:action:0`, error: "action failed" },
       {
         itemId: "two",
         actionIndex: 0,
-        uses: import.meta.url,
+        uses: `inline:${path}:action:0`,
         result: { outcome: "success", stdout: "two", stderr: "" },
       },
     ]);
@@ -670,8 +925,8 @@ describe("Workspace runtime orchestration", () => {
 
     expect(calls).toEqual(["source:issues", "action:issues"]);
     expect(results).toEqual([
-      { sourceId: "issues", role: "source", uses: import.meta.url },
-      { sourceId: "issues", role: "action", uses: import.meta.url, actionIndex: 0 },
+      { sourceId: "issues", role: "source", uses: `inline:${path}:source:0` },
+      { sourceId: "issues", role: "action", uses: `inline:${path}:action:0`, actionIndex: 0 },
     ]);
   });
 
@@ -680,6 +935,38 @@ describe("Workspace runtime orchestration", () => {
       "{{ actions.missing.inputs.root }}",
       { actions: {} },
     )).toThrow();
+    expect(() => renderActionInputs(
+      "{% set key = \"worktree\" %}{{ actions[key].inputs.rooot }}",
+      { actions: { worktree: { inputs: { root: "/tmp/worktree" } } } },
+    )).toThrow("undefined value");
+    expect(() => renderActionInputs(
+      "{% set key = \"missing\" %}{% set prior = actions[key] %}ok",
+      { actions: {} },
+    )).toThrow("undefined value");
+    expect(() => renderActionInputs(
+      "{% set key = \"worktree\" %}{% set prior = actions[key] %}ok",
+      { actions: {} },
+    )).toThrow("undefined value");
+    expect(() => renderActionInputs(
+      "{% set key = \"miss\" ~ \"ing\" %}{% set prior = actions[key] %}ok",
+      { actions: {} },
+    )).toThrow("undefined value");
+    expect(() => renderActionInputs(
+      "{% set key = item.action_key %}{% set prior = actions[key] %}ok",
+      { actions: {}, item: { action_key: "worktree" } },
+    )).toThrow("undefined value");
+    expect(() => renderActionInputs(
+      "{{ actions|attr(\"worktree\")|attr(\"inputs\")|attr(\"rooot\") }}",
+      { actions: { worktree: { inputs: { root: "/tmp/worktree" } } } },
+    )).toThrow("undefined value");
+    expect(() => renderActionInputs(
+      "{% set key = \"worktree\" %}{% if actions[key].inputs.rooot %}x{% endif %}",
+      { actions: { worktree: { inputs: { root: "/tmp/worktree" } } } },
+    )).toThrow("undefined value");
+    expect(() => renderActionInputs(
+      "{% if actions|attr(\"worktree\")|attr(\"inputs\")|attr(\"rooot\") %}x{% endif %}",
+      { actions: { worktree: { inputs: { root: "/tmp/worktree" } } } },
+    )).toThrow("undefined value");
     expect(() => renderActionInputs(
       "{{ actions.worktree.inputs.rooot }}",
       { actions: { worktree: { inputs: { root: "/tmp/worktree" } } } },
@@ -692,6 +979,8 @@ describe("Workspace runtime orchestration", () => {
       "{{ (actions.worktree).inputs.rooot }}",
       "{% with prior = actions.worktree %}{{ prior.inputs.rooot }}{% endwith %}",
       "{% set named = actions %}{{ named.worktree.inputs.rooot }}",
+      "{% set named = actions %}{% set prior = named.worktree %}{{ prior.inputs.rooot }}",
+      "{% set prior = (actions.worktree) %}{{ prior.inputs.rooot }}",
       "{% for prior in [actions.worktree] %}{{ prior.inputs.rooot }}{% endfor %}",
     ]) {
       expect(() => renderActionInputs(
@@ -702,13 +991,37 @@ describe("Workspace runtime orchestration", () => {
     expect(renderActionInputs('{{ "actions.missing" }}', { actions: {} })).toBe("actions.missing");
   });
 
+  test("renders dynamic aliases for a preceding named Action", () => {
+    for (const [key, context] of [
+      ['"worktree"', {}],
+      ['"work" ~ "tree"', {}],
+      ["item.action_key", { item: { action_key: "worktree" } }],
+    ] as const) {
+      expect(renderActionInputs(
+        `{% set key = ${key} %}
+{% set prior = actions[key] %}
+{{ prior.inputs.root }}`,
+        { actions: { worktree: { inputs: { root: "/ok" } } }, ...context },
+      )).toBe("\n\n/ok");
+    }
+  });
+
   test("keeps unrelated missing Item fields and plain Action text lenient", () => {
     expect(renderActionInputs("{{ item.missing }}", { item: {} })).toBe("");
+    expect(renderActionInputs("{% if item.missing %}x{% endif %}", { item: {} })).toBe("");
     expect(renderActionInputs(
       "{{ actions.worktree.inputs.root }} {{ item.missing }}",
       { actions: { worktree: { inputs: { root: "/ok" } } }, item: {} },
     )).toBe("/ok ");
     expect(renderActionInputs("echo actions.missing", { actions: {} })).toBe("echo actions.missing");
+    expect(renderActionInputs(
+      "{% raw %}{% if actions.missing.inputs.root %}x{% endif %}{% endraw %}",
+      { actions: {} },
+    )).toBe("{% if actions.missing.inputs.root %}x{% endif %}");
+    expect(renderActionInputs(
+      "{# {% if actions.missing.inputs.root %}x{% endif %} #}",
+      { actions: {} },
+    )).toBe("");
     expect(() => renderActionInputs(
       "{{ actions . missing . inputs . root }}",
       { actions: {} },
@@ -777,6 +1090,85 @@ describe("Workspace runtime orchestration", () => {
       "{% if item.ready %}{{ item.title | upper }}{% else %}no{% endif %}",
       { item: { ready: true, title: "ready" } },
     )).toBe("READY");
+  });
+
+  test("derives stable inline Plugin identity from Workspace path, role, and position", async () => {
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: () => ({ collect: () => [] }),
+      healthCheck: () => undefined,
+    });
+    const actionPlugin = definePlugin(import.meta, {
+      kind: "action",
+      validate: () => undefined,
+      schema: Type.Object({}),
+      runtime: () => ({
+        create: () => ({
+          execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }),
+        }),
+      }),
+      healthCheck: () => undefined,
+    });
+    const path = new URL("./inline-identity.test.ts", import.meta.url).pathname;
+    const configuration = () => defineConfig({
+      sources: [
+        {
+          id: "first",
+          source: source(sourcePlugin, {}, path),
+          actions: [
+            action(actionPlugin, {}, path),
+            action(actionPlugin, {}, path),
+          ],
+        },
+        {
+          id: "second",
+          source: source(sourcePlugin, {}, path),
+          actions: [action(actionPlugin, {}, path)],
+        },
+      ],
+    });
+
+    const first = await loadExecutableWorkspace(path, configuration());
+    const second = await loadExecutableWorkspace(path, configuration());
+    const summarize = (workspace: typeof first) => workspace.sources.map((configured) => ({
+      source: {
+        packageName: configured.packageName,
+        identity: configured.source.identity,
+      },
+      actions: configured.actions.map(({ packageName, identity }) => ({ packageName, identity })),
+    }));
+
+    expect(summarize(first)).toEqual(summarize(second));
+    expect(summarize(first)).toEqual([
+      {
+        source: {
+          packageName: `inline:${path}:source:0`,
+          identity: { path, role: "source", position: 0 },
+        },
+        actions: [
+          {
+            packageName: `inline:${path}:action:0`,
+            identity: { path, role: "action", position: 0 },
+          },
+          {
+            packageName: `inline:${path}:action:1`,
+            identity: { path, role: "action", position: 1 },
+          },
+        ],
+      },
+      {
+        source: {
+          packageName: `inline:${path}:source:1`,
+          identity: { path, role: "source", position: 1 },
+        },
+        actions: [{
+          packageName: `inline:${path}:action:2`,
+          identity: { path, role: "action", position: 2 },
+        }],
+      },
+    ]);
   });
 
   test("derives distinct stable Workspace ids from canonical paths", async () => {
@@ -910,7 +1302,7 @@ describe("Workspace runtime orchestration", () => {
         source: source(sourcePlugin, {}, path),
         actions: [action(actionPlugin, {}, path)],
       }],
-    }))).rejects.toThrow("factory exploded");
+    }))).rejects.toThrow("Action runtime preparation failed: factory exploded");
   });
 
   test("rejects malformed Source Items and Action Results", async () => {
