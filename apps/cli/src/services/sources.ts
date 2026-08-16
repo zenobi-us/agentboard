@@ -11,7 +11,7 @@ import type { TSchema } from "typebox";
 import type { LoadedWorkspaceSource } from "./config/workspace.ts";
 
 export interface LoadedSourceRuntime extends LoadedWorkspaceSource {
-  readonly runtime: SourceRuntime;
+  readonly runtime?: SourceRuntime;
   readonly cancellation: AbortSignal;
 }
 
@@ -30,6 +30,7 @@ export async function createSourceRuntime(
 }
 
 export async function collectSource(source: LoadedSourceRuntime): Promise<readonly Item[]> {
+  if (!source.runtime) throw new Error(`Source ${source.id} runtime is not available for a Run`);
   const items: unknown = await source.runtime.collect();
   if (!Array.isArray(items) || !items.every(isItem)) {
     throw new TypeError(`Source ${source.id} collect() must return normalized Items`);

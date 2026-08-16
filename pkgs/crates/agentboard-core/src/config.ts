@@ -68,27 +68,30 @@ export interface SourceRuntimeContext {
   readonly cancellation: AbortSignal;
 }
 
-/** Values supplied when an action processes one item. */
-export interface ActionRuntimeContext {
+/** Values supplied when AgentBoard creates an Action runtime. */
+export interface ActionRuntimeCreationContext {
+  /** Workspace that owns the configured Action. */
+  readonly workspaceId: string;
+  /** Configured Source that owns the Action. */
+  readonly sourceId: string;
+  /** Signal that requests cancellation of runtime setup. */
+  readonly cancellation: AbortSignal;
+}
+
+/** Values supplied when an Action runtime processes one Item. */
+export interface ActionExecutionContext<Inputs = unknown> {
   /** Workspace that owns the action run. */
   readonly workspaceId: string;
   /** Configured source that produced the item. */
   readonly sourceId: string;
   /** Item that the action must process. */
   readonly item: Item;
+  /** Rendered Plugin inputs for this Action execution. */
+  readonly inputs: Inputs;
   /** Signal that requests cancellation of action work. */
   readonly cancellation: AbortSignal;
 }
 
-/** Values supplied when AgentBoard prepares an Action. */
-export interface ActionPreparationContext {
-  /** Workspace that owns the action configuration. */
-  readonly workspaceId: string;
-  /** Configured source that owns the action. */
-  readonly sourceId: string;
-  /** Signal that requests cancellation of runtime setup. */
-  readonly cancellation: AbortSignal;
-}
 
 /** Values supplied when AgentBoard checks plugin health. */
 export interface HealthCheckContext {
@@ -105,27 +108,21 @@ export interface SourceRuntime {
 }
 
 
-/** Runtime that executes an action for normalized items. */
-export interface ActionRuntime {
+/** Workspace-scoped runtime that executes an Action for normalized Items. */
+export interface ActionRuntime<Inputs = unknown> {
   /** Processes one item and returns its action result. */
-  execute(context: ActionRuntimeContext): Promise<ActionResult> | ActionResult;
+  execute(context: ActionExecutionContext<Inputs>): Promise<ActionResult> | ActionResult;
   /** Reports whether an earlier successful result can be reused. */
-  cachedSuccessIsValid?(context: ActionRuntimeContext): Promise<boolean> | boolean;
-}
-
-/** Prepared Action that creates runtimes from resolved Action inputs. */
-export interface PreparedAction<Runtime extends ActionRuntime = ActionRuntime> {
-  /** Creates an action runtime for the supplied inputs. */
-  create(inputs: unknown): Runtime;
+  cachedSuccessIsValid?(context: ActionExecutionContext<Inputs>): Promise<boolean> | boolean;
 }
 
 /** A value that a Plugin can return now or through a Promise. */
 type MaybePromise<Value> = Value | PromiseLike<Value>;
 
 /** Runtime contract selected for a plugin role. */
-type RuntimeFor<Role extends PluginRole> = Role extends "source"
+type RuntimeFor<Role extends PluginRole, Inputs = unknown> = Role extends "source"
   ? SourceRuntime
-  : PreparedAction;
+  : ActionRuntime<Inputs>;
 
 /** Fields shared by Source and Action Plugin Descriptors. */
 interface PluginBase<
@@ -147,42 +144,11 @@ interface PluginBase<
   readonly meta: PluginMeta;
 }
 
-/** Complete descriptor for a Source or Action Plugin.
- *
- *  Actions and Sources both use runtime callback to return a runtime object that is used
- *  to either fetch source items or execute actions against those source items.
- *
- *  The runtime object is created once per configured plugin, which happens once for each source in a workspace.
- *
- *  for example: 
- *
- *  ```yaml
- *  workspace:
- *    sources:
- *      - uses: agetnboard/plugin-source-github
- *        with:
- *          query: "is:open is:issue label:bug"
- *        actions:
- *          - uses: agentboard/plugin-action-echo
- *            with:
- *              message: "Item: {{item.title}}"
- *      - uses: agentboard/plugin-source-github
- *        with:
- *          query: "is:open is:issue label:enhancement"
- *        actions: 
- *          - uses: agentboard/plugin-action-echo
- *            with:
- *              message: "Item: {{item.title}}"
- *  ```
- *
- *  In the above example, the `plugin-source-github` plugin is used twice, once for bugs and once for enhancements. 
- *  Each use of the plugin will create a separate runtime object, which will be used to fetch items from GitHub. 
- *  The `plugin-action-echo` plugin is also used twice, once for each source, and will create a separate runtime object for each use.
- **/
+/** Complete descriptor for a Source or Action Plugin. */
 export type Plugin<
   Role extends PluginRole,
   Schema extends TSchema,
-  Runtime extends RuntimeFor<Role> = RuntimeFor<Role>,
+  Runtime extends RuntimeFor<Role, Static<Schema>> = RuntimeFor<Role, Static<Schema>>,
 > = Role extends "source"
   ? PluginBase<Role, Schema> & {
     /** Creates the Source runtime from validated configuration. */
@@ -195,10 +161,10 @@ export type Plugin<
     readonly validate?: never;
   }
   : PluginBase<Role, Schema> & {
-    /** Prepares one Action for the loaded Workspace. */
+    /** Creates one Action runtime for the loaded Workspace. */
     readonly runtime: (
       config: Static<Schema>,
-      context: ActionPreparationContext,
+      context: ActionRuntimeCreationContext,
     ) => MaybePromise<Runtime>;
     readonly itemBucketIdentity?: never;
     /** Applies Action-specific validation after schema validation. */
@@ -209,7 +175,7 @@ export type Plugin<
 type PluginDefinition<
   Role extends PluginRole,
   Schema extends TSchema,
-  Runtime extends RuntimeFor<Role>,
+  Runtime extends RuntimeFor<Role, Static<Schema>>,
 > = Omit<Plugin<Role, Schema, Runtime>, "meta">;
 
 /**
@@ -222,14 +188,14 @@ export function definePlugin<const Schema extends TSchema, Runtime extends Sourc
   definition: PluginDefinition<"source", Schema, Runtime>,
 ): Plugin<"source", Schema, Runtime>;
 
-export function definePlugin<const Schema extends TSchema, Runtime extends PreparedAction>(
+export function definePlugin<const Schema extends TSchema, Runtime extends ActionRuntime<Static<Schema>>>(
   module: Pick<ImportMeta, "url">,
   definition: PluginDefinition<"action", Schema, Runtime>,
 ): Plugin<"action", Schema, Runtime>;
 
 export function definePlugin(
   module: Pick<ImportMeta, "url">,
-  definition: PluginDefinition<PluginRole, TSchema, RuntimeFor<PluginRole>>,
+  definition: PluginDefinition<PluginRole, TSchema, RuntimeFor<PluginRole, unknown>>,
 ): Plugin<PluginRole, TSchema> {
   if (definition.kind !== "source" && definition.kind !== "action") {
     throw new TypeError(`invalid plugin role: ${String(definition.kind)}`);
@@ -389,7 +355,7 @@ function splitConfig(config: unknown): { id: string | undefined; payload: unknow
 function resolve<
   const Role extends PluginRole,
   const Schema extends TSchema,
-  Runtime extends RuntimeFor<Role>,
+  Runtime extends RuntimeFor<Role, Static<Schema>>,
 >(
   expectedRole: Role,
   plugin: Plugin<Role, Schema, Runtime>,
@@ -438,7 +404,7 @@ export function source<const Schema extends TSchema, Runtime extends SourceRunti
 }
 
 /** Resolves one action plugin configuration. */
-export function action<const Schema extends TSchema, Runtime extends PreparedAction>(
+export function action<const Schema extends TSchema, Runtime extends ActionRuntime<Static<Schema>>>(
   plugin: Plugin<"action", Schema, Runtime>,
   config: ConfigWithId<Schema>,
   path: string,

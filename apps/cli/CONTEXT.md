@@ -9,7 +9,7 @@ Configuration that names Sources and the Actions to run for each Source. A Works
 _Avoid_: Project config, repo config
 
 **Plugin**:
-A package descriptor that provides one Source or Action. A Source Plugin declares runtime creation. An Action Plugin declares Action preparation. Both roles declare a TypeBox schema and health check.
+A package descriptor that provides one Source or Action. Every Plugin declares runtime creation, a TypeBox schema, and a health check. The Plugin role selects the runtime interface.
 _Avoid_: Configured Source, configured Action, runtime instance
 
 **Plugin Package**:
@@ -28,13 +28,13 @@ _Avoid_: Static configuration
 Workspace configuration with validated Plugin references and Plugin data. It is the input to Source collection and Action execution.
 _Avoid_: Raw configuration, parsed settings
 
-**Action Preparation**:
-The Workspace-loading stage that creates one Prepared Action for each configured Action. Preparation can allocate resources that its Action runtimes share.
-_Avoid_: Action runtime creation, Action execution
+**Plugin Runtime**:
+Workspace-scoped executable behavior created from one resolved Plugin configuration. A loaded Workspace owns one runtime for each configured Source and Action.
+_Avoid_: Prepared Action, runtime factory
 
-**Action Runtime Creation**:
-The Item-scoped stage that creates one Action runtime from a Prepared Action after AgentBoard renders the Action inputs.
-_Avoid_: Action preparation, Workspace loading
+**Action Execution**:
+The Item-scoped use of an Action runtime after AgentBoard renders the Action inputs. Each execution receives one Item and its rendered inputs.
+_Avoid_: Action runtime creation, Workspace loading
 
 **Workspace Initialization**:
 Creation of a named, empty Workspace ready for Source configuration.

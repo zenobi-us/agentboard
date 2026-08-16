@@ -23,7 +23,7 @@ Use Bun to load executable Workspace configuration from `agentboard.config.ts` o
 
 Each Source package exports one Plugin Descriptor with `kind`, `schema`, `runtime`, and `healthCheck`.
 
-Each Action package exports one Plugin Descriptor with `kind`, `schema`, `prepare`, and `healthCheck`.
+Each Action package exports one Plugin Descriptor with `kind`, `schema`, `runtime`, and `healthCheck`.
 
 The Plugin schema is a TypeBox payload schema. It excludes core fields such as `uses`, Source IDs, Action IDs, and the Action `with` wrapper.
 
@@ -33,7 +33,7 @@ TypeScript configuration keeps a private Plugin Descriptor reference. It does no
 
 JSON, YAML, and TOML configuration requires `uses` for every Source and Action. The data loader resolves the package, validates its payload, and creates the same resolved configuration nodes.
 
-The runtime consumes resolved nodes. Source runtimes live for the loaded Workspace. Action preparation runs once for each configured Action during Workspace loading. The Prepared Action lives for the loaded Workspace. Action runtime creation runs after input rendering for each Rendered Action.
+The runtime consumes resolved nodes. AgentBoard creates one Source runtime for each configured Source and one Action runtime for each configured Action. Both runtimes live for the loaded Workspace. AgentBoard renders Action inputs before each execution.
 
 ## User Stories
 
@@ -51,7 +51,7 @@ The runtime consumes resolved nodes. Source runtimes live for the loaded Workspa
 12. As a package author, I want one default Plugin Descriptor per package, so that package discovery has one clear result.
 13. As a package author, I want `definePlugin()` to capture module metadata, so that I do not repeat the package name in source code.
 14. As a package author, I want a TypeBox schema to define Plugin input, so that one schema drives types, defaults, and runtime validation.
-15. As a package author, I want separate Action preparation and Action runtime creation. This gives Workspace resources a clear lifetime. Each Rendered Action receives its rendered inputs.
+15. As a package author, I want one runtime callback for every Plugin role. This gives configured Plugin resources one clear Workspace lifetime. Each Action execution receives its rendered inputs.
 16. As a package author, I want role-specific runtime contexts, so that Source and Action packages do not depend on the full CLI.
 17. As a package author, I want a required health check, so that `doctor` can validate every Plugin.
 18. As a package author, I want Source runtimes to return normalized Items, so that each Source owns provider-specific normalization.
@@ -67,14 +67,14 @@ The runtime consumes resolved nodes. Source runtimes live for the loaded Workspa
 28. As a CLI user, I want executable configuration to run with normal Bun permissions, so that trusted configuration can use normal JavaScript tooling.
 29. As a CLI user, I want Source failures to remain Source-scoped, so that other Sources can continue a Run.
 30. As a CLI user, I want Action failures to remain Item-scoped, so that one failed Action does not stop other Items.
-31. As a CLI user, I want configuration and Action preparation errors to fail Workspace loading, so that AgentBoard does not run with invalid configuration.
+31. As a CLI user, I want configuration and Plugin runtime creation errors to fail Workspace loading, so that AgentBoard does not run with invalid configuration.
 32. As a CLI user, I want package names in Store records and diagnostics, so that execution history remains readable.
 33. As a CLI user, I want package renames to be explicit breaking changes, so that Store identity does not change silently.
 
 ## Implementation Decisions
 
 - Use one high-level seam: configuration normalization. Executable and data loaders both produce resolved configuration nodes before runtime orchestration.
-- Define role-specific Plugin Descriptor contracts. Source Plugins expose `runtime`. Action Plugins expose `prepare`. Both roles expose `kind`, TypeBox `schema`, and `healthCheck`.
+- Define role-specific Plugin runtime interfaces. Every Plugin exposes `runtime`, `kind`, a TypeBox `schema`, and `healthCheck`. The Plugin role selects the runtime interface.
 - Pass `import.meta` to `definePlugin()` so the package loader can resolve the nearest package metadata without a repeated package name.
 - Treat a package marked with `agentboard-package` as an external Plugin Package. Permit inline Plugins in project code.
 - Require one Plugin per package. Use the exact `package.json.name` as the package identity.
@@ -82,13 +82,14 @@ The runtime consumes resolved nodes. Source runtimes live for the loaded Workspa
 - Keep Source payload fields flat. Keep Action payload fields inside `with`.
 - Keep Source IDs outside Source Plugin payload. Keep optional Action IDs as core metadata. The `action()` constructor removes the Action ID before Plugin schema validation.
 - Use TypeBox schemas for Plugin payloads. Apply defaults and validate with one shared validation engine.
-- Make Source runtime creation and Action preparation role-specific. Source creation returns collection behavior. Action preparation returns a Prepared Action. The Prepared Action creates runtimes from rendered inputs.
-- Create one Source runtime per configured Source in a loaded Workspace. Prepare each configured Action once for the loaded Workspace. Create one Action runtime per Rendered Action after input rendering.
-- In Watch Mode, load one Workspace and reuse its Source runtimes and Prepared Actions for every Run cycle. Configuration changes require a command restart.
-- Permit Source runtime creation and Action preparation to return synchronous or asynchronous results. Workspace loading awaits both stages.
-- Require Plugin health checks on the Plugin Descriptor. Run them without creating a per-Item Action runtime.
+- Make Plugin runtime creation role-specific. Source creation returns collection behavior. Action creation returns execution behavior.
+- Create one Source runtime per configured Source and one Action runtime per configured Action in a loaded Workspace.
+- Render Action inputs before execution and pass them to the Workspace-scoped Action runtime.
+- In Watch Mode, load one Workspace and reuse all Plugin runtimes for every Run cycle. Configuration changes require a command restart.
+- Permit Source and Action runtime creation to return synchronous or asynchronous results. Workspace loading awaits both stages.
+- Require Plugin health checks on the Plugin Descriptor. Run them without creating Plugin runtimes.
 - Keep Source runtime output as normalized Items with raw provider data. Keep Action runtime output as an AgentBoard Action Result.
-- Preserve current error scope. Configuration and Action preparation errors fail Workspace loading. Source runtime errors remain Source-scoped. Action runtime creation and execution errors remain Item-scoped. A creation failure stops later Actions for that Item. Other Items and Sources continue.
+- Preserve current error scope. Configuration and Plugin runtime creation errors fail Workspace loading. Source collection errors remain Source-scoped. Action rendering and execution errors remain Item-scoped. A failed Action stops later Actions for that Item. Other Items and Sources continue.
 - Resolve local packages before global packages under `~/.local/share/agentboard/plugins/npm/`.
 - Import selected packages during normal config loading. Import all available packages for `agentboard schema`.
 - Require `agentboard.config.ts` or `agentboard.config.js` before `.agentboard.toml` when both default files exist.
@@ -112,13 +113,12 @@ The runtime consumes resolved nodes. Source runtimes live for the loaded Workspa
 - Test lazy package loading during normal configuration and full package loading during `agentboard schema`.
 - Test inline Plugin identity changes when config path, role, or position changes.
 - Test Source runtime lifetime across repeated Workspace Runs.
-- Test Action preparation lifetime across repeated Workspace Runs.
+- Test Action runtime lifetime across repeated Workspace Runs.
 - Test that Watch Mode reuses one loaded Workspace until cancellation.
-- Test Action runtime creation after template rendering for each Rendered Action.
-- Test that Action preparation errors fail Workspace loading.
-- Test that Action runtime creation failures stop the current Item and do not stop other Items or Sources.
-- Test synchronous and asynchronous Source runtime creation and Action preparation.
-- Test required health checks for Sources and Actions.
+- Test that Action execution receives rendered inputs.
+- Test that Plugin runtime creation errors fail Workspace loading.
+- Test synchronous and asynchronous Source and Action runtime creation.
+- Test required health checks without creating runtimes.
 - Test Source errors remain Source-scoped and Action errors remain Item-scoped.
 - Test executable configuration precedence and missing-package install messages.
 - Reuse the existing CLI Bats patterns for command behavior and schema validation. Reuse current Registry and runtime tests for registration, validation, error scope, and execution behavior.
@@ -134,7 +134,7 @@ The runtime consumes resolved nodes. Source runtimes live for the loaded Workspa
 - Changes to Source query semantics or Action side effects.
 - Changes to Store record format beyond derived Plugin identity.
 - Rust code changes, Rust CLI migration, Rust runtime integration, and Rust task or configuration changes.
-- Explicit disposal for Source runtimes and Prepared Actions.
+- Explicit disposal for Plugin runtimes.
 
 
 ## Dependency graph

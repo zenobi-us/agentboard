@@ -2,7 +2,7 @@
 
 **Status:** accepted
 
-AgentBoard will use Bun to load `agentboard.config.ts` and `agentboard.config.js`. Each Source package will export a Plugin Descriptor with `runtime`. Each Action package will export a Plugin Descriptor with `prepare`. Both roles will include `kind`, `schema`, and `healthCheck`. The TypeBox schema will describe Plugin data only. ADR 0014 defines the Action lifecycle.
+AgentBoard will use Bun to load `agentboard.config.ts` and `agentboard.config.js`. Each Source and Action package will export a Plugin Descriptor with `runtime`. Both roles will include `kind`, `schema`, and `healthCheck`. The Plugin role selects the runtime interface. The TypeBox schema will describe Plugin data only. ADR 0014 defines the runtime lifecycle.
 
 The core `source()` and `action()` functions will create resolved configuration nodes from Plugin Descriptors. TypeScript configuration will keep a private Plugin reference and will not require `uses`. JSON, YAML, and TOML configuration will require `uses` with the exact package name, resolve the package, validate its data, and create the same resolved node. AgentBoard will derive the package name for Store records and diagnostics. Inline Plugins will use the config path, role, and position as their identity.
 

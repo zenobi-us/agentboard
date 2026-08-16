@@ -21,9 +21,11 @@ const actionPlugin = definePlugin(import.meta, {
     command: Type.String(),
     timeout: Type.Optional(Type.String({ default: "30s" })),
   }),
-  prepare: () => ({
-    create: () => ({
-      execute: () => ({ outcome: "success" as const, stdout: "", stderr: "" }),
+  runtime: () => ({
+    execute: ({ inputs }) => ({
+      outcome: "success" as const,
+      stdout: inputs.command,
+      stderr: "",
     }),
   }),
   healthCheck: () => undefined,
@@ -38,7 +40,7 @@ test("validates Plugin Descriptors through the exported Core contract", () => {
   expect(isPluginDescriptor(sourcePlugin)).toBe(true);
   expect(isPluginDescriptor({ ...sourcePlugin, runtime: undefined })).toBe(false);
   expect(isPluginDescriptor(actionPlugin)).toBe(true);
-  expect(isPluginDescriptor({ ...actionPlugin, prepare: undefined })).toBe(false);
+  expect(isPluginDescriptor({ ...actionPlugin, runtime: undefined })).toBe(false);
 });
 
 test("requires health checks from JavaScript Plugin definitions", () => {

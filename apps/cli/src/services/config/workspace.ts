@@ -15,7 +15,7 @@ import {
 
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { prepareAction } from "../actions.ts";
+import { createActionRuntime } from "../actions.ts";
 import {
   createSourceRuntime,
   type LoadedSourceRuntime,
@@ -42,7 +42,7 @@ export interface LoadedWorkspaceSource {
   readonly source: ResolvedSource<TSchema>;
   readonly actions: readonly (ResolvedAction<TSchema> & {
     readonly packageName: string;
-    readonly preparedAction?: Awaited<ReturnType<typeof prepareAction>>;
+    readonly runtime?: Awaited<ReturnType<typeof createActionRuntime>>;
   })[];
 }
 
@@ -86,7 +86,7 @@ export async function loadExecutableWorkspace(
   configPath: string,
   configuration?: unknown,
   cancellation: AbortSignal = new AbortController().signal,
-  prepareActions = true,
+  createRuntimes = true,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   let data = configuration;
@@ -100,6 +100,7 @@ export async function loadExecutableWorkspace(
   }
   validateExecutableWorkspace(data, path);
   validateUniqueSourceIds(data.sources, path, "Executable Workspace configuration");
+  await validateExecutablePluginPackages(data, path);
   let actionPosition = 0;
   const sources = await Promise.all(data.sources.map(async (record, sourcePosition) => {
     const sourcePlugin = pluginFor(record.source);
@@ -109,17 +110,18 @@ export async function loadExecutableWorkspace(
       const plugin = pluginFor(configured);
       plugin.validate!(configured.config);
       const normalized = normalizeInlineIdentity(configured, path, "action", actionPosition++);
-      const preparedAction = prepareActions
-        ? await prepareAction(normalized, {
+      const runtime = createRuntimes
+        ? await createActionRuntime(normalized, {
           workspaceId: workspaceId(path),
           sourceId: record.id,
           cancellation,
         })
         : undefined;
+      throwIfCancelled(cancellation);
       const loaded = {
         ...normalized,
         packageName: packageNameForPlugin(plugin, normalized.identity),
-        preparedAction,
+        runtime,
       };
       copyPluginReference(normalized, loaded);
       return loaded;
@@ -138,7 +140,9 @@ export async function loadExecutableWorkspace(
     id: workspaceId(path),
     cancellation,
     registry: { sources: new Map(), actions: new Map() },
-    sources: await buildSourceRuntimes(sources, path, cancellation),
+    sources: createRuntimes
+      ? await buildSourceRuntimes(sources, path, cancellation)
+      : sources.map((source) => ({ ...source, cancellation })),
   };
 }
 
@@ -146,7 +150,7 @@ export async function loadDataWorkspace(
   configPath: string,
   globalRoot?: string,
   cancellation: AbortSignal = new AbortController().signal,
-  prepareActions = true,
+  createRuntimes = true,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   const data = parseDataWorkspace(path);
@@ -194,21 +198,22 @@ export async function loadDataWorkspace(
         inputs as never,
         path,
       ) as ResolvedAction<TSchema>;
-      const preparedAction = prepareActions
-        ? await prepareAction(resolved, {
+      const runtime = createRuntimes
+        ? await createActionRuntime(resolved, {
           workspaceId: workspaceId(path),
           sourceId: item.id,
           cancellation,
         })
         : undefined;
+      throwIfCancelled(cancellation);
       const loaded = {
         ...resolved,
         id,
         packageName: actionName,
-        preparedAction,
+        runtime,
       } as ResolvedAction<TSchema> & {
         readonly packageName: string;
-        readonly preparedAction?: Awaited<ReturnType<typeof prepareAction>>;
+        readonly runtime?: Awaited<ReturnType<typeof createActionRuntime>>;
       };
       copyPluginReference(resolved, loaded);
       return loaded;
@@ -226,7 +231,9 @@ export async function loadDataWorkspace(
     id: workspaceId(path),
     cancellation,
     registry,
-    sources: await buildSourceRuntimes(sources, path, cancellation),
+    sources: createRuntimes
+      ? await buildSourceRuntimes(sources, path, cancellation)
+      : sources.map((source) => ({ ...source, cancellation })),
   };
 }
 
@@ -236,9 +243,12 @@ async function buildSourceRuntimes(
   cancellation: AbortSignal,
 ): Promise<LoadedSourceRuntime[]> {
   try {
-    return await Promise.all(
+    throwIfCancelled(cancellation);
+    const runtimes = await Promise.all(
       sources.map((source) => createSourceRuntime(source, cancellation)),
     );
+    throwIfCancelled(cancellation);
+    return runtimes;
   } catch (error) {
     throw new Error(`Workspace runtime factory failed for ${path}: ${String(error)}`);
   }
@@ -348,9 +358,33 @@ function packageNameForPlugin(
   plugin: ReturnType<typeof pluginFor>,
   identity?: ResolvedAction<TSchema>["identity"],
 ): string {
+  const externalName = externalPluginPackageName(plugin);
+  if (externalName) return externalName;
+  if (identity) return `inline:${identity.path}:${identity.role}:${identity.position}`;
+  return plugin.meta.url;
+}
+
+async function validateExecutablePluginPackages(
+  configuration: WorkspaceConfig,
+  path: string,
+): Promise<void> {
+  const names = new Set<string>();
+  for (const record of configuration.sources) {
+    for (const configured of [record.source, ...(record.actions ?? [])]) {
+      const name = externalPluginPackageName(pluginFor(configured));
+      if (name) names.add(name);
+    }
+  }
+  if (names.size > 0) await loadWorkspacePlugins(path, [...names]);
+}
+
+function externalPluginPackageName(plugin: ReturnType<typeof pluginFor>): string | undefined {
   if (plugin.meta.packageName) return plugin.meta.packageName;
   if (!plugin.meta.url.startsWith("file:")) return plugin.meta.url;
-  let directory = resolve(fileURLToPath(plugin.meta.url), "..");
+  const modulePath = fileURLToPath(plugin.meta.url);
+  const external = modulePath.includes("/node_modules/") ||
+    modulePath.includes("/agentboard/plugins/npm/");
+  let directory = resolve(modulePath, "..");
   while (true) {
     const manifestPath = resolve(directory, "package.json");
     if (existsSync(manifestPath)) {
@@ -358,18 +392,30 @@ function packageNameForPlugin(
         name?: unknown;
         keywords?: unknown;
       };
-      if (
-        typeof manifest.name === "string" &&
-        Array.isArray(manifest.keywords) &&
-        manifest.keywords.includes("agentboard-package")
-      ) return manifest.name;
+      if (Array.isArray(manifest.keywords) && manifest.keywords.includes("agentboard-package")) {
+        if (typeof manifest.name !== "string" || manifest.name.length === 0) {
+          throw new Error(`Plugin Package at ${manifestPath} must define package.json name`);
+        }
+        return manifest.name;
+      }
+      if (external) {
+        throw new Error(
+          `Plugin Package "${String(manifest.name ?? directory)}" must include the "agentboard-package" keyword`,
+        );
+      }
     }
     const parent = resolve(directory, "..");
     if (parent === directory) break;
     directory = parent;
   }
-  if (identity) return `inline:${identity.path}:${identity.role}:${identity.position}`;
-  return plugin.meta.url;
+  if (external) {
+    throw new Error(`Plugin Package for ${plugin.meta.url} has no package.json`);
+  }
+  return undefined;
+}
+
+function throwIfCancelled(cancellation: AbortSignal): void {
+  if (cancellation.aborted) throw cancellation.reason ?? new Error("cancelled");
 }
 
 function normalizeInlineIdentity<Configuration extends ResolvedSource<TSchema> | ResolvedAction<TSchema>>(

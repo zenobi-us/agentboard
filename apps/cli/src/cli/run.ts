@@ -12,12 +12,12 @@ export function loadRunWorkspace(
   configPath: string,
   globalRoot?: string,
   cancellation: AbortSignal = new AbortController().signal,
-  prepareActions = true,
+  createRuntimes = true,
 ): Promise<LoadedWorkspace> {
   const path = resolveWorkspaceConfigPath(configPath);
   return /agentboard\.config\.(ts|js)$/.test(path)
-    ? loadExecutableWorkspace(path, undefined, cancellation, prepareActions)
-    : loadDataWorkspace(path, globalRoot, cancellation, prepareActions);
+    ? loadExecutableWorkspace(path, undefined, cancellation, createRuntimes)
+    : loadDataWorkspace(path, globalRoot, cancellation, createRuntimes);
 }
 
 export function runExitStatus(result: WorkspaceRunResult): number {

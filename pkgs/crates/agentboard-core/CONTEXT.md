@@ -29,15 +29,11 @@ An Action with a Source-scoped identifier whose rendered inputs can be reference
 _Avoid_: Step, named job
 
 **Rendered Action**:
-An Action whose inputs AgentBoard rendered for one Item. It is ready for Action runtime creation.
+An Action whose inputs AgentBoard rendered for one Item. It is ready for Action execution.
 _Avoid_: Configured Action, Action attempt
 
-**Prepared Action**:
-The Workspace-scoped result of Action preparation for one configured Action. It owns shared resources and creates Action runtimes from rendered inputs.
-_Avoid_: Action runtime, Action runtime factory
-
 **Action Runtime**:
-The Item-scoped executor that a Prepared Action creates for one Rendered Action.
+The Workspace-scoped executor created for one configured Action. Each execution receives one Item and its rendered inputs.
 _Avoid_: Prepared Action, Action attempt
 
 **Rendered Action identity**:
@@ -45,7 +41,7 @@ The identity of one configured Action position after its inputs are rendered for
 _Avoid_: Action attempt, Action ID
 
 **Action attempt**:
-A recorded result for one Item and Rendered Action identity. It includes Action runtime creation and execution failures.
+A recorded result for one Item and Rendered Action identity. It includes rendering and Action execution failures.
 _Avoid_: Build result, task result
 
 **Action attempt outcome**:

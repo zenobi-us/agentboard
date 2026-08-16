@@ -7,7 +7,6 @@ import {
 import type { LoadedWorkspace } from "./config/workspace.ts";
 import {
   checkActionHealth,
-  createActionRuntime,
   executeAction,
 } from "./actions.ts";
 import { checkSourceHealth, collectSource } from "./sources.ts";
@@ -125,10 +124,14 @@ export async function watchWorkspace(
       result = await runWorkspaceUnlocked(workspace, options.storeRoot);
       options.onResult?.(result);
       if (!result.cancelled && !workspace.cancellation.aborted) {
-        await waitForNextRun(workspace.cancellation, options.intervalMs ?? 60_000);
+        if (await waitForNextRun(workspace.cancellation, options.intervalMs ?? 60_000)) {
+          return { ...result, cancelled: true };
+        }
       }
     } while (!result.cancelled && !workspace.cancellation.aborted);
-    return result;
+    return workspace.cancellation.aborted && !result.cancelled
+      ? { ...result, cancelled: true }
+      : result;
   } finally {
     await releaseLock();
   }
@@ -151,15 +154,20 @@ async function runWorkspaceUnlocked(
   };
 }
 
-async function waitForNextRun(cancellation: AbortSignal, intervalMs: number): Promise<void> {
-  await new Promise<void>((resolve) => {
+async function waitForNextRun(cancellation: AbortSignal, intervalMs: number): Promise<boolean> {
+  if (cancellation.aborted) return true;
+  return await new Promise<boolean>((resolve) => {
+    let settled = false;
     const done = () => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timeout);
       cancellation.removeEventListener("abort", done);
-      resolve();
+      resolve(cancellation.aborted);
     };
     const timeout = setTimeout(done, intervalMs);
     cancellation.addEventListener("abort", done, { once: true });
+    if (cancellation.aborted) done();
   });
 }
 
@@ -251,26 +259,26 @@ async function runActions(
           sourceId: source.id,
           cancellation: source.cancellation,
         };
-        if (!action.preparedAction) throw new Error("Action was not prepared for a Run");
-        const runtime = createActionRuntime(action.preparedAction, inputs);
+        if (!action.runtime) throw new Error("Action runtime is not available for a Run");
+        const executionContext = { ...context, item, inputs };
         if (
           successes.has(actionKey(source.id, item.id, actionIndex, renderedHash)) &&
-          await (runtime.cachedSuccessIsValid?.({ ...context, item }) ?? true)
+          await (action.runtime.cachedSuccessIsValid?.(executionContext) ?? true)
         ) {
           if (source.cancellation.aborted) return { results, cancelled: true };
           results.push({ itemId: item.id, actionIndex, uses: action.packageName, skipped: true });
           continue;
         }
         if (source.cancellation.aborted) return { results, cancelled: true };
-        const result = await executeAction(item, runtime, context);
+        const result = await executeAction(item, inputs, action.runtime, context);
         await appendActionAttempt(workspace, source, {
           ts: new Date().toISOString(),
+          ...result,
           source_id: source.id,
           item_id: item.id,
           source_action_index: actionIndex,
           uses: action.packageName,
           rendered_action_hash: renderedHash,
-          ...result,
         }, storeRoot);
         results.push({ itemId: item.id, actionIndex, uses: action.packageName, result });
         if (result.outcome === "cancelled") return { results, cancelled: true };

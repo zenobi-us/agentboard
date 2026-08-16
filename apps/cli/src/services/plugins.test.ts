@@ -43,9 +43,9 @@ function pluginSource(kind: "source" | "action"): string {
         required: ["query"],
         additionalProperties: false,
       },
-      ${kind === "source" ? "runtime" : "prepare"}: () => ${kind === "source"
+      runtime: () => ${kind === "source"
         ? "({ collect: () => [] })"
-        : "({ create: () => ({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) }) })"},
+        : "({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) })"},
       healthCheck: () => undefined,
     });
   `;
@@ -71,9 +71,9 @@ function configurablePluginSource(
         required: ["query"],
         ${additionalProperties === undefined ? "" : `additionalProperties: ${additionalProperties},`}
       },
-      ${kind === "source" ? "runtime" : "prepare"}: () => ${kind === "source"
+      runtime: () => ${kind === "source"
         ? "({ collect: () => [] })"
-        : "({ create: () => ({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) }) })"},
+        : "({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) })"},
       healthCheck: () => undefined,
     });
   `;
@@ -109,7 +109,7 @@ function comparableWorkspace(workspace: LoadedWorkspace) {
       ...source,
       identity: { ...source.identity, path: "<workspace>" },
     },
-    actions: actions.map(({ packageName: _packageName, preparedAction: _preparedAction, ...configured }) => ({
+    actions: actions.map(({ packageName: _packageName, runtime: _runtime, ...configured }) => ({
       ...configured,
       identity: { ...configured.identity, path: "<workspace>" },
     })),
@@ -538,7 +538,7 @@ describe("Plugin Package discovery", () => {
             type: "object",
             properties: { timeout: { type: "integer", default: 30 } },
           },
-          prepare: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -573,7 +573,7 @@ describe("Plugin Package discovery", () => {
           kind: "action",
           validate: () => undefined,
               schema: { type: "string" },
-          prepare: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -616,7 +616,7 @@ describe("Plugin Package discovery", () => {
           kind: "action",
           validate: () => undefined,
               schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
-          prepare: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
         export default defineConfig({
@@ -654,6 +654,28 @@ describe("Plugin Package discovery", () => {
         name.includes("/source-") ? "source" : "action",
       );
     }
+  });
+
+  test("rejects an executable Plugin from an unmarked external package", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/unmarked", "unmarked", pluginSource("source"), []);
+    const coreConfig = new URL(
+      "../../../../pkgs/crates/agentboard-core/src/config.ts",
+      import.meta.url,
+    ).href;
+    writeFileSync(configPath, `
+      import { defineConfig, source } from ${JSON.stringify(coreConfig)};
+      import plugin from "unmarked";
+      export default defineConfig({
+        sources: [{ id: "one", source: source(plugin, { query: "ready" }, import.meta.url) }],
+      });
+    `);
+
+    await expect(loadExecutableWorkspace(configPath)).rejects.toThrow(
+      'Plugin Package "unmarked" must include the "agentboard-package" keyword',
+    );
   });
 
   test("executable Workspace reports built-in Plugin Package identities", async () => {
