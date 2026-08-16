@@ -27,7 +27,7 @@ export default definePlugin(import.meta, {
   schema: RunCmdConfigSchema,
   validate: () => undefined,
   pathInputs: ["cwd"],
-  runtime: () => ({
+  prepare: () => ({
     create: () => ({
       execute: () => ({
         outcome: "failure" as const,
@@ -36,5 +36,5 @@ export default definePlugin(import.meta, {
       }),
     }),
   }),
-  healthCheck: () => undefined,
+  healthCheck: () => Promise.reject(new Error("Run Command Bun Action runtime is not available")),
 });

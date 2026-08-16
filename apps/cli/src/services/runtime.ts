@@ -6,7 +6,6 @@ import {
 
 import type { LoadedWorkspace } from "./config/workspace.ts";
 import {
-  ActionRuntimeFactoryError,
   checkActionHealth,
   createActionRuntime,
   executeAction,
@@ -47,6 +46,11 @@ export interface WorkspaceRunResult {
 
 export interface RunWorkspaceOptions {
   readonly storeRoot?: string;
+}
+
+export interface WatchWorkspaceOptions extends RunWorkspaceOptions {
+  readonly intervalMs?: number;
+  readonly onResult?: (result: WorkspaceRunResult) => void;
 }
 
 export interface HealthCheckResult {
@@ -104,20 +108,59 @@ export async function runWorkspace(
 ): Promise<WorkspaceRunResult> {
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
-    const settled = await Promise.allSettled(workspace.sources.map((source) =>
-      runSource(workspace, source, options.storeRoot)
-    ));
-    const sources = settled.map((result) => {
-      if (result.status === "rejected") throw result.reason;
-      return result.value;
-    });
-    return {
-      sources: sources.map(({ result }) => result),
-      ...(sources.some(({ cancelled }) => cancelled) ? { cancelled: true } : {}),
-    };
+    return await runWorkspaceUnlocked(workspace, options.storeRoot);
   } finally {
     await releaseLock();
   }
+}
+
+export async function watchWorkspace(
+  workspace: LoadedWorkspace,
+  options: WatchWorkspaceOptions = {},
+): Promise<WorkspaceRunResult> {
+  const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
+  try {
+    let result: WorkspaceRunResult;
+    do {
+      result = await runWorkspaceUnlocked(workspace, options.storeRoot);
+      options.onResult?.(result);
+      if (!result.cancelled && !workspace.cancellation.aborted) {
+        await waitForNextRun(workspace.cancellation, options.intervalMs ?? 60_000);
+      }
+    } while (!result.cancelled && !workspace.cancellation.aborted);
+    return result;
+  } finally {
+    await releaseLock();
+  }
+}
+
+async function runWorkspaceUnlocked(
+  workspace: LoadedWorkspace,
+  storeRoot?: string,
+): Promise<WorkspaceRunResult> {
+  const settled = await Promise.allSettled(workspace.sources.map((source) =>
+    runSource(workspace, source, storeRoot)
+  ));
+  const sources = settled.map((result) => {
+    if (result.status === "rejected") throw result.reason;
+    return result.value;
+  });
+  return {
+    sources: sources.map(({ result }) => result),
+    ...(sources.some(({ cancelled }) => cancelled) ? { cancelled: true } : {}),
+  };
+}
+
+async function waitForNextRun(cancellation: AbortSignal, intervalMs: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timeout);
+      cancellation.removeEventListener("abort", done);
+      resolve();
+    };
+    const timeout = setTimeout(done, intervalMs);
+    cancellation.addEventListener("abort", done, { once: true });
+  });
 }
 
 async function runSource(
@@ -208,7 +251,8 @@ async function runActions(
           sourceId: source.id,
           cancellation: source.cancellation,
         };
-        const runtime = createActionRuntime(action.preparedRuntime, inputs);
+        if (!action.preparedAction) throw new Error("Action was not prepared for a Run");
+        const runtime = createActionRuntime(action.preparedAction, inputs);
         if (
           successes.has(actionKey(source.id, item.id, actionIndex, renderedHash)) &&
           await (runtime.cachedSuccessIsValid?.({ ...context, item }) ?? true)
@@ -233,7 +277,6 @@ async function runActions(
         if (result.outcome === "failure") break;
         successes.add(actionKey(source.id, item.id, actionIndex, renderedHash));
       } catch (error) {
-        if (error instanceof ActionRuntimeFactoryError) throw error;
         const cancelled = source.cancellation.aborted;
         const message = errorMessage(error);
         await appendActionAttempt(workspace, source, {

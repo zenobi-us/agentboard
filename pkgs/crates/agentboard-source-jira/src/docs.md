@@ -4,14 +4,14 @@ title: Jira source
 
 # Jira source
 
-Use `uses = "@agentboard/source-jira"` to collect Jira issues with JQL.
+Use `kind = "jira"` to collect Jira issues with JQL.
 
 ```toml
 [[sources]]
 id = "jira-ready"
 
 [sources.source]
-uses = "@agentboard/source-jira"
+kind = "jira"
 site = "https://example.atlassian.net"
 jql = "project = AB AND statusCategory = Todo"
 limit = 50
@@ -22,7 +22,7 @@ and `JIRA_API_TOKEN`.
 
 ```toml
 [sources.source]
-uses = "@agentboard/source-jira"
+kind = "jira"
 site = "https://example.atlassian.net"
 email_env = "JIRA_EMAIL"
 token_env = "JIRA_API_TOKEN"
@@ -35,7 +35,7 @@ stdin (`protocol`, `host`) and reads either `username`/`password` or
 
 ```toml
 [sources.source]
-uses = "@agentboard/source-jira"
+kind = "jira"
 site = "https://example.atlassian.net"
 jql = "project = AB ORDER BY updated DESC"
 

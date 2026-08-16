@@ -21,7 +21,7 @@ const actionPlugin = definePlugin(import.meta, {
     command: Type.String(),
     timeout: Type.Optional(Type.String({ default: "30s" })),
   }),
-  runtime: () => ({
+  prepare: () => ({
     create: () => ({
       execute: () => ({ outcome: "success" as const, stdout: "", stderr: "" }),
     }),
@@ -37,6 +37,17 @@ test("defines typed plugins with module metadata", () => {
 test("validates Plugin Descriptors through the exported Core contract", () => {
   expect(isPluginDescriptor(sourcePlugin)).toBe(true);
   expect(isPluginDescriptor({ ...sourcePlugin, runtime: undefined })).toBe(false);
+  expect(isPluginDescriptor(actionPlugin)).toBe(true);
+  expect(isPluginDescriptor({ ...actionPlugin, prepare: undefined })).toBe(false);
+});
+
+test("requires health checks from JavaScript Plugin definitions", () => {
+  expect(() => definePlugin(import.meta, {
+    kind: "source",
+    itemBucketIdentity: () => "memory",
+    schema: Type.Object({}),
+    runtime: () => ({ collect: () => [] }),
+  } as never)).toThrow("plugin must define healthCheck()");
 });
 
 test("source validates payloads and applies defaults", () => {

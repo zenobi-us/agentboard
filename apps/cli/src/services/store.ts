@@ -61,7 +61,7 @@ export async function setSourceCollectionStatus(
   error?: string,
   root?: string,
 ): Promise<void> {
-  const directory = join(workspaceStoreRoot(workspace, root), "sources", sourceId);
+  const directory = join(workspaceStoreRoot(workspace, root), "sources", sourceIdSlug(sourceId));
   const path = join(directory, "collection-status.json");
   const temporary = `${path}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await mkdir(directory, { recursive: true });
@@ -173,6 +173,10 @@ function actionPath(
 function sourceSlug(source: LoadedWorkspaceSource): string {
   const identity = source.itemBucketIdentity;
   return `${slugify(source.packageName)}-${slugify(identity).slice(0, 48)}-${shortHash(identity)}`;
+}
+
+function sourceIdSlug(sourceId: string): string {
+  return `${slugify(sourceId).slice(0, 48)}-${shortHash(sourceId)}`;
 }
 
 async function acquireNativeLock(fd: number): Promise<() => void> {

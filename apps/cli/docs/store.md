@@ -21,7 +21,7 @@ ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
   items-<source.slug>.snapshots
-  sources/<source-id>/collection-status.json
+  sources/<source-id-slug>-<source-id-hash>/collection-status.json
 ```
 
 `source.slug` identifies the upstream item universe. For Jira, it is derived from the normalized site URL because Jira issue keys are only unique inside one Jira organization. Two Jira Sources for the same site and different JQL views share an item file.
@@ -52,8 +52,7 @@ Normal `run` and non-dry `run --watch` acquire `run.lock` for the Workspace.
 
 ## Source collection status
 
-Each normal Run writes one `collection-status.json` file for each Source. The
-status is `collecting`, `complete`, `failed`, or `cancelled`.
+Each normal Run writes one `collection-status.json` file for each Source. The CLI uses a readable Source ID slug and a stable hash for the directory name. The status is `collecting`, `complete`, `failed`, or `cancelled`.
 
 - `collecting` means that the Source query is running.
 - `complete` means that the query succeeded and the Snapshot was committed.

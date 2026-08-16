@@ -15,7 +15,7 @@ import {
 
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { prepareActionRuntime } from "../actions.ts";
+import { prepareAction } from "../actions.ts";
 import {
   createSourceRuntime,
   type LoadedSourceRuntime,
@@ -42,13 +42,14 @@ export interface LoadedWorkspaceSource {
   readonly source: ResolvedSource<TSchema>;
   readonly actions: readonly (ResolvedAction<TSchema> & {
     readonly packageName: string;
-    readonly preparedRuntime: ReturnType<typeof prepareActionRuntime>;
+    readonly preparedAction?: Awaited<ReturnType<typeof prepareAction>>;
   })[];
 }
 
 export interface LoadedWorkspace {
   readonly path: string;
   readonly id: string;
+  readonly cancellation: AbortSignal;
   readonly registry: PluginRegistry;
   readonly sources: readonly LoadedSourceRuntime[];
 }
@@ -85,6 +86,7 @@ export async function loadExecutableWorkspace(
   configPath: string,
   configuration?: unknown,
   cancellation: AbortSignal = new AbortController().signal,
+  prepareActions = true,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   let data = configuration;
@@ -99,27 +101,29 @@ export async function loadExecutableWorkspace(
   validateExecutableWorkspace(data, path);
   validateUniqueSourceIds(data.sources, path, "Executable Workspace configuration");
   let actionPosition = 0;
-  const sources = data.sources.map((record, sourcePosition) => {
+  const sources = await Promise.all(data.sources.map(async (record, sourcePosition) => {
     const sourcePlugin = pluginFor(record.source);
     validateActionIds(record.actions ?? [], path, record.id);
-    const actions = (record.actions ?? []).map((configured) => {
+    const actions = await Promise.all((record.actions ?? []).map(async (configured) => {
       validateActionInputs(configured.config);
       const plugin = pluginFor(configured);
       plugin.validate!(configured.config);
       const normalized = normalizeInlineIdentity(configured, path, "action", actionPosition++);
-      const preparedRuntime = prepareActionRuntime(normalized, {
-        workspaceId: workspaceId(path),
-        sourceId: record.id,
-        cancellation,
-      });
+      const preparedAction = prepareActions
+        ? await prepareAction(normalized, {
+          workspaceId: workspaceId(path),
+          sourceId: record.id,
+          cancellation,
+        })
+        : undefined;
       const loaded = {
         ...normalized,
         packageName: packageNameForPlugin(plugin, normalized.identity),
-        preparedRuntime,
+        preparedAction,
       };
       copyPluginReference(normalized, loaded);
       return loaded;
-    });
+    }));
     const normalizedSource = normalizeInlineIdentity(record.source, path, "source", sourcePosition);
     return {
       ...record,
@@ -128,10 +132,11 @@ export async function loadExecutableWorkspace(
       itemBucketIdentity: sourcePlugin.itemBucketIdentity!(normalizedSource.config),
       actions,
     };
-  });
+  }));
   return {
     path,
     id: workspaceId(path),
+    cancellation,
     registry: { sources: new Map(), actions: new Map() },
     sources: await buildSourceRuntimes(sources, path, cancellation),
   };
@@ -141,6 +146,7 @@ export async function loadDataWorkspace(
   configPath: string,
   globalRoot?: string,
   cancellation: AbortSignal = new AbortController().signal,
+  prepareActions = true,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   const data = parseDataWorkspace(path);
@@ -153,7 +159,7 @@ export async function loadDataWorkspace(
     }
   }
   const registry = await loadWorkspacePlugins(path, [...packageNames], globalRoot);
-  const sources = (data.sources ?? []).map((item) => {
+  const sources = await Promise.all((data.sources ?? []).map(async (item) => {
     const sourceName = readPackageName(item.source, `source ${item.id}`);
     const sourcePackage = registry.sources.get(sourceName);
     if (!sourcePackage) throw new Error(`Plugin Package "${sourceName}" is an Action`);
@@ -165,7 +171,7 @@ export async function loadDataWorkspace(
       path,
     ) as ResolvedSource<TSchema>;
     validateActionIds(item.actions ?? [], path, item.id);
-    const actions = (item.actions ?? []).map((configured) => {
+    const actions = await Promise.all((item.actions ?? []).map(async (configured) => {
       const actionName = readPackageName(configured, `action in source ${item.id}`);
       const actionPackage = registry.actions.get(actionName);
       if (!actionPackage) throw new Error(`Plugin Package "${actionName}" is a Source`);
@@ -188,23 +194,25 @@ export async function loadDataWorkspace(
         inputs as never,
         path,
       ) as ResolvedAction<TSchema>;
-      const preparedRuntime = prepareActionRuntime(resolved, {
-        workspaceId: workspaceId(path),
-        sourceId: item.id,
-        cancellation,
-      });
+      const preparedAction = prepareActions
+        ? await prepareAction(resolved, {
+          workspaceId: workspaceId(path),
+          sourceId: item.id,
+          cancellation,
+        })
+        : undefined;
       const loaded = {
         ...resolved,
         id,
         packageName: actionName,
-        preparedRuntime,
+        preparedAction,
       } as ResolvedAction<TSchema> & {
         readonly packageName: string;
-        readonly preparedRuntime: ReturnType<typeof prepareActionRuntime>;
+        readonly preparedAction?: Awaited<ReturnType<typeof prepareAction>>;
       };
       copyPluginReference(resolved, loaded);
       return loaded;
-    });
+    }));
     return {
       id: item.id,
       packageName: sourceName,
@@ -212,10 +220,11 @@ export async function loadDataWorkspace(
       source: resolvedSource,
       actions,
     };
-  });
+  }));
   return {
     path,
     id: workspaceId(path),
+    cancellation,
     registry,
     sources: await buildSourceRuntimes(sources, path, cancellation),
   };
@@ -228,7 +237,7 @@ async function buildSourceRuntimes(
 ): Promise<LoadedSourceRuntime[]> {
   try {
     return await Promise.all(
-      sources.map((source) => createSourceRuntime(source, workspaceId(path), cancellation)),
+      sources.map((source) => createSourceRuntime(source, cancellation)),
     );
   } catch (error) {
     throw new Error(`Workspace runtime factory failed for ${path}: ${String(error)}`);

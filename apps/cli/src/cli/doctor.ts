@@ -12,7 +12,7 @@ export const doctorCmd = app
     const removeHandlers = installCancellationHandlers(controller);
     try {
       const results = await checkWorkspaceHealth(
-        await loadRunWorkspace(args.workspace, undefined, controller.signal),
+        await loadRunWorkspace(args.workspace, undefined, controller.signal, false),
       );
       console.log(JSON.stringify(results));
       if (controller.signal.aborted) process.exitCode = 130;

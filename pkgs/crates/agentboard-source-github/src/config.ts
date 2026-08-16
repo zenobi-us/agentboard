@@ -26,5 +26,5 @@ export default definePlugin(import.meta, {
   runtime: () => ({
     collect: () => Promise.reject(new Error("GitHub Bun Source runtime is not available")),
   }),
-  healthCheck: () => undefined,
+  healthCheck: () => Promise.reject(new Error("GitHub Bun Source runtime is not available")),
 });

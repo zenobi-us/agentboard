@@ -28,12 +28,24 @@ _Avoid_: Job, hook, plugin
 An Action with a Source-scoped identifier whose rendered inputs can be referenced by later Actions from the same Source.
 _Avoid_: Step, named job
 
+**Rendered Action**:
+An Action whose inputs AgentBoard rendered for one Item. It is ready for Action runtime creation.
+_Avoid_: Configured Action, Action attempt
+
+**Prepared Action**:
+The Workspace-scoped result of Action preparation for one configured Action. It owns shared resources and creates Action runtimes from rendered inputs.
+_Avoid_: Action runtime, Action runtime factory
+
+**Action Runtime**:
+The Item-scoped executor that a Prepared Action creates for one Rendered Action.
+_Avoid_: Prepared Action, Action attempt
+
 **Rendered Action identity**:
 The identity of one configured Action position after its inputs are rendered for an Item. It changes when those rendered inputs change.
 _Avoid_: Action attempt, Action ID
 
 **Action attempt**:
-One recorded execution result for one Item and Rendered Action identity.
+A recorded result for one Item and Rendered Action identity. It includes Action runtime creation and execution failures.
 _Avoid_: Build result, task result
 
 **Action attempt outcome**:
@@ -44,7 +56,7 @@ _Avoid_: Success flag, exit status
 
 - Core owns shared types, Source and Action registration contracts, the internal Registry, and tiny cross-crate helpers.
 - Core must not depend on CLI orchestration, source crates, or action crates.
-- Registration is explicit and statically linked; Core does not define a runtime plugin ABI or community extension contract.
+- The retained Rust runtime uses explicit static registration. The Bun runtime resolves discovered Plugin Descriptors into Core configuration nodes.
 - Keep normalized `Item` small and store source-specific payloads in `raw`.
 - Keep Workspace config envelopes boring and explicit while registered Source and Action crates own their typed configuration.
 

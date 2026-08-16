@@ -34,7 +34,7 @@ source crate -> normalized item -> apps/cli store -> rendered action -> action c
 ## Boundaries
 
 - `apps/cli` owns user commands, workspace loading, built-in registration, validation orchestration, store paths, locking, runtime orchestration, and template rendering.
-- `agentboard-core` owns shared model/config/result types, Source and Action registration contracts, the internal Registry, and tiny helpers.
+- `agentboard-core` owns shared model/config/result types, Source and Action contracts, resolved Plugin configuration nodes, and tiny helpers.
 - `agentboard-source-*` crates own source-specific query semantics, collection, raw payload capture, and normalization into Items.
 - `agentboard-action-*` crates own one side effect each and consume already-rendered inputs.
 - Docs describe config and supported behavior; they must not document planned adapters/actions as complete.

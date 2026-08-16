@@ -1,5 +1,9 @@
 # Use explicit static Source and Action registration
 
-AgentBoard will replace closed Source enums and central Source/Action dispatch matches with one explicitly populated Registry whose separate namespaces hold typed Source and Action registrations. Built-ins remain statically linked and registered by the CLI composition root; the contracts are an internal seam, not a stable Rust SPI or runtime plugin ABI, so future community loading must adapt into this seam through a separately designed compatibility boundary.
+**Rust status:** accepted
 
-This keeps configuration, schema, construction, health checks, Item Bucket identity, and runtime behavior owned by each registered Source or Action while preserving the current Workspace shape. Duplicate registrations fail startup, unknown registrations fail Workspace loading, and expected Action failures remain scoped to the current Item.
+**Bun status:** superseded by ADR 0013
+
+The retained Rust runtime will replace closed Source enums and central Source/Action dispatch matches with one explicitly populated Registry. Its separate namespaces hold typed Source and Action registrations. Built-ins remain statically linked and registered by the Rust CLI composition root.
+
+The Bun runtime will discover Plugin Packages and resolve Plugin Descriptors as defined by ADR 0013. It will not duplicate the Rust static Registry. Both runtimes keep configuration, schema, health checks, Item Bucket identity, and runtime behavior owned by each Source or Action.

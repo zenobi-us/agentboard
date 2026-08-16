@@ -4,14 +4,14 @@ title: QMD source
 
 # QMD source
 
-Use `uses = "@agentboard/source-qmd"` to collect items from [QMD](https://github.com/tobi/qmd) collections.
+Use `kind = "qmd"` to collect items from [QMD](https://github.com/tobi/qmd) collections.
 
 ```toml
 [[sources]]
 id = "local-ready"
 
 [sources.source]
-uses = "@agentboard/source-qmd"
+kind = "qmd"
 collections = ["tasks"]
 query = "intent: Find ready work items\nlex: status ready"
 limit = 50

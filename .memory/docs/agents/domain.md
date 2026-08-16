@@ -20,6 +20,7 @@ Current context docs:
 - `pkgs/crates/agentboard-core/CONTEXT.md` for shared model/config/result types.
 - `pkgs/crates/agentboard-source-qmd/CONTEXT.md` for the QMD source adapter.
 - `pkgs/crates/agentboard-source-jira/CONTEXT.md` for the Jira source adapter.
+- `pkgs/crates/agentboard-source-github/CONTEXT.md` for the GitHub source adapter.
 - `pkgs/crates/agentboard-action-run-cmd/CONTEXT.md` for the shell command action.
 - `pkgs/crates/agentboard-action-worktree/CONTEXT.md` for the Git worktree action.
 

@@ -17,11 +17,11 @@ Create a workspace. Source and Action fields are documented in their crate docs;
 id = "local"
 
 [sources.source]
-uses = "@agentboard/source-qmd"
+kind = "qmd"
 # qmd fields go here
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 # run-cmd inputs go here

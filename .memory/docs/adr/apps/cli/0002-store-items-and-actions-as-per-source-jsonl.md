@@ -5,3 +5,5 @@ AgentBoard stores Item observations, committed Source Snapshot boundaries, and A
 A Source Snapshot is keyed by Source ID plus Source kind/config, excluding Actions. Action edits therefore reuse existing membership, while Source query or field-mapping changes require a new successful Snapshot. Legacy Item records without Snapshot boundaries remain historical and are not inferred into current Source membership.
 
 Store partitioning is not per Source directory. Item observations remain partitioned by `source.slug`, the upstream Item Bucket. Action attempts remain partitioned by `source.slug` plus `source.hash`, the configured Source view and Action plan. Source Snapshot boundaries add configured-Source membership without duplicating the Item Bucket model.
+
+For the Bun runtime, ADR 0015 defines how resolved Plugin identity maps to the Item Bucket and configured Source identities. A Plugin package rename creates a new Store identity.

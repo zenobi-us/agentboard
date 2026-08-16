@@ -23,9 +23,9 @@ Use `release.yml` as the release coordinator and `publish.yml` as a payload-driv
 - `releases_created=true` publishes stable builds with `PUBLISH_TAG=latest`.
 - `releases_created=false` always publishes prerelease builds with `PUBLISH_TAG=next`, including runs that create or update a Release Please pull request.
 - `prs_created` is reporting data only and never suppresses publication.
-+- A `release/*` branch starts at a stable release commit already processed from `main`; that root commit is skipped on the release branch.
-+- Commits added after the release-branch root are owned by the hotfix configuration.
-+- A later merge of hotfix-owned history into `main` is not processed again by the normal configuration. Ownership detection uses the associated pull request head branch, with Git ancestry as fallback, so merge, squash, and ordinary merge-back paths remain covered.
+- A `release/*` branch starts at a stable release commit already processed from `main`. The release branch skips that root commit.
+- Commits added after the release-branch root are owned by the hotfix configuration.
+- A later merge of hotfix-owned history into `main` is not processed again by the normal configuration. Ownership detection uses the associated pull request head branch, with Git ancestry as fallback, so merge, squash, and ordinary merge-back paths remain covered.
 
 ### Project selection
 

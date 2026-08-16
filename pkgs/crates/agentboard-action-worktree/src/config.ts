@@ -25,7 +25,7 @@ export default definePlugin(import.meta, {
   schema: WorktreeConfigSchema,
   validate: () => undefined,
   pathInputs: ["repo", "root"],
-  runtime: () => ({
+  prepare: () => ({
     create: () => ({
       cachedSuccessIsValid: () => false,
       execute: () => ({
@@ -35,5 +35,5 @@ export default definePlugin(import.meta, {
       }),
     }),
   }),
-  healthCheck: () => undefined,
+  healthCheck: () => Promise.reject(new Error("Worktree Bun Action runtime is not available")),
 });

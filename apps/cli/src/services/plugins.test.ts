@@ -43,7 +43,9 @@ function pluginSource(kind: "source" | "action"): string {
         required: ["query"],
         additionalProperties: false,
       },
-      runtime: () => ({ collect: () => [] }),
+      ${kind === "source" ? "runtime" : "prepare"}: () => ${kind === "source"
+        ? "({ collect: () => [] })"
+        : "({ create: () => ({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) }) })"},
       healthCheck: () => undefined,
     });
   `;
@@ -69,7 +71,7 @@ function configurablePluginSource(
         required: ["query"],
         ${additionalProperties === undefined ? "" : `additionalProperties: ${additionalProperties},`}
       },
-      runtime: () => ${kind === "source"
+      ${kind === "source" ? "runtime" : "prepare"}: () => ${kind === "source"
         ? "({ collect: () => [] })"
         : "({ create: () => ({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) }) })"},
       healthCheck: () => undefined,
@@ -107,7 +109,7 @@ function comparableWorkspace(workspace: LoadedWorkspace) {
       ...source,
       identity: { ...source.identity, path: "<workspace>" },
     },
-    actions: actions.map(({ packageName: _packageName, preparedRuntime: _preparedRuntime, ...configured }) => ({
+    actions: actions.map(({ packageName: _packageName, preparedAction: _preparedAction, ...configured }) => ({
       ...configured,
       identity: { ...configured.identity, path: "<workspace>" },
     })),
@@ -266,6 +268,24 @@ describe("Plugin Package discovery", () => {
 
     const packages = discoverPluginPackages(configPath, join(root, "global"));
     await expect(loadPluginPackage("other-core", packages)).resolves.toBeDefined();
+  });
+
+  test("rejects a package without a default Plugin Descriptor export", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(
+      root,
+      "node_modules/named-only",
+      "named-only",
+      pluginSource("source").replace("export default", "export const plugin ="),
+    );
+
+    const packages = discoverPluginPackages(configPath, join(root, "global"));
+
+    await expect(loadPluginPackage("named-only", packages)).rejects.toThrow(
+      'Plugin Package "named-only" must default export one Plugin Descriptor',
+    );
   });
 
   test("rejects a package that exports more than one Plugin Descriptor", async () => {
@@ -518,7 +538,7 @@ describe("Plugin Package discovery", () => {
             type: "object",
             properties: { timeout: { type: "integer", default: 30 } },
           },
-          runtime: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
+          prepare: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -553,7 +573,7 @@ describe("Plugin Package discovery", () => {
           kind: "action",
           validate: () => undefined,
               schema: { type: "string" },
-          runtime: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
+          prepare: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -596,7 +616,7 @@ describe("Plugin Package discovery", () => {
           kind: "action",
           validate: () => undefined,
               schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
-          runtime: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
+          prepare: () => ({ create: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }) }),
           healthCheck: () => undefined,
         });
         export default defineConfig({

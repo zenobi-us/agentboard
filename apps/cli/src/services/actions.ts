@@ -3,10 +3,10 @@ import {
   type ActionResult,
   type ActionRuntime,
   type ActionRuntimeContext,
-  type ActionRuntimeFactoryContext,
+  type ActionPreparationContext,
   type HealthCheckContext,
   type Item,
-  type PreparedActionRuntime,
+  type PreparedAction,
   type ResolvedAction,
 } from "@agentboard/core/config";
 import type { TSchema } from "typebox";
@@ -14,7 +14,7 @@ import type { TSchema } from "typebox";
 export async function executeAction(
   item: Item,
   runtime: ActionRuntime,
-  context: ActionRuntimeFactoryContext,
+  context: ActionPreparationContext,
 ): Promise<ActionResult> {
   const result: unknown = await runtime.execute({ ...context, item } satisfies ActionRuntimeContext);
   if (!isActionResult(result)) {
@@ -23,25 +23,23 @@ export async function executeAction(
   return result;
 }
 
-export function prepareActionRuntime(
+export async function prepareAction(
   configured: ResolvedAction<TSchema>,
-  context: ActionRuntimeFactoryContext,
-): PreparedActionRuntime {
+  context: ActionPreparationContext,
+): Promise<PreparedAction> {
   const plugin = pluginFor(configured);
   if (plugin.kind !== "action") throw new TypeError("configuration node is not an Action");
   try {
-    const prepared = plugin.runtime(configured.config, context);
-    if (!isPreparedActionRuntime(prepared)) throw new TypeError("must return create()");
+    const prepared = await plugin.prepare(configured.config, context);
+    if (!isPreparedAction(prepared)) throw new TypeError("must return create()");
     return prepared;
   } catch (error) {
-    throw new Error(`Action runtime preparation failed: ${errorMessage(error)}`);
+    throw new Error(`Action preparation failed: ${errorMessage(error)}`);
   }
 }
 
-export class ActionRuntimeFactoryError extends Error {}
-
 export function createActionRuntime(
-  prepared: PreparedActionRuntime,
+  prepared: PreparedAction,
   inputs: unknown,
 ): ActionRuntime {
   try {
@@ -49,7 +47,7 @@ export function createActionRuntime(
     if (!isActionRuntime(runtime)) throw new TypeError("must return execute()");
     return runtime;
   } catch (error) {
-    throw new ActionRuntimeFactoryError(`Action runtime factory failed: ${errorMessage(error)}`);
+    throw new Error(`Action runtime creation failed: ${errorMessage(error)}`);
   }
 }
 
@@ -68,9 +66,9 @@ function isActionRuntime(value: unknown): value is ActionRuntime {
     typeof (value as Partial<ActionRuntime>).execute === "function";
 }
 
-function isPreparedActionRuntime(value: unknown): value is PreparedActionRuntime {
+function isPreparedAction(value: unknown): value is PreparedAction {
   return value !== null && typeof value === "object" &&
-    typeof (value as Partial<PreparedActionRuntime>).create === "function";
+    typeof (value as Partial<PreparedAction>).create === "function";
 }
 
 function errorMessage(error: unknown): string {

@@ -17,17 +17,15 @@ export interface LoadedSourceRuntime extends LoadedWorkspaceSource {
 
 export async function createSourceRuntime(
   configured: LoadedWorkspaceSource,
-  workspaceId: string,
   cancellation: AbortSignal,
 ): Promise<LoadedSourceRuntime> {
   const plugin = pluginFor(configured.source);
   if (plugin.kind !== "source") throw new TypeError("configuration node is not a Source");
   const context: SourceRuntimeContext = { sourceId: configured.id, cancellation };
-  const runtime = plugin.runtime(configured.source.config, context);
+  const runtime = await plugin.runtime(configured.source.config, context);
   if (!isSourceRuntime(runtime)) {
     throw new TypeError(`Source ${configured.id} runtime factory must return collect()`);
   }
-  void workspaceId;
   return { ...configured, runtime, cancellation };
 }
 

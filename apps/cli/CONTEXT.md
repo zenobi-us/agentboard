@@ -9,7 +9,7 @@ Configuration that names Sources and the Actions to run for each Source. A Works
 _Avoid_: Project config, repo config
 
 **Plugin**:
-A package descriptor that provides one Source or Action. It declares the package role, TypeBox schema, runtime factory, and health check.
+A package descriptor that provides one Source or Action. A Source Plugin declares runtime creation. An Action Plugin declares Action preparation. Both roles declare a TypeBox schema and health check.
 _Avoid_: Configured Source, configured Action, runtime instance
 
 **Plugin Package**:
@@ -28,6 +28,14 @@ _Avoid_: Static configuration
 Workspace configuration with validated Plugin references and Plugin data. It is the input to Source collection and Action execution.
 _Avoid_: Raw configuration, parsed settings
 
+**Action Preparation**:
+The Workspace-loading stage that creates one Prepared Action for each configured Action. Preparation can allocate resources that its Action runtimes share.
+_Avoid_: Action runtime creation, Action execution
+
+**Action Runtime Creation**:
+The Item-scoped stage that creates one Action runtime from a Prepared Action after AgentBoard renders the Action inputs.
+_Avoid_: Action preparation, Workspace loading
+
 **Workspace Initialization**:
 Creation of a named, empty Workspace ready for Source configuration.
 _Avoid_: Project initialization, repository initialization
@@ -37,7 +45,7 @@ One execution of the AgentBoard pipeline: load a workspace, read sources, update
 _Avoid_: Collect when referring to the public command
 
 **Watch Mode**:
-A persistent command mode that repeats or refreshes the selected operation until cancellation. A watched Run executes complete Runs; watched Store views refresh their current state. Dashboard Watch Mode is enabled by default and can be toggled by the user.
+A persistent command mode that repeats or refreshes the selected operation until cancellation. A watched Run reuses one loaded Workspace for every cycle. Configuration changes require a command restart. Watched Store views refresh their current state. Dashboard Watch Mode is enabled by default and can be toggled by the user.
 _Avoid_: Daemon unless it is actually installed as a service
 
 **Dashboard**:

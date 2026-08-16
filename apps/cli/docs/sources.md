@@ -17,11 +17,11 @@ For Source-specific config and behavior, see the specific source docs.
 id = "local"
 
 [sources.source]
-uses = "@agentboard/source-qmd"
+kind = "qmd"
 # source-specific fields live here
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "agentboard/run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.reference_id }}"

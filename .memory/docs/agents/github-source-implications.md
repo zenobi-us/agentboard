@@ -1,6 +1,6 @@
 # GitHub Issues vs GitHub Projects source implications
 
-Status: implemented direction. Registry wording below reflects ADR 0010 and the atomic runtime cutover; GitHub API tradeoff research remains current.
+Status: implemented Source direction. The GitHub API tradeoff research remains current. Rust configuration and Registry references describe the retained Rust runtime. The Bun runtime follows ADR 0013.
 
 ## Recommendation
 
@@ -8,7 +8,7 @@ Build `agentboard-source-github` as **one crate with explicit modes**, and ship 
 
 Reason: Issues gives the shortest useful source adapter: repo/search-shaped data, REST pagination, small normalized `Item`, and raw issue payload storage. Projects is useful for board reality, but it adds GraphQL, `read:project`, custom field values, content unions, draft issues, pull requests, and redacted items before the first GitHub source is useful. AgentBoard already says source adapters own query semantics, raw payloads stay in `Item.raw`, source adapters stay isolated from actions, and action identity is source-owned (`.memory/docs/adr/pkgs/crates/agentboard-source-qmd/0007-source-adapters-own-query-semantics.md`, `pkgs/crates/agentboard-core/CONTEXT.md`, `AGENTS.md`, `.memory/docs/adr/pkgs/crates/agentboard-core/0005-actions-are-owned-by-sources.md`).
 
-Minimum viable config shape:
+Until issue #57, the canonical Rust configuration keeps this shape:
 
 ```toml
 [[sources]]
@@ -25,11 +25,23 @@ status_map = { ready = "ready" }
 helper = "gh auth token"
 ```
 
+Bun data-loader fixtures use the Plugin Package name:
+
+```toml
+[sources.source]
+uses = "@agentboard/source-github"
+mode = "issue"
+```
+
+Issue #57 will change the canonical configuration and documentation to `uses`.
+
 Add `mode = "project"` only when a workspace needs project custom fields, project status, draft issues, or cross-repo project membership.
 
 ## Existing AgentBoard fit
 
-AgentBoard composes Source definitions through one explicit static Registry. The GitHub crate owns typed config, construction, collection, health, metadata, and Item Bucket identity; CLI orchestration invokes the registered runtime without GitHub-specific branches (`pkgs/crates/agentboard-source-github/src/lib.rs`, `pkgs/crates/agentboard-core/src/registry.rs`, `apps/cli/src/runtime.rs`). The current Jira source demonstrates the same network-source pattern: provider query is passed through, requested fields are selected, provider JSON is normalized into `Item`, and the raw provider record is preserved (`pkgs/crates/agentboard-source-jira/src/lib.rs`, `pkgs/crates/agentboard-source-jira/CONTEXT.md`). The Store records item observations and action attempts as append-only JSONL, with item buckets keyed by stable upstream item universes and action attempts scoped by source slug plus source hash (`.memory/docs/adr/apps/cli/0002-store-items-and-actions-as-per-source-jsonl.md`, `apps/cli/CONTEXT.md`).
+The retained Rust runtime composes Source definitions through one explicit static Registry. The Bun runtime discovers the GitHub Plugin Package and resolves its Plugin Descriptor. Both runtimes invoke GitHub behavior without package-specific branches in CLI orchestration.
+
+The GitHub package owns typed configuration, collection, health checks, metadata, and Item Bucket identity. The Jira Source demonstrates the same network Source pattern. It passes provider queries through, normalizes provider records into Items, and preserves each raw provider record. The Store records Item observations and Action attempts as append-only JSONL.
 
 ```text
 workspace source config

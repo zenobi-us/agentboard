@@ -19,8 +19,6 @@ export type FieldMap = Static<typeof FieldMapSchema>;
 
 /** Role that a plugin performs in an AgentBoard run. */
 export type PluginRole = "source" | "action";
-/** Alias for {@link PluginRole}. (Preserves the existing public API name.) */
-export type PluginKind = PluginRole;
 
 /** Metadata that identifies the module which defined a plugin. */
 export interface PluginMeta {
@@ -82,8 +80,8 @@ export interface ActionRuntimeContext {
   readonly cancellation: AbortSignal;
 }
 
-/** Values supplied when AgentBoard creates an action runtime factory. */
-export interface ActionRuntimeFactoryContext {
+/** Values supplied when AgentBoard prepares an Action. */
+export interface ActionPreparationContext {
   /** Workspace that owns the action configuration. */
   readonly workspaceId: string;
   /** Configured source that owns the action. */
@@ -106,15 +104,6 @@ export interface SourceRuntime {
   collect(): Promise<readonly Item[]> | readonly Item[];
 }
 
-/** Collected items plus optional source pagination information. */
-export interface SourceCollection {
-  /** Normalized items returned by the source. */
-  readonly items: readonly Item[];
-  /** Total number of items available before a source limit is applied. */
-  readonly available?: number;
-  /** Maximum number of items requested from the source. */
-  readonly limit?: number;
-}
 
 /** Runtime that executes an action for normalized items. */
 export interface ActionRuntime {
@@ -124,99 +113,143 @@ export interface ActionRuntime {
   cachedSuccessIsValid?(context: ActionRuntimeContext): Promise<boolean> | boolean;
 }
 
-/** Prepared action factory that creates runtimes from resolved action inputs. */
-export interface PreparedActionRuntime<Runtime extends ActionRuntime = ActionRuntime> {
+/** Prepared Action that creates runtimes from resolved Action inputs. */
+export interface PreparedAction<Runtime extends ActionRuntime = ActionRuntime> {
   /** Creates an action runtime for the supplied inputs. */
   create(inputs: unknown): Runtime;
 }
 
+/** A value that a Plugin can return now or through a Promise. */
+type MaybePromise<Value> = Value | PromiseLike<Value>;
+
 /** Runtime contract selected for a plugin role. */
 type RuntimeFor<Role extends PluginRole> = Role extends "source"
   ? SourceRuntime
-  : PreparedActionRuntime;
+  : PreparedAction;
 
-/** Runtime creation context selected for a plugin role. */
-type RuntimeContextFor<Role extends PluginRole> = Role extends "source"
-  ? SourceRuntimeContext
-  : ActionRuntimeFactoryContext;
-
-/** Complete descriptor for a source or action plugin. */
-export interface Plugin<
+/** Fields shared by Source and Action Plugin Descriptors. */
+interface PluginBase<
   Role extends PluginRole,
   Schema extends TSchema,
-  Runtime extends RuntimeFor<Role> = RuntimeFor<Role>,
 > {
   /** Role performed by the plugin. */
   readonly kind: Role;
   /** TypeBox schema used to default and validate plugin configuration. */
   readonly schema: Schema;
-  /** Creates the role-specific runtime from validated configuration. */
-  readonly runtime: (
-    config: Static<Schema>,
-    context: RuntimeContextFor<Role>,
-  ) => Runtime;
   /** Checks whether the configured plugin can run. */
   readonly healthCheck: (
     config: Static<Schema>,
     context: HealthCheckContext,
   ) => unknown;
-  /** Applies action-specific validation after schema validation. */
-  readonly validate?: (config: Static<Schema>) => unknown;
   /** Configuration paths that AgentBoard resolves as filesystem inputs. */
   readonly pathInputs?: readonly string[];
-  /** Returns the storage bucket identity for items from a source configuration. */
-  readonly itemBucketIdentity?: (config: Static<Schema>) => string;
   /** Module metadata added by {@link definePlugin}. */
   readonly meta: PluginMeta;
 }
 
-/** Author-supplied plugin fields before AgentBoard adds module metadata. */
+/** Complete descriptor for a Source or Action Plugin.
+ *
+ *  Actions and Sources both use runtime callback to return a runtime object that is used
+ *  to either fetch source items or execute actions against those source items.
+ *
+ *  The runtime object is created once per configured plugin, which happens once for each source in a workspace.
+ *
+ *  for example: 
+ *
+ *  ```yaml
+ *  workspace:
+ *    sources:
+ *      - uses: agetnboard/plugin-source-github
+ *        with:
+ *          query: "is:open is:issue label:bug"
+ *        actions:
+ *          - uses: agentboard/plugin-action-echo
+ *            with:
+ *              message: "Item: {{item.title}}"
+ *      - uses: agentboard/plugin-source-github
+ *        with:
+ *          query: "is:open is:issue label:enhancement"
+ *        actions: 
+ *          - uses: agentboard/plugin-action-echo
+ *            with:
+ *              message: "Item: {{item.title}}"
+ *  ```
+ *
+ *  In the above example, the `plugin-source-github` plugin is used twice, once for bugs and once for enhancements. 
+ *  Each use of the plugin will create a separate runtime object, which will be used to fetch items from GitHub. 
+ *  The `plugin-action-echo` plugin is also used twice, once for each source, and will create a separate runtime object for each use.
+ **/
+export type Plugin<
+  Role extends PluginRole,
+  Schema extends TSchema,
+  Runtime extends RuntimeFor<Role> = RuntimeFor<Role>,
+> = Role extends "source"
+  ? PluginBase<Role, Schema> & {
+    /** Creates the Source runtime from validated configuration. */
+    readonly runtime: (
+      config: Static<Schema>,
+      context: SourceRuntimeContext,
+    ) => MaybePromise<Runtime>;
+    /** Returns the Store bucket identity for Source Items. */
+    readonly itemBucketIdentity: (config: Static<Schema>) => string;
+    readonly validate?: never;
+  }
+  : PluginBase<Role, Schema> & {
+    /** Prepares one Action for the loaded Workspace. */
+    readonly runtime: (
+      config: Static<Schema>,
+      context: ActionPreparationContext,
+    ) => MaybePromise<Runtime>;
+    readonly itemBucketIdentity?: never;
+    /** Applies Action-specific validation after schema validation. */
+    readonly validate: (config: Static<Schema>) => unknown;
+  };
+
+/** Author-supplied Plugin fields before AgentBoard adds module metadata. */
 type PluginDefinition<
   Role extends PluginRole,
   Schema extends TSchema,
   Runtime extends RuntimeFor<Role>,
-> = Omit<Plugin<Role, Schema, Runtime>, "meta" | "itemBucketIdentity" | "validate"> &
-  (Role extends "source"
-    ? {
-        /** Returns the storage bucket identity for source items. */
-        readonly itemBucketIdentity: (config: Static<Schema>) => string;
-        /** Prevents source plugins from declaring action validation. */
-        readonly validate?: never;
-      }
-    : {
-        /** Prevents action plugins from declaring source bucket identity. */
-        readonly itemBucketIdentity?: never;
-        /** Applies action-specific validation after schema validation. */
-        readonly validate: (config: Static<Schema>) => unknown;
-      });
+> = Omit<Plugin<Role, Schema, Runtime>, "meta">;
 
 /**
  * Defines a plugin and records the defining module URL.
  *
  * Runtime checks keep JavaScript callers from bypassing the role-specific type rules.
  */
-export function definePlugin<
-  const Role extends PluginRole,
-  const Schema extends TSchema,
-  Runtime extends RuntimeFor<Role>,
->(
+export function definePlugin<const Schema extends TSchema, Runtime extends SourceRuntime>(
   module: Pick<ImportMeta, "url">,
-  definition: PluginDefinition<Role, Schema, Runtime>,
-): Plugin<Role, Schema, Runtime> {
+  definition: PluginDefinition<"source", Schema, Runtime>,
+): Plugin<"source", Schema, Runtime>;
+
+export function definePlugin<const Schema extends TSchema, Runtime extends PreparedAction>(
+  module: Pick<ImportMeta, "url">,
+  definition: PluginDefinition<"action", Schema, Runtime>,
+): Plugin<"action", Schema, Runtime>;
+
+export function definePlugin(
+  module: Pick<ImportMeta, "url">,
+  definition: PluginDefinition<PluginRole, TSchema, RuntimeFor<PluginRole>>,
+): Plugin<PluginRole, TSchema> {
   if (definition.kind !== "source" && definition.kind !== "action") {
     throw new TypeError(`invalid plugin role: ${String(definition.kind)}`);
+  }
+  if (typeof definition.healthCheck !== "function") {
+    throw new TypeError("plugin must define healthCheck()");
   }
   if (definition.kind === "source" && typeof definition.itemBucketIdentity !== "function") {
     throw new TypeError("source plugin must define itemBucketIdentity()");
   }
+  if (typeof definition.runtime !== "function") {
+    throw new TypeError("plugin must define runtime()");
+  }
   if (definition.kind === "action" && typeof definition.validate !== "function") {
     throw new TypeError("action plugin must define validate()");
   }
-
   return {
     ...definition,
     meta: { url: module.url },
-  } as Plugin<Role, Schema, Runtime>;
+  } as Plugin<PluginRole, TSchema>;
 }
 
 /** Identity assigned to a resolved plugin configuration node. */
@@ -297,8 +330,8 @@ export function isPluginDescriptor(value: unknown): value is AnyPlugin {
     (candidate.kind === "source" || candidate.kind === "action") &&
     typeof candidate.schema === "object" &&
     candidate.schema !== null &&
-    typeof candidate.runtime === "function" &&
     typeof candidate.healthCheck === "function" &&
+    typeof candidate.runtime === "function" &&
     (candidate.kind === "source"
       ? typeof candidate.itemBucketIdentity === "function"
       : typeof candidate.validate === "function") &&
@@ -405,7 +438,7 @@ export function source<const Schema extends TSchema, Runtime extends SourceRunti
 }
 
 /** Resolves one action plugin configuration. */
-export function action<const Schema extends TSchema, Runtime extends PreparedActionRuntime>(
+export function action<const Schema extends TSchema, Runtime extends PreparedAction>(
   plugin: Plugin<"action", Schema, Runtime>,
   config: ConfigWithId<Schema>,
   path: string,
