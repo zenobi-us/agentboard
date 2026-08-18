@@ -51,3 +51,13 @@ Triage labels use the default canonical vocabulary. See `.memory/docs/agents/tri
 ### Domain docs
 
 Domain docs use a multi-context layout. See `.memory/docs/agents/domain.md`.
+
+### ADRs and reviews
+
+Architecture decisions live under `.memory/docs/adr/`.
+
+Review artifacts live under `.memory/docs/agents/reviews/`.
+
+Agents MUST read relevant ADRs before changing code.
+
+Agents MUST write worktree review artifacts to `.memory/docs/agents/reviews/{ticket-id}.md`.
