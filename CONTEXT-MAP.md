@@ -46,3 +46,12 @@ source crate -> normalized item -> apps/cli store -> rendered action -> action c
 - If changing a seam between contexts, read both contexts and both scoped ADR directories.
 - If a new decision applies to one crate, write its ADR under that crate's scoped ADR directory.
 - If a new decision applies across multiple contexts, write it under `.memory/docs/adr/` and name the affected contexts in the ADR.
+
+## Review rules
+
+- Read relevant ADRs before review.
+- Store every worktree review at `.memory/docs/agents/reviews/{ticket-id}.md`.
+- Overwrite the current review for the same ticket.
+- Keep historical review revisions in Git history.
+- Do not write review artifacts to `docs/reviews/` or `.scratch/reviews/`.
+
