@@ -183,12 +183,25 @@ async function runSource(
     };
   }
   await setSourceCollectionStatus(workspace, source.id, "collecting", undefined, storeRoot);
+  if (source.cancellation.aborted) {
+    await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
+    return {
+      result: { id: source.id, uses: source.packageName, items: [], actions: [] },
+      cancelled: true,
+    };
+  }
   let items: readonly Item[];
   try {
     items = await collectSource(source);
     if (source.cancellation.aborted) throw source.cancellation.reason ?? new Error("cancelled");
     await appendSourceSnapshot(workspace, source, items, source.cancellation, storeRoot);
     await setSourceCollectionStatus(workspace, source.id, "complete", undefined, storeRoot);
+    if (source.cancellation.aborted) {
+      return {
+        result: { id: source.id, uses: source.packageName, items: [], actions: [] },
+        cancelled: true,
+      };
+    }
   } catch (error) {
     if (source.cancellation.aborted) {
       await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
@@ -219,6 +232,7 @@ async function runActions(
 ): Promise<{ readonly results: ActionRunResult[]; readonly cancelled: boolean }> {
   const results: ActionRunResult[] = [];
   const successes = await successfulActionKeys(workspace, source, storeRoot);
+  if (source.cancellation.aborted) return { results, cancelled: true };
   for (const item of items) {
     const actions: Record<string, { inputs: unknown }> = {};
     for (const [actionIndex, action] of source.actions.entries()) {
@@ -281,7 +295,9 @@ async function runActions(
           rendered_action_hash: renderedHash,
         }, storeRoot);
         results.push({ itemId: item.id, actionIndex, uses: action.packageName, result });
-        if (result.outcome === "cancelled") return { results, cancelled: true };
+        if (source.cancellation.aborted || result.outcome === "cancelled") {
+          return { results, cancelled: true };
+        }
         if (result.outcome === "failure") break;
         successes.add(actionKey(source.id, item.id, actionIndex, renderedHash));
       } catch (error) {
@@ -299,6 +315,10 @@ async function runActions(
           stderr: cancelled ? "" : message,
           message,
         }, storeRoot);
+        if (source.cancellation.aborted) {
+          results.push({ itemId: item.id, actionIndex, uses: action.packageName, error: message });
+          return { results, cancelled: true };
+        }
         results.push(cancelled
           ? {
               itemId: item.id,

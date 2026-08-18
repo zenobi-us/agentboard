@@ -1,11 +1,12 @@
 import Type from "typebox";
 
 import { definePlugin, FieldMapSchema } from "@agentboard/core/config";
+import { healthCheck, runtime } from "./runtime.ts";
 
 export const QmdSourceSchema = Type.Object({
-  collections: Type.Array(Type.String()),
-  query: Type.String(),
-  limit: Type.Optional(Type.Integer({ default: 50, minimum: 0 })),
+  collections: Type.Array(Type.String({ minLength: 1, pattern: "\\S" }), { minItems: 1 }),
+  query: Type.String({ minLength: 1, pattern: "\\S" }),
+  limit: Type.Optional(Type.Integer({ default: 50, minimum: 1 })),
   map: Type.Optional(FieldMapSchema),
 });
 
@@ -15,8 +16,6 @@ export default definePlugin(import.meta, {
   kind: "source",
   schema: QmdSourceSchema,
   itemBucketIdentity: (config) => [...config.collections].sort().join(","),
-  runtime: () => ({
-    collect: () => Promise.reject(new Error("QMD Bun Source runtime is not available")),
-  }),
-  healthCheck: () => Promise.reject(new Error("QMD Bun Source runtime is not available")),
+  runtime,
+  healthCheck,
 });

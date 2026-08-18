@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Compile } from "typebox/compile";
 
@@ -370,6 +371,21 @@ describe("Plugin Package discovery", () => {
     expect(Bun.file(ignoredMarker).size).toBe(0);
   });
 
+  test("loads legacy built-in data Workspace identifiers during the Bun migration", async () => {
+    const root = fixture();
+    const configPath = join(root, ".agentboard.toml");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/@agentboard/source-github", "@agentboard/source-github", configurablePluginSource("source"));
+    packageFixture(root, "node_modules/@agentboard/action-run-cmd", "@agentboard/action-run-cmd", configurablePluginSource("action"));
+    writeFileSync(configPath, `[[sources]]\nid = "one"\n[sources.source]\nkind = "github"\nquery = "runtime"\n[[sources.actions]]\nuses = "agentboard/run-cmd"\n[sources.actions.with]\nquery = "echo ready"\n`);
+
+    const loaded = await loadDataWorkspace(configPath, join(root, "global"));
+
+    expect(loaded.sources[0]?.packageName).toBe("@agentboard/source-github");
+    expect(loaded.sources[0]?.source.config).toEqual({ query: "runtime" });
+    expect(loaded.sources[0]?.actions[0]?.packageName).toBe("@agentboard/action-run-cmd");
+  });
+
   test("preserves explicit Source additional property rules in generated schemas", async () => {
     const root = fixture();
     const configPath = join(root, "agentboard.json");
@@ -674,6 +690,26 @@ describe("Plugin Package discovery", () => {
     `);
 
     await expect(loadExecutableWorkspace(configPath)).rejects.toThrow(
+      'Plugin Package "unmarked" must include the "agentboard-package" keyword',
+    );
+  });
+
+  test("does not trust an executable Plugin packageName to bypass package rules", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    const packagePath = join(root, "node_modules", "unmarked");
+    packageFixture(root, "node_modules/unmarked", "unmarked", pluginSource("source"), []);
+    const module = await import(pathToFileURL(join(packagePath, "index.ts")).href);
+    const { defineConfig, source } = await import("@agentboard/core/config");
+    const plugin = {
+      ...module.default,
+      meta: { ...module.default.meta, packageName: "unmarked" },
+    };
+
+    await expect(loadExecutableWorkspace(configPath, defineConfig({
+      sources: [{ id: "one", source: source(plugin as never, { query: "ready" } as never, configPath) }],
+    }))).rejects.toThrow(
       'Plugin Package "unmarked" must include the "agentboard-package" keyword',
     );
   });

@@ -211,6 +211,7 @@ describe("Workspace runtime orchestration", () => {
   test("does not create Source runtimes after Action runtime creation cancels", async () => {
     const controller = new AbortController();
     let sourceRuntimeCreations = 0;
+    let actionRuntimeCreations = 0;
     const sourcePlugin = definePlugin(import.meta, {
       kind: "source",
       itemBucketIdentity: () => "memory",
@@ -226,6 +227,7 @@ describe("Workspace runtime orchestration", () => {
       validate: () => undefined,
       schema: Type.Object({}),
       runtime: async () => {
+        actionRuntimeCreations += 1;
         controller.abort(new Error("cancelled"));
         return { execute: (): ActionResult => ({ outcome: "success", stdout: "", stderr: "" }) };
       },
@@ -237,10 +239,14 @@ describe("Workspace runtime orchestration", () => {
       sources: [{
         id: "issues",
         source: source(sourcePlugin, {}, path),
-        actions: [action(actionPlugin, {}, path)],
+        actions: [
+          action(actionPlugin, {}, path),
+          action(actionPlugin, {}, path),
+        ],
       }],
     }), controller.signal)).rejects.toThrow("cancelled");
     expect(sourceRuntimeCreations).toBe(0);
+    expect(actionRuntimeCreations).toBe(1);
   });
 
   test("keeps Store metadata authoritative when an Action Result has extra fields", async () => {

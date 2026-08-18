@@ -1,6 +1,7 @@
 import Type from "typebox";
 
 import { definePlugin } from "@agentboard/core/config";
+import { healthCheck, parseDuration, runtime } from "./runtime.ts";
 
 export const RunCmdConfigSchema = Type.Object({
   cmd: Type.String(),
@@ -25,14 +26,11 @@ export type RunCmdAction = Type.Static<typeof RunCmdActionSchema>;
 export default definePlugin(import.meta, {
   kind: "action",
   schema: RunCmdConfigSchema,
-  validate: () => undefined,
+  validate: (config) => {
+    parseDuration(config.healthcheck_interval ?? "1s");
+    parseDuration(config.healthcheck_timeout ?? "30s");
+  },
   pathInputs: ["cwd"],
-  runtime: () => ({
-    execute: () => ({
-      outcome: "failure" as const,
-      stdout: "",
-      stderr: "Run Command Bun Action runtime is not available",
-    }),
-  }),
-  healthCheck: () => Promise.reject(new Error("Run Command Bun Action runtime is not available")),
+  runtime: (config) => runtime(config),
+  healthCheck,
 });
