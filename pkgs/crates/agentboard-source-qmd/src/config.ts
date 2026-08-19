@@ -1,13 +1,21 @@
 import Type from "typebox";
 
-import { FieldMapSchema } from "@agentboard/core/config";
+import { definePlugin, FieldMapSchema } from "@agentboard/core/config";
+import { healthCheck, runtime } from "./runtime.ts";
 
 export const QmdSourceSchema = Type.Object({
-  kind: Type.Literal("qmd"),
-  collections: Type.Array(Type.String()),
-  query: Type.String(),
-  limit: Type.Optional(Type.Integer({ default: 50, minimum: 0 })),
+  collections: Type.Array(Type.String({ minLength: 1, pattern: "\\S" }), { minItems: 1 }),
+  query: Type.String({ minLength: 1, pattern: "\\S" }),
+  limit: Type.Optional(Type.Integer({ default: 50, minimum: 1 })),
   map: Type.Optional(FieldMapSchema),
 });
 
 export type QmdSource = Type.Static<typeof QmdSourceSchema>;
+
+export default definePlugin(import.meta, {
+  kind: "source",
+  schema: QmdSourceSchema,
+  itemBucketIdentity: (config) => [...config.collections].sort().join(","),
+  runtime,
+  healthCheck,
+});

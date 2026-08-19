@@ -1,31 +1,55 @@
 import { describe, expect, test } from "bun:test";
 import Type from "typebox";
 
-import { action, definePlugin, source } from "./config.ts";
+import { action, definePlugin, isPluginDescriptor, source } from "./config.ts";
 
 const sourcePlugin = definePlugin(import.meta, {
   kind: "source",
+  itemBucketIdentity: () => "memory",
   schema: Type.Object({
     query: Type.String(),
     limit: Type.Optional(Type.Integer({ default: 50 })),
   }),
-  runtime: (config) => config,
+  runtime: () => ({ collect: () => [] }),
   healthCheck: () => undefined,
 });
 
 const actionPlugin = definePlugin(import.meta, {
   kind: "action",
+  validate: () => undefined,
   schema: Type.Object({
     command: Type.String(),
     timeout: Type.Optional(Type.String({ default: "30s" })),
   }),
-  runtime: (config) => config,
+  runtime: () => ({
+    execute: ({ inputs }) => ({
+      outcome: "success" as const,
+      stdout: inputs.command,
+      stderr: "",
+    }),
+  }),
   healthCheck: () => undefined,
 });
 
 test("defines typed plugins with module metadata", () => {
   expect(sourcePlugin.kind).toBe("source");
   expect(sourcePlugin.meta.url).toBe(import.meta.url);
+});
+
+test("validates Plugin Descriptors through the exported Core contract", () => {
+  expect(isPluginDescriptor(sourcePlugin)).toBe(true);
+  expect(isPluginDescriptor({ ...sourcePlugin, runtime: undefined })).toBe(false);
+  expect(isPluginDescriptor(actionPlugin)).toBe(true);
+  expect(isPluginDescriptor({ ...actionPlugin, runtime: undefined })).toBe(false);
+});
+
+test("requires health checks from JavaScript Plugin definitions", () => {
+  expect(() => definePlugin(import.meta, {
+    kind: "source",
+    itemBucketIdentity: () => "memory",
+    schema: Type.Object({}),
+    runtime: () => ({ collect: () => [] }),
+  } as never)).toThrow("plugin must define healthCheck()");
 });
 
 test("source validates payloads and applies defaults", () => {
@@ -61,49 +85,16 @@ test("action validates payloads and keeps its core id outside the payload", () =
   expect(resolved.config).toEqual({ command: "bun run build", timeout: "30s" });
 });
 
-test("gives each inline configuration node a position", () => {
-  const first = source(
-    sourcePlugin,
-    { query: "first" },
-    "/workspace/positions.ts",
-  );
-  const second = source(
-    sourcePlugin,
-    { query: "second" },
-    "/workspace/positions.ts",
-  );
-
-  expect(first.identity.position).toBe(0);
-  expect(second.identity.position).toBe(1);
-});
-
-test("separates distinct inline plugins by configuration path and role", () => {
-  const firstPlugin = definePlugin(import.meta, {
-    kind: "source",
-    schema: Type.Object({ query: Type.String() }),
-    runtime: (config) => config,
-    healthCheck: () => undefined,
-  });
-  const secondPlugin = definePlugin(import.meta, {
-    kind: "source",
-    schema: Type.Object({ query: Type.String() }),
-    runtime: (config) => config,
-    healthCheck: () => undefined,
-  });
-
-  const first = source(firstPlugin, { query: "first" }, "/workspace/agentboard.config.ts");
-  const second = source(secondPlugin, { query: "second" }, "/workspace/agentboard.config.ts");
+test("keeps provisional inline identity local to one configuration node", () => {
+  const first = source(sourcePlugin, { query: "first" }, "/workspace/positions.ts");
+  const second = source(sourcePlugin, { query: "second" }, "/workspace/positions.ts");
 
   expect(first.identity).toEqual({
-    path: "/workspace/agentboard.config.ts",
+    path: "/workspace/positions.ts",
     role: "source",
     position: 0,
   });
-  expect(second.identity).toEqual({
-    path: "/workspace/agentboard.config.ts",
-    role: "source",
-    position: 1,
-  });
+  expect(second.identity).toEqual(first.identity);
 });
 
 describe("configuration errors", () => {

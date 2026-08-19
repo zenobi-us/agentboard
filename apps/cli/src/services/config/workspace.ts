@@ -1,8 +1,10 @@
-import { existsSync, readFileSync } from "node:fs";
-import { extname, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { basename, extname, resolve } from "node:path";
 import Type, { type TSchema } from "typebox";
 import {
   action,
+  copyPluginReference,
   pluginFor,
   source,
   strictPluginSchema,
@@ -11,8 +13,14 @@ import {
   type WorkspaceConfig,
 } from "@agentboard/core/config";
 
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
+import { createActionRuntime } from "../actions.ts";
+import {
+  createSourceRuntime,
+  type LoadedSourceRuntime,
+} from "../sources.ts";
+import { validateActionInputs } from "../template.ts";
 import {
   discoverPluginPackages,
   loadAllPlugins,
@@ -30,14 +38,20 @@ export interface WorkspaceSchemas {
 export interface LoadedWorkspaceSource {
   readonly id: string;
   readonly packageName: string;
+  readonly itemBucketIdentity: string;
   readonly source: ResolvedSource<TSchema>;
-  readonly actions: readonly (ResolvedAction<TSchema> & { readonly packageName: string })[];
+  readonly actions: readonly (ResolvedAction<TSchema> & {
+    readonly packageName: string;
+    readonly runtime?: Awaited<ReturnType<typeof createActionRuntime>>;
+  })[];
 }
 
 export interface LoadedWorkspace {
   readonly path: string;
+  readonly id: string;
+  readonly cancellation: AbortSignal;
   readonly registry: PluginRegistry;
-  readonly sources: readonly LoadedWorkspaceSource[];
+  readonly sources: readonly LoadedSourceRuntime[];
 }
 
 export function resolveWorkspaceConfigPath(configPath = ".agentboard.toml"): string {
@@ -70,39 +84,82 @@ export async function loadAllWorkspacePlugins(
 
 export async function loadExecutableWorkspace(
   configPath: string,
+  configuration?: unknown,
+  cancellation: AbortSignal = new AbortController().signal,
+  createRuntimes = true,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
-  let data: unknown;
-  try {
-    const module = await import(pathToFileURL(path).href);
-    data = module.default ?? module;
-  } catch (error) {
-    throw new Error(`Executable Workspace configuration failed for ${path}: ${String(error)}`);
+  let data = configuration;
+  if (data === undefined) {
+    try {
+      const module = await import(pathToFileURL(path).href);
+      data = module.default ?? module;
+    } catch (error) {
+      throw new Error(`Executable Workspace configuration failed for ${path}: ${String(error)}`);
+    }
   }
   validateExecutableWorkspace(data, path);
+  validateUniqueSourceIds(data.sources, path, "Executable Workspace configuration");
+  await validateExecutablePluginPackages(data, path);
+  throwIfCancelled(cancellation);
+  let actionPosition = 0;
+  const sources: LoadedWorkspaceSource[] = [];
+  for (const [sourcePosition, record] of data.sources.entries()) {
+    const sourcePlugin = pluginFor(record.source);
+    validateActionIds(record.actions ?? [], path, record.id);
+    const actions: Array<LoadedWorkspaceSource["actions"][number]> = [];
+    for (const configured of record.actions ?? []) {
+      throwIfCancelled(cancellation);
+      validateActionInputs(configured.config);
+      const plugin = pluginFor(configured);
+      plugin.validate!(configured.config);
+      const normalized = normalizeInlineIdentity(configured, path, "action", actionPosition++);
+      const runtime = createRuntimes
+        ? await createActionRuntime(normalized, {
+          workspaceId: workspaceId(path),
+          sourceId: record.id,
+          cancellation,
+        })
+        : undefined;
+      throwIfCancelled(cancellation);
+      const loaded = {
+        ...normalized,
+        packageName: packageNameForPlugin(plugin, normalized.identity),
+        runtime,
+      };
+      copyPluginReference(normalized, loaded);
+      actions.push(loaded);
+    }
+    throwIfCancelled(cancellation);
+    const normalizedSource = normalizeInlineIdentity(record.source, path, "source", sourcePosition);
+    sources.push({
+      ...record,
+      source: normalizedSource,
+      packageName: packageNameForPlugin(sourcePlugin, normalizedSource.identity),
+      itemBucketIdentity: sourcePlugin.itemBucketIdentity!(normalizedSource.config),
+      actions,
+    });
+  }
   return {
     path,
+    id: workspaceId(path),
+    cancellation,
     registry: { sources: new Map(), actions: new Map() },
-    sources: data.sources.map((record) => {
-      const sourcePlugin = pluginFor(record.source);
-      return {
-        ...record,
-        packageName: sourcePlugin.meta.packageName ?? sourcePlugin.meta.url,
-        actions: (record.actions ?? []).map((configured) => ({
-          ...configured,
-          packageName: packageNameFor(configured),
-        })),
-      };
-    }),
+    sources: createRuntimes
+      ? await buildSourceRuntimes(sources, path, cancellation)
+      : sources.map((source) => ({ ...source, cancellation })),
   };
 }
 
 export async function loadDataWorkspace(
   configPath: string,
   globalRoot?: string,
+  cancellation: AbortSignal = new AbortController().signal,
+  createRuntimes = true,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   const data = parseDataWorkspace(path);
+  validateUniqueSourceIds(data.sources, path, "Workspace data validation");
   const packageNames = new Set<string>();
   for (const item of data.sources ?? []) {
     packageNames.add(readPackageName(item.source, `source ${item.id}`));
@@ -111,7 +168,9 @@ export async function loadDataWorkspace(
     }
   }
   const registry = await loadWorkspacePlugins(path, [...packageNames], globalRoot);
-  const sources = (data.sources ?? []).map((item) => {
+  throwIfCancelled(cancellation);
+  const sources: LoadedWorkspaceSource[] = [];
+  for (const item of data.sources ?? []) {
     const sourceName = readPackageName(item.source, `source ${item.id}`);
     const sourcePackage = registry.sources.get(sourceName);
     if (!sourcePackage) throw new Error(`Plugin Package "${sourceName}" is an Action`);
@@ -122,7 +181,10 @@ export async function loadDataWorkspace(
       sourceConfig as never,
       path,
     ) as ResolvedSource<TSchema>;
-    const actions = (item.actions ?? []).map((configured) => {
+    validateActionIds(item.actions ?? [], path, item.id);
+    const actions: Array<LoadedWorkspaceSource["actions"][number]> = [];
+    for (const configured of item.actions ?? []) {
+      throwIfCancelled(cancellation);
       const actionName = readPackageName(configured, `action in source ${item.id}`);
       const actionPackage = registry.actions.get(actionName);
       if (!actionPackage) throw new Error(`Plugin Package "${actionName}" is a Source`);
@@ -138,19 +200,113 @@ export async function loadDataWorkspace(
       if (id !== undefined && typeof id !== "string") {
         throw new TypeError("configuration id must be a string");
       }
-      return {
-        ...action(
-          actionPackage.plugin as never,
-          inputs as never,
-          path,
-        ),
+      validateActionInputs(inputs);
+      actionPackage.plugin.validate!(inputs);
+      const resolved = action(
+        actionPackage.plugin as never,
+        inputs as never,
+        path,
+      ) as ResolvedAction<TSchema>;
+      const runtime = createRuntimes
+        ? await createActionRuntime(resolved, {
+          workspaceId: workspaceId(path),
+          sourceId: item.id,
+          cancellation,
+        })
+        : undefined;
+      throwIfCancelled(cancellation);
+      const loaded = {
+        ...resolved,
         id,
         packageName: actionName,
-      } as ResolvedAction<TSchema> & { readonly packageName: string };
+        runtime,
+      } as ResolvedAction<TSchema> & {
+        readonly packageName: string;
+        readonly runtime?: Awaited<ReturnType<typeof createActionRuntime>>;
+      };
+      copyPluginReference(resolved, loaded);
+      actions.push(loaded);
+    }
+    throwIfCancelled(cancellation);
+    sources.push({
+      id: item.id,
+      packageName: sourceName,
+      itemBucketIdentity: sourcePackage.plugin.itemBucketIdentity!(resolvedSource.config),
+      source: resolvedSource,
+      actions,
     });
-    return { id: item.id, packageName: sourceName, source: resolvedSource, actions };
-  });
-  return { path, registry, sources };
+  }
+  return {
+    path,
+    id: workspaceId(path),
+    cancellation,
+    registry,
+    sources: createRuntimes
+      ? await buildSourceRuntimes(sources, path, cancellation)
+      : sources.map((source) => ({ ...source, cancellation })),
+  };
+}
+
+async function buildSourceRuntimes(
+  sources: readonly LoadedWorkspaceSource[],
+  path: string,
+  cancellation: AbortSignal,
+): Promise<LoadedSourceRuntime[]> {
+  try {
+    throwIfCancelled(cancellation);
+    const runtimes: LoadedSourceRuntime[] = [];
+    for (const source of sources) {
+      throwIfCancelled(cancellation);
+      runtimes.push(await createSourceRuntime(source, cancellation));
+    }
+    throwIfCancelled(cancellation);
+    return runtimes;
+  } catch (error) {
+    throw new Error(`Workspace runtime factory failed for ${path}: ${String(error)}`);
+  }
+}
+
+function workspaceId(path: string): string {
+  const canonical = existsSync(path) ? realpathSync(path) : resolve(path);
+  const stem = basename(path).replace(/\.[^.]+$/, "") || "workspace";
+  const hash = createHash("sha256").update(canonical).digest("hex").slice(0, 12);
+  return `${stem}-${hash}`;
+}
+
+function validateActionIds(
+  actions: readonly { readonly id?: unknown }[],
+  path: string,
+  sourceId: string,
+): void {
+  const ids = new Set<string>();
+  for (const action of actions) {
+    if (action.id === undefined) continue;
+    if (typeof action.id !== "string" || !/^[A-Za-z_]\w*$/.test(action.id)) {
+      throw new Error(
+        `Workspace configuration failed for ${path}: source ${sourceId} has invalid Action id`,
+      );
+    }
+    if (ids.has(action.id)) {
+      throw new Error(
+        `Workspace configuration failed for ${path}: source ${sourceId} has duplicate Action id "${action.id}"`,
+      );
+    }
+    ids.add(action.id);
+  }
+}
+
+function validateUniqueSourceIds(
+  sources: readonly { readonly id: string }[],
+  path: string,
+  label: string,
+): void {
+  const ids = new Set<string>();
+  for (const source of sources) {
+    if (ids.has(source.id)) {
+      throw new Error(`${label} failed for ${path}: duplicate Source id "${source.id}"`);
+    }
+    ids.add(source.id);
+  }
 }
 
 function parseDataWorkspace(path: string): {
@@ -171,8 +327,9 @@ function parseDataWorkspace(path: string): {
   } catch (error) {
     throw new Error(`Workspace data parse failed for ${path}: ${String(error)}`);
   }
-  validateWorkspaceData(value, path);
-  return value;
+  const migrated = migrateWorkspaceData(value);
+  validateWorkspaceData(migrated, path);
+  return migrated;
 }
 
 function validateExecutableWorkspace(
@@ -210,9 +367,81 @@ function validateExecutableWorkspace(
   }
 }
 
-function packageNameFor(configured: ResolvedAction<TSchema>): string {
-  const plugin = pluginFor(configured);
-  return plugin.meta.packageName ?? plugin.meta.url;
+function packageNameForPlugin(
+  plugin: ReturnType<typeof pluginFor>,
+  identity?: ResolvedAction<TSchema>["identity"],
+): string {
+  const externalName = externalPluginPackageName(plugin);
+  if (externalName) return externalName;
+  if (identity) return `inline:${identity.path}:${identity.role}:${identity.position}`;
+  return plugin.meta.url;
+}
+
+async function validateExecutablePluginPackages(
+  configuration: WorkspaceConfig,
+  path: string,
+): Promise<void> {
+  const names = new Set<string>();
+  for (const record of configuration.sources) {
+    for (const configured of [record.source, ...(record.actions ?? [])]) {
+      const name = externalPluginPackageName(pluginFor(configured));
+      if (name) names.add(name);
+    }
+  }
+  if (names.size > 0) await loadWorkspacePlugins(path, [...names]);
+}
+
+function externalPluginPackageName(plugin: ReturnType<typeof pluginFor>): string | undefined {
+  if (!plugin.meta.url.startsWith("file:")) return plugin.meta.packageName ?? plugin.meta.url;
+  const modulePath = fileURLToPath(plugin.meta.url);
+  const external = modulePath.includes("/node_modules/") ||
+    modulePath.includes("/agentboard/plugins/npm/");
+  let directory = resolve(modulePath, "..");
+  while (true) {
+    const manifestPath = resolve(directory, "package.json");
+    if (existsSync(manifestPath)) {
+      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as {
+        name?: unknown;
+        keywords?: unknown;
+      };
+      if (Array.isArray(manifest.keywords) && manifest.keywords.includes("agentboard-package")) {
+        if (typeof manifest.name !== "string" || manifest.name.length === 0) {
+          throw new Error(`Plugin Package at ${manifestPath} must define package.json name`);
+        }
+        return manifest.name;
+      }
+      if (external) {
+        throw new Error(
+          `Plugin Package "${String(manifest.name ?? directory)}" must include the "agentboard-package" keyword`,
+        );
+      }
+    }
+    const parent = resolve(directory, "..");
+    if (parent === directory) break;
+    directory = parent;
+  }
+  if (external) {
+    throw new Error(`Plugin Package for ${plugin.meta.url} has no package.json`);
+  }
+  return undefined;
+}
+
+function throwIfCancelled(cancellation: AbortSignal): void {
+  if (cancellation.aborted) throw cancellation.reason ?? new Error("cancelled");
+}
+
+function normalizeInlineIdentity<Configuration extends ResolvedSource<TSchema> | ResolvedAction<TSchema>>(
+  configured: Configuration,
+  path: string,
+  role: Configuration["kind"],
+  position: number,
+): Configuration {
+  const normalized = {
+    ...configured,
+    identity: { path, role, position },
+  };
+  copyPluginReference(configured, normalized);
+  return normalized;
 }
 
 function validateWorkspaceData(value: unknown, path: string): asserts value is {
@@ -249,6 +478,55 @@ function validateWorkspaceData(value: unknown, path: string): asserts value is {
   }
 }
 
+
+const legacySourcePackages: Record<string, string> = {
+  github: "@agentboard/source-github",
+  jira: "@agentboard/source-jira",
+  qmd: "@agentboard/source-qmd",
+};
+
+const legacyActionPackages: Record<string, string> = {
+  "agentboard/run-cmd": "@agentboard/action-run-cmd",
+  "agentboard/worktree": "@agentboard/action-worktree",
+};
+
+function migrateWorkspaceData(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const workspace = value as Record<string, unknown>;
+  const sources = workspace["sources"];
+  if (!Array.isArray(sources)) return value;
+  return {
+    ...workspace,
+    sources: sources.map((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
+      const record = entry as Record<string, unknown>;
+      const actions = record["actions"];
+      return {
+        ...record,
+        source: migratePlugin(record["source"], legacySourcePackages),
+        actions: Array.isArray(actions)
+          ? actions.map((action: unknown) => migratePlugin(action, legacyActionPackages))
+          : actions,
+      };
+    }),
+  };
+}
+
+function migratePlugin(value: unknown, packages: Record<string, string>): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const plugin = value as Record<string, unknown>;
+  const uses = plugin["uses"];
+  if (typeof uses === "string") {
+    const replacement = packages[uses];
+    return replacement ? { ...plugin, uses: replacement } : plugin;
+  }
+  const kind = plugin["kind"];
+  if (typeof kind === "string" && packages[kind]) {
+    const { kind: _kind, ...payload } = plugin;
+    return { uses: packages[kind], ...payload };
+  }
+  return plugin;
+}
 
 function readPackageName(value: Record<string, unknown>, location: string): string {
   const name = value["uses"];

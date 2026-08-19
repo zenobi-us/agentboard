@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, test } from "bun:test";
 import { Compile } from "typebox/compile";
 
@@ -36,13 +37,16 @@ function pluginSource(kind: "source" | "action"): string {
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined,"}
       schema: {
         type: "object",
         properties: { query: { type: "string" } },
         required: ["query"],
         additionalProperties: false,
       },
-      runtime: () => undefined,
+      runtime: () => ${kind === "source"
+        ? "({ collect: () => [] })"
+        : "({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) })"},
       healthCheck: () => undefined,
     });
   `;
@@ -58,6 +62,7 @@ function configurablePluginSource(
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
+      ${kind === "source" ? 'itemBucketIdentity: () => "memory",' : "validate: () => undefined,"}
       schema: {
         type: "object",
         properties: {
@@ -67,7 +72,9 @@ function configurablePluginSource(
         required: ["query"],
         ${additionalProperties === undefined ? "" : `additionalProperties: ${additionalProperties},`}
       },
-      runtime: (config) => config,
+      runtime: () => ${kind === "source"
+        ? "({ collect: () => [] })"
+        : "({ execute: () => ({ outcome: \"success\", stdout: \"\", stderr: \"\" }) })"},
       healthCheck: () => undefined,
     });
   `;
@@ -103,7 +110,7 @@ function comparableWorkspace(workspace: LoadedWorkspace) {
       ...source,
       identity: { ...source.identity, path: "<workspace>" },
     },
-    actions: actions.map(({ packageName: _packageName, ...configured }) => ({
+    actions: actions.map(({ packageName: _packageName, runtime: _runtime, ...configured }) => ({
       ...configured,
       identity: { ...configured.identity, path: "<workspace>" },
     })),
@@ -250,6 +257,7 @@ describe("Plugin Package discovery", () => {
         const brand = Symbol.for("agentboard.pluginDescriptor");
         export default {
           kind: "source",
+          itemBucketIdentity: () => "memory",
           schema: { type: "object" },
           runtime: () => undefined,
           healthCheck: () => undefined,
@@ -261,6 +269,24 @@ describe("Plugin Package discovery", () => {
 
     const packages = discoverPluginPackages(configPath, join(root, "global"));
     await expect(loadPluginPackage("other-core", packages)).resolves.toBeDefined();
+  });
+
+  test("rejects a package without a default Plugin Descriptor export", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(
+      root,
+      "node_modules/named-only",
+      "named-only",
+      pluginSource("source").replace("export default", "export const plugin ="),
+    );
+
+    const packages = discoverPluginPackages(configPath, join(root, "global"));
+
+    await expect(loadPluginPackage("named-only", packages)).rejects.toThrow(
+      'Plugin Package "named-only" must default export one Plugin Descriptor',
+    );
   });
 
   test("rejects a package that exports more than one Plugin Descriptor", async () => {
@@ -276,6 +302,7 @@ describe("Plugin Package discovery", () => {
           new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
         )};
         const definition = {
+          itemBucketIdentity: () => "memory",
           schema: { type: "object" },
           runtime: () => undefined,
           healthCheck: () => undefined,
@@ -323,8 +350,9 @@ describe("Plugin Package discovery", () => {
       writeFileSync(${JSON.stringify(marker)}, "imported");
       export default definePlugin(import.meta, {
         kind: "source",
+        itemBucketIdentity: () => "memory",
         schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-        runtime: (config) => config,
+        runtime: () => ({ collect: () => [] }),
         healthCheck: () => undefined,
       });
     `;
@@ -341,6 +369,21 @@ describe("Plugin Package discovery", () => {
     expect(loaded.registry.sources.get("selected")?.plugin.meta.packageName).toBe("selected");
     expect(Bun.file(selectedMarker).size).toBeGreaterThan(0);
     expect(Bun.file(ignoredMarker).size).toBe(0);
+  });
+
+  test("loads legacy built-in data Workspace identifiers during the Bun migration", async () => {
+    const root = fixture();
+    const configPath = join(root, ".agentboard.toml");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/@agentboard/source-github", "@agentboard/source-github", configurablePluginSource("source"));
+    packageFixture(root, "node_modules/@agentboard/action-run-cmd", "@agentboard/action-run-cmd", configurablePluginSource("action"));
+    writeFileSync(configPath, `[[sources]]\nid = "one"\n[sources.source]\nkind = "github"\nquery = "runtime"\n[[sources.actions]]\nuses = "agentboard/run-cmd"\n[sources.actions.with]\nquery = "echo ready"\n`);
+
+    const loaded = await loadDataWorkspace(configPath, join(root, "global"));
+
+    expect(loaded.sources[0]?.packageName).toBe("@agentboard/source-github");
+    expect(loaded.sources[0]?.source.config).toEqual({ query: "runtime" });
+    expect(loaded.sources[0]?.actions[0]?.packageName).toBe("@agentboard/action-run-cmd");
   });
 
   test("preserves explicit Source additional property rules in generated schemas", async () => {
@@ -506,11 +549,12 @@ describe("Plugin Package discovery", () => {
         )};
         export default definePlugin(import.meta, {
           kind: "action",
-          schema: {
+          validate: () => undefined,
+              schema: {
             type: "object",
             properties: { timeout: { type: "integer", default: 30 } },
           },
-          runtime: (config) => config,
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -543,8 +587,9 @@ describe("Plugin Package discovery", () => {
         )};
         export default definePlugin(import.meta, {
           kind: "action",
-          schema: { type: "string" },
-          runtime: (config) => config,
+          validate: () => undefined,
+              schema: { type: "string" },
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
       `,
@@ -578,14 +623,16 @@ describe("Plugin Package discovery", () => {
         import { action, defineConfig, definePlugin, source } from "@agentboard/core/config";
         const sourcePlugin = definePlugin(import.meta, {
           kind: "source",
+          itemBucketIdentity: () => "memory",
           schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-          runtime: (config) => config,
+          runtime: () => ({ collect: () => [] }),
           healthCheck: () => undefined,
         });
         const actionPlugin = definePlugin(import.meta, {
           kind: "action",
-          schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
-          runtime: (config) => config,
+          validate: () => undefined,
+              schema: { type: "object", properties: { command: { type: "string" } }, required: ["command"] },
+          runtime: () => ({ execute: () => ({ outcome: "success", stdout: "", stderr: "" }) }),
           healthCheck: () => undefined,
         });
         export default defineConfig({
@@ -604,6 +651,99 @@ describe("Plugin Package discovery", () => {
     expect(loaded.sources[0]?.actions[0]?.config).toEqual({ command: "echo ready" });
     expect(loaded.sources[0]?.source.identity.role).toBe("source");
     expect(loaded.sources[0]?.actions[0]?.identity.role).toBe("action");
+  });
+
+  test("discovers built-in Plugin Packages and imports one descriptor each", async () => {
+    const configPath = join(import.meta.dir, "../..", "package.json");
+    const packages = discoverPluginPackages(configPath, join(fixture(), "global"));
+    const builtIns = [
+      "@agentboard/source-qmd",
+      "@agentboard/source-jira",
+      "@agentboard/source-github",
+      "@agentboard/action-run-cmd",
+      "@agentboard/action-worktree",
+    ];
+
+    for (const name of builtIns) {
+      expect(packages.some((item) => item.name === name)).toBe(true);
+      expect((await loadPluginPackage(name, packages)).plugin.kind).toBe(
+        name.includes("/source-") ? "source" : "action",
+      );
+    }
+  });
+
+  test("rejects an executable Plugin from an unmarked external package", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/unmarked", "unmarked", pluginSource("source"), []);
+    const coreConfig = new URL(
+      "../../../../pkgs/crates/agentboard-core/src/config.ts",
+      import.meta.url,
+    ).href;
+    writeFileSync(configPath, `
+      import { defineConfig, source } from ${JSON.stringify(coreConfig)};
+      import plugin from "unmarked";
+      export default defineConfig({
+        sources: [{ id: "one", source: source(plugin, { query: "ready" }, import.meta.url) }],
+      });
+    `);
+
+    await expect(loadExecutableWorkspace(configPath)).rejects.toThrow(
+      'Plugin Package "unmarked" must include the "agentboard-package" keyword',
+    );
+  });
+
+  test("does not trust an executable Plugin packageName to bypass package rules", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    const packagePath = join(root, "node_modules", "unmarked");
+    packageFixture(root, "node_modules/unmarked", "unmarked", pluginSource("source"), []);
+    const module = await import(pathToFileURL(join(packagePath, "index.ts")).href);
+    const { defineConfig, source } = await import("@agentboard/core/config");
+    const plugin = {
+      ...module.default,
+      meta: { ...module.default.meta, packageName: "unmarked" },
+    };
+
+    await expect(loadExecutableWorkspace(configPath, defineConfig({
+      sources: [{ id: "one", source: source(plugin as never, { query: "ready" } as never, configPath) }],
+    }))).rejects.toThrow(
+      'Plugin Package "unmarked" must include the "agentboard-package" keyword',
+    );
+  });
+
+  test("executable Workspace reports built-in Plugin Package identities", async () => {
+    const sourcePlugin = (await import("@agentboard/source-qmd")).default;
+    const actionPlugin = (await import("@agentboard/action-run-cmd")).default;
+    const { action, defineConfig, source } = await import("@agentboard/core/config");
+    const path = new URL("./built-in-identities.test.ts", import.meta.url).pathname;
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{
+        id: "issues",
+        source: source(sourcePlugin, { collections: ["tasks"], query: "ready" }, path),
+        actions: [action(actionPlugin, { cmd: "true" }, path)],
+      }],
+    }));
+
+    expect(workspace.sources[0]?.packageName).toBe("@agentboard/source-qmd");
+    expect(workspace.sources[0]?.actions[0]?.packageName).toBe("@agentboard/action-run-cmd");
+  });
+
+  test("Jira Item Bucket identity preserves normalized site paths", async () => {
+    const jira = (await import("@agentboard/source-jira")).default;
+
+    expect(jira.itemBucketIdentity!({
+      site: "https://EXAMPLE.test/jira/team/",
+      email_env: "JIRA_EMAIL",
+      token_env: "JIRA_API_TOKEN",
+      credentials: null,
+      jql: "status = Ready",
+      limit: 50,
+      fields: [],
+      status_map: {},
+    })).toBe("example.test/jira/team");
   });
 
   test("executable Workspace errors include the config source", async () => {
@@ -629,8 +769,9 @@ describe("Plugin Package discovery", () => {
         )};
         const plugin = definePlugin(import.meta, {
           kind: "source",
+          itemBucketIdentity: () => "memory",
           schema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
-          runtime: (config) => config,
+          runtime: () => ({ collect: () => [] }),
           healthCheck: () => undefined,
         });
         export default { sources: [{ id: "one", source: source(plugin, { query: "runtime" }, import.meta.url) }] };
@@ -716,6 +857,22 @@ describe("Plugin Package discovery", () => {
     );
   });
 
+  test("normal data Workspace loading rejects duplicate Source ids before Plugin loading", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.json");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    writeFileSync(configPath, JSON.stringify({
+      sources: [
+        { id: "same", source: { uses: "missing" } },
+        { id: "same", source: { uses: "missing" } },
+      ],
+    }));
+
+    await expect(loadDataWorkspace(configPath, join(root, "global"))).rejects.toThrow(
+      'duplicate Source id "same"',
+    );
+  });
+
   test("normal data Workspace loading reports missing packages", async () => {
     const root = fixture();
     const configPath = join(root, "agentboard.toml");
@@ -744,8 +901,9 @@ describe("Plugin Package discovery", () => {
       writeFileSync(${JSON.stringify(marker)}, "imported");
       export default definePlugin(import.meta, {
         kind: "source",
+        itemBucketIdentity: () => "memory",
         schema: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
-        runtime: (config) => config,
+        runtime: () => ({ collect: () => [] }),
         healthCheck: () => undefined,
       });
     `;

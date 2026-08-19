@@ -19,10 +19,11 @@
   "dependencies": {
     "@agentboard/action-run-cmd": "workspace:*",
     "@agentboard/action-worktree": "workspace:*",
+    "@agentboard/core": "workspace:*",
     "@agentboard/source-github": "workspace:*",
     "@agentboard/source-jira": "workspace:*",
     "@agentboard/source-qmd": "workspace:*",
-    "@agentboard/core": "workspace:*"
+    "minijinja-js": "^2.24.0"
   },
   "devDependencies": {
     "@crustjs/core": "^0.0.19",

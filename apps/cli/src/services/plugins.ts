@@ -4,12 +4,13 @@ import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import {
+  isPluginDescriptor,
   type Plugin,
   type PluginRole,
 } from "@agentboard/core/config";
 import type { TSchema } from "typebox";
 
-type AnyPlugin = Plugin<PluginRole, TSchema, unknown>;
+type AnyPlugin = Plugin<PluginRole, TSchema>;
 
 type PackageManifest = {
   readonly name?: unknown;
@@ -195,26 +196,25 @@ function hasPluginKeyword(keywords: unknown): boolean {
 
 async function importPlugin(item: PluginPackage): Promise<LoadedPluginPackage> {
   const module = await import(pathToFileURL(packageEntry(item)).href);
-  const values = Object.values(module);
-  const descriptors = [...new Set(values.filter(isPluginShape))];
+  const descriptors = [...new Set(Object.values(module).filter(isPluginDescriptor))];
   if (descriptors.length !== 1) {
-    if (descriptors.length === 0 && values.some(isPluginShape)) {
-      throw new Error(
-        `Plugin Package "${item.name}" must export one Plugin Descriptor created by definePlugin`,
-      );
-    }
     throw new Error(
       `Plugin Package "${item.name}" must provide exactly one Plugin Descriptor; found ${descriptors.length}`,
     );
   }
-  return adaptExternalPlugin(item, descriptors[0]!);
+  if (!isPluginDescriptor(module.default)) {
+    throw new Error(
+      `Plugin Package "${item.name}" must default export one Plugin Descriptor`,
+    );
+  }
+  return adaptExternalPlugin(item, module.default);
 }
 
 export function adaptExternalPlugin(
   item: PluginPackage,
   descriptor: unknown,
 ): LoadedPluginPackage {
-  if (!isPluginShape(descriptor)) {
+  if (!isPluginDescriptor(descriptor)) {
     throw new TypeError(
       `Plugin Package "${item.name}" must export one Plugin Descriptor created by definePlugin`,
     );
@@ -244,17 +244,4 @@ function exportTarget(exportsField: unknown): string | undefined {
     if (target) return target;
   }
   return undefined;
-}
-
-function isPluginShape(value: unknown): value is AnyPlugin {
-  if (!value || typeof value !== "object") return false;
-  const candidate = value as Partial<AnyPlugin>;
-  return (
-    (candidate.kind === "source" || candidate.kind === "action") &&
-    typeof candidate.schema === "object" &&
-    candidate.schema !== null &&
-    typeof candidate.runtime === "function" &&
-    typeof candidate.healthCheck === "function" &&
-    typeof candidate.meta?.url === "string"
-  );
 }
