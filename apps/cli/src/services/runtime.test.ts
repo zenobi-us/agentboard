@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Type from "typebox";
+import qmd from "@agentboard/source-qmd";
 
 import {
   action,
@@ -21,6 +22,70 @@ import { acquireWorkspaceLock } from "./store.ts";
 import { renderActionInputs } from "./template.ts";
 
 describe("Workspace runtime orchestration", () => {
+  test("runs a QMD Plugin through the Workspace runtime", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agentboard-qmd-cli-"));
+    const bin = join(root, "qmd");
+    const storeRoot = join(root, "store");
+    await writeFile(bin, "#!/bin/sh\nprintf '%s' '[{\"path\":\"/notes/AB-1.md\",\"body\":\"---\\nid: AB-1\\ntitle: Do it\\nstatus: ready\\n---\\nBody\"}]'\n");
+    await chmod(bin, 0o755);
+    const previousPath = process.env["PATH"];
+    process.env["PATH"] = root;
+    const path = new URL("./qmd-cli.test.ts", import.meta.url).pathname;
+    try {
+      const workspace = await loadExecutableWorkspace(path, defineConfig({
+        sources: [{ id: "tasks", source: source(qmd, { collections: ["tasks"], query: "status:ready" }, path) }],
+      }));
+      const result = await runWorkspace(workspace, { storeRoot });
+      expect(result.sources[0]?.items).toEqual([expect.objectContaining({
+        id: "/notes/AB-1.md",
+        reference_id: "AB-1",
+        source_kind: "qmd",
+      })]);
+    } finally {
+      if (previousPath === undefined) delete process.env["PATH"];
+      else process.env["PATH"] = previousPath;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test("runs the QMD Plugin through the CLI command", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agentboard-qmd-cli-command-"));
+    const bin = join(root, "qmd");
+    const configPath = join(root, "agentboard.config.ts");
+    const cliPath = new URL("../cli/index.ts", import.meta.url).pathname;
+    const qmdConfig = new URL("../../../../pkgs/crates/agentboard-source-qmd/src/config.ts", import.meta.url).href;
+    const coreConfig = new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href;
+    await writeFile(bin, "#!/bin/sh\nprintf '%s' '[{\"path\":\"/notes/AB-1.md\",\"body\":\"---\\nid: AB-1\\ntitle: Do it\\nstatus: ready\\n---\\nBody\"}]'\n");
+    await chmod(bin, 0o755);
+    await writeFile(join(root, "package.json"), "{\"name\":\"qmd-cli-test\"}\n");
+    await mkdir(join(root, "node_modules", "@agentboard"), { recursive: true });
+    await symlink(
+      new URL("../../../../pkgs/crates/agentboard-source-qmd", import.meta.url).pathname,
+      join(root, "node_modules", "@agentboard", "source-qmd"),
+      "dir",
+    );
+    await writeFile(configPath, `import { defineConfig, source } from ${JSON.stringify(coreConfig)};\nimport qmd from ${JSON.stringify(qmdConfig)};\nexport default defineConfig({ sources: [{ id: "tasks", source: source(qmd, { collections: ["tasks"], query: "status:ready" }, import.meta.url) }] });\n`);
+    const previousPath = process.env["PATH"];
+    process.env["PATH"] = root;
+    try {
+      const child = Bun.spawn([process.execPath, cliPath, "run", configPath], {
+        env: { ...process.env, XDG_DATA_HOME: join(root, "data") },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [code, stdout, stderr] = await Promise.all([
+        child.exited,
+        new Response(child.stdout as ReadableStream<Uint8Array>).text(),
+        new Response(child.stderr as ReadableStream<Uint8Array>).text(),
+      ]);
+      expect(code, `${stdout}\n${stderr}`).toBe(0);
+    } finally {
+      if (previousPath === undefined) delete process.env["PATH"];
+      else process.env["PATH"] = previousPath;
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test("persists Source Snapshots and skips a Rendered Action after success", async () => {
     const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
     let sourceFactories = 0;
