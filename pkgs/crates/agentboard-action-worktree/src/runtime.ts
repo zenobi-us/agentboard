@@ -65,6 +65,7 @@ async function branchExists(repo: string, branch: string, signal: AbortSignal): 
 async function ensure(config: WorktreeConfig, signal: AbortSignal): Promise<string> {
   const repo = canonical(config.repo);
   const root = canonical(config.root);
+  if (repo === root) throw new Error(`worktree root ${config.root} is the repository root`);
   const repoIdentity = await repositoryIdentity(repo, signal);
   const worktrees = await registeredWorktrees(repo, signal);
   const managed = worktrees.find((entry) => entry.path === root);

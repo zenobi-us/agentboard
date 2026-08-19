@@ -116,8 +116,10 @@ export function runtime(_config: RunCmdConfig): ActionRuntime<RunCmdConfig> {
         if (launch.cancelled) return { outcome: "cancelled", stdout, stderr, message: "action cancelled" };
         if (launch.code !== 0) return { outcome: "failure", stdout, stderr, message: `command exited with ${launch.code}` };
         if (!input.healthcheck) return { outcome: "success", stdout, stderr };
+        if (context.cancellation.aborted) return { outcome: "cancelled", stdout, stderr, message: "action cancelled" };
         const deadline = Date.now() + parseDuration(input.healthcheck_timeout ?? "30s");
         while (Date.now() < deadline) {
+          if (context.cancellation.aborted) return { outcome: "cancelled", stdout, stderr, message: "action cancelled" };
           const probeController = new AbortController();
           let timedOut = false;
           const timeout = setTimeout(() => { timedOut = true; probeController.abort(); }, Math.max(1, deadline - Date.now()));

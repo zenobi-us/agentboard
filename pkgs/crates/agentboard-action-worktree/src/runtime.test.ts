@@ -80,7 +80,7 @@ test("does not accept an unregistered directory as a cached worktree", async () 
   await rm(directory, { recursive: true, force: true });
 });
 
-test("rejects an unrelated existing root and branch collision", async () => {
+test("rejects the repository root, an unrelated existing root, and branch collision", async () => {
   const directory = await mkdtemp(join(tmpdir(), "agentboard-worktree-"));
   const repo = join(directory, "repo");
   const other = join(directory, "other");
@@ -94,6 +94,9 @@ test("rejects an unrelated existing root and branch collision", async () => {
   await Bun.write(join(other, "file"), "unrelated");
 
   const action = runtime(inputs(repo, root, "agentboard/item"));
+  const repositoryRoot = await action.execute({ workspaceId: "w", sourceId: "s", item: {} as never, inputs: inputs(repo, repo, "agentboard/item"), cancellation: new AbortController().signal });
+  expect(repositoryRoot.outcome).toBe("failure");
+
   const unrelated = await action.execute({ workspaceId: "w", sourceId: "s", item: {} as never, inputs: inputs(repo, other, "agentboard/item"), cancellation: new AbortController().signal });
   expect(unrelated.outcome).toBe("failure");
 
