@@ -35,10 +35,28 @@ async function command(command: string, site: string, signal: AbortSignal): Prom
   } finally { signal.removeEventListener("abort", stop); }
 }
 
+function parseCredentials(output: string): { username: string; token: string } {
+  let username: string | undefined;
+  let token: string | undefined;
+  for (const line of output.split(/\r?\n/)) {
+    const separator = line.indexOf("=");
+    if (separator < 0) continue;
+    const key = line.slice(0, separator);
+    const value = line.slice(separator + 1);
+    if (key === "username" || key === "email") username = value;
+    if (key === "password" || key === "token") token = value;
+  }
+  if (!username) throw new Error("credential helper missing username");
+  if (!token) throw new Error("credential helper missing token");
+  return { username, token };
+}
+
 function fields(config: JiraSource): string[] {
-  const result = new Set(config.fields ?? []);
-  for (const path of Object.values(config.field_map ?? {})) if (path?.startsWith("fields.")) result.add(path.slice("fields.".length).split(".")[0]!);
-  result.add("summary"); result.add("status");
+  const result = new Set(["summary", "status"]);
+  for (const path of Object.values(config.field_map ?? {})) {
+    if (path?.startsWith("fields.")) result.add(path.slice("fields.".length).split(".")[0]!);
+  }
+  for (const field of config.fields ?? []) result.add(field);
   return [...result];
 }
 
@@ -47,11 +65,14 @@ export function runtime(config: JiraSource, context: { sourceId: string; cancell
     if (context.cancellation.aborted) throw new Error("jira operation cancelled");
     const site = config.site.replace(/\/$/, "");
     const credentials = config.credentials
-      ? await command(config.credentials.helper, site, context.cancellation)
-      : `${process.env[config.email_env ?? "JIRA_EMAIL"] ?? ""}\n${process.env[config.token_env ?? "JIRA_API_TOKEN"] ?? ""}`;
-    const lines = credentials.split(/\r?\n/).filter(Boolean);
-    const username = config.credentials ? (lines.find((line) => line.startsWith("username=") || line.startsWith("email="))?.split("=", 2)[1] ?? "") : lines[0] ?? "";
-    const token = config.credentials ? (lines.find((line) => line.startsWith("password=") || line.startsWith("token="))?.split("=", 2)[1] ?? "") : lines[1] ?? "";
+      ? parseCredentials(await command(config.credentials.helper, site, context.cancellation))
+      : {
+          username: process.env[config.email_env ?? "JIRA_EMAIL"] ?? "",
+          token: process.env[config.token_env ?? "JIRA_API_TOKEN"] ?? "",
+        };
+    if (!credentials.username) throw new Error(`Jira credential environment variable ${config.email_env ?? "JIRA_EMAIL"} is not configured`);
+    if (!credentials.token) throw new Error(`Jira credential environment variable ${config.token_env ?? "JIRA_API_TOKEN"} is not configured`);
+    const { username, token } = credentials;
     const items: Item[] = [];
     const ids = new Set<string>();
     let nextPageToken: string | undefined;
@@ -86,6 +107,11 @@ export function runtime(config: JiraSource, context: { sourceId: string; cancell
 }
 
 export async function healthCheck(config: JiraSource, context: { sourceId: string; cancellation: AbortSignal }): Promise<void> {
-  if (config.credentials) await command(config.credentials.helper, config.site, context.cancellation);
-  else if (!process.env[config.email_env ?? "JIRA_EMAIL"] || !process.env[config.token_env ?? "JIRA_API_TOKEN"]) throw new Error("Jira credentials are not configured");
+  if (config.credentials) {
+    parseCredentials(await command(config.credentials.helper, config.site, context.cancellation));
+    return;
+  }
+  if (!process.env[config.email_env ?? "JIRA_EMAIL"] || !process.env[config.token_env ?? "JIRA_API_TOKEN"]) {
+    throw new Error("Jira credentials are not configured");
+  }
 }
