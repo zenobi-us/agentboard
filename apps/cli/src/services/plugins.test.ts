@@ -122,6 +122,13 @@ afterEach(() => {
 });
 
 describe("Plugin Package discovery", () => {
+  test("uses the config directory when no project package.json exists", () => {
+    const root = fixture();
+    const configPath = join(root, "nested", "agentboard.toml");
+
+    expect(findProjectPackageRoot(configPath)).toBe(join(root, "nested"));
+  });
+
   test("finds the nearest project package root and prefers it over global packages", () => {
     const root = fixture();
     const projectRoot = join(root, "packages/app");
@@ -371,13 +378,13 @@ describe("Plugin Package discovery", () => {
     expect(Bun.file(ignoredMarker).size).toBe(0);
   });
 
-  test("loads legacy built-in data Workspace identifiers during the Bun migration", async () => {
+  test("loads built-in Plugin Package identifiers from data Workspace configuration", async () => {
     const root = fixture();
     const configPath = join(root, ".agentboard.toml");
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
     packageFixture(root, "node_modules/@agentboard/source-github", "@agentboard/source-github", configurablePluginSource("source"));
     packageFixture(root, "node_modules/@agentboard/action-run-cmd", "@agentboard/action-run-cmd", configurablePluginSource("action"));
-    writeFileSync(configPath, `[[sources]]\nid = "one"\n[sources.source]\nkind = "github"\nquery = "runtime"\n[[sources.actions]]\nuses = "agentboard/run-cmd"\n[sources.actions.with]\nquery = "echo ready"\n`);
+    writeFileSync(configPath, `[[sources]]\nid = "one"\n[sources.source]\nuses = "@agentboard/source-github"\nquery = "runtime"\n[[sources.actions]]\nuses = "@agentboard/action-run-cmd"\n[sources.actions.with]\nquery = "echo ready"\n`);
 
     const loaded = await loadDataWorkspace(configPath, join(root, "global"));
 

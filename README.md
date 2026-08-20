@@ -60,7 +60,7 @@ Configure the Workspace:
 id = "github-assigned"
 
 [sources.source]
-kind = "github"
+uses = "@agentboard/source-github"
 mode = "issue"
 query = "repo:OWNER/REPO is:open assignee:@me label:ready-for-agent"
 limit = 50
@@ -70,7 +70,7 @@ status_map = { ready-for-agent = "ready" }
 helper = "gh auth token"
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo 'launch your agent for {{ item.url }}'"

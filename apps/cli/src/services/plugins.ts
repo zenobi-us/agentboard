@@ -48,7 +48,7 @@ export function findProjectPackageRoot(configPath: string): string {
     if (parent === directory) break;
     directory = parent;
   }
-  throw new Error(`could not find project package.json for ${configPath}`);
+  return dirname(resolve(configPath));
 }
 
 export function discoverPluginPackages(

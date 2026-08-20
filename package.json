@@ -3,6 +3,11 @@
   "version": "0.0.1",
   "private": true,
   "dependencies": {
+    "@agentboard/action-run-cmd": "workspace:*",
+    "@agentboard/action-worktree": "workspace:*",
+    "@agentboard/source-github": "workspace:*",
+    "@agentboard/source-jira": "workspace:*",
+    "@agentboard/source-qmd": "workspace:*",
     "@moonrepo/cli": "*",
     "@playwright/cli": "^0.1.14",
     "@types/bun": "^1.3.14",

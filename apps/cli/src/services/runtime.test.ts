@@ -18,7 +18,7 @@ import { installCancellationHandlers } from "../cli/cancellation.ts";
 import { parseRunInterval, runExitStatus } from "../cli/run.ts";
 import { loadExecutableWorkspace } from "./config/workspace.ts";
 import { checkWorkspaceHealth, runWorkspace, watchWorkspace } from "./runtime.ts";
-import { acquireWorkspaceLock } from "./store.ts";
+import { acquireWorkspaceLock, readStoreViews, setSourceCollectionStatus } from "./store.ts";
 import { renderActionInputs } from "./template.ts";
 
 describe("Workspace runtime orchestration", () => {
@@ -145,7 +145,7 @@ describe("Workspace runtime orchestration", () => {
         source: source(sourcePlugin, { kind: "memory", title: "Runtime item" }, path),
         actions: [action(actionPlugin, {
           message: "$AGENTBOARD_RUNTIME_ROOT/{{ item.title }}",
-          sourceKind: "{{ source.source.kind }}",
+          sourceKind: "{{ source.source.uses }}",
         }, path)],
       }],
     }));
@@ -158,15 +158,15 @@ describe("Workspace runtime orchestration", () => {
     expect(sourceFactories).toBe(1);
     expect(actionRuntimes).toBe(1);
     expect(renderedInputs).toEqual([
-      { message: "/tmp/runtime/Runtime item", sourceKind: "memory" },
+      { message: "/tmp/runtime/Runtime item", sourceKind: `inline:${path}:source:0` },
     ]);
     expect(first.sources[0]).toMatchObject({
       id: "issues",
-      items: [{ raw: { providerId: 1 } }],
-      actions: [{
+      items: [expect.objectContaining({ raw: { providerId: 1 } })],
+      actions: [expect.objectContaining({
         itemId: "item-1",
-        result: { outcome: "success", stdout: "AB-1:/tmp/runtime/Runtime item:memory", stderr: "" },
-      }],
+        result: { outcome: "success", stdout: `AB-1:/tmp/runtime/Runtime item:inline:${path}:source:0`, stderr: "" },
+      })],
     });
     expect(second.sources[0]?.actions).toEqual([{
       itemId: "item-1",
@@ -178,9 +178,34 @@ describe("Workspace runtime orchestration", () => {
     expect(files.some((file) => file.endsWith(".snapshots"))).toBe(true);
     const attempts = files.find((file) => file.includes("actions-") && file.endsWith(".jsonl"));
     expect(attempts).toBeDefined();
+    expect(files.some((file) => file.includes("items-") && file.endsWith(".jsonl"))).toBe(true);
     expect((await readFile(join(storeRoot, attempts!), "utf8")).trim().split("\n")).toHaveLength(1);
     if (previousRoot === undefined) delete process.env["AGENTBOARD_RUNTIME_ROOT"];
     else process.env["AGENTBOARD_RUNTIME_ROOT"] = previousRoot;
+    await rm(storeRoot, { recursive: true, force: true });
+  });
+
+  test("reads stale collecting status as cancelled", async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+    const path = new URL("./stale-status.test.ts", import.meta.url).pathname;
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: () => ({ collect: (): Item[] => [] }),
+      healthCheck: () => undefined,
+    });
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{ id: "issues", source: source(sourcePlugin, {}, path) }],
+    }));
+    await setSourceCollectionStatus(workspace, "issues", "collecting", undefined, storeRoot);
+    const snapshot = (await readStoreViews(workspace, storeRoot))[0]!;
+    expect(snapshot.collectionStatus).toMatchObject({ state: "cancelled" });
+    await setSourceCollectionStatus(workspace, "issues", "failed", "collection failed", storeRoot);
+    expect((await readStoreViews(workspace, storeRoot))[0]?.collectionStatus).toMatchObject({
+      state: "failed",
+      error: "collection failed",
+    });
     await rm(storeRoot, { recursive: true, force: true });
   });
 
@@ -955,7 +980,7 @@ describe("Workspace runtime orchestration", () => {
       cwd: join(storeRoot, workspace.id),
     }));
     expect(statusFiles).toHaveLength(1);
-    expect(statusFiles[0]).toMatch(/^sources\/issues-[a-f0-9]{12}\/collection-status\.json$/);
+    expect(statusFiles[0]).toBe("sources/issues/collection-status.json");
     const status = JSON.parse(await readFile(
       join(storeRoot, workspace.id, statusFiles[0]!),
       "utf8",
@@ -1182,22 +1207,22 @@ describe("Workspace runtime orchestration", () => {
 
   test("preserves the documented Action template context", () => {
     const rendered = renderActionInputs({
-      source: "{{ source.source.kind }}|{{ source.actions[0].uses }}",
+      source: "{{ source.source.uses }}|{{ source.actions[0].uses }}",
       bracket: '{{ actions["worktree"].inputs["root"] }}',
       statement: "{% set prior = actions.worktree %}{{ prior.inputs.root }}",
       expression: "{{ item.raw.value + 1 }}",
     }, {
       source: {
         id: "issues",
-        source: { kind: "memory" },
-        actions: [{ uses: "agentboard/worktree" }],
+        source: { uses: "memory" },
+        actions: [{ uses: "@agentboard/action-worktree" }],
       },
       item: { raw: { value: 1 } },
       actions: { worktree: { inputs: { root: "/tmp/worktree" } } },
     });
 
     expect(rendered).toEqual({
-      source: "memory|agentboard/worktree",
+      source: "memory|@agentboard/action-worktree",
       bracket: "/tmp/worktree",
       statement: "/tmp/worktree",
       expression: "2",

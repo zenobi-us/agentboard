@@ -45,6 +45,7 @@ export interface WorkspaceRunResult {
 
 export interface RunWorkspaceOptions {
   readonly storeRoot?: string;
+  readonly dryRun?: boolean;
 }
 
 export interface WatchWorkspaceOptions extends RunWorkspaceOptions {
@@ -105,9 +106,10 @@ export async function runWorkspace(
   workspace: LoadedWorkspace,
   options: RunWorkspaceOptions = {},
 ): Promise<WorkspaceRunResult> {
+  if (options.dryRun) return runWorkspaceUnlocked(workspace, options.storeRoot, true);
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
-    return await runWorkspaceUnlocked(workspace, options.storeRoot);
+    return await runWorkspaceUnlocked(workspace, options.storeRoot, false);
   } finally {
     await releaseLock();
   }
@@ -117,11 +119,12 @@ export async function watchWorkspace(
   workspace: LoadedWorkspace,
   options: WatchWorkspaceOptions = {},
 ): Promise<WorkspaceRunResult> {
+  if (options.dryRun) return runWorkspaceUnlocked(workspace, options.storeRoot, true);
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
     let result: WorkspaceRunResult;
     do {
-      result = await runWorkspaceUnlocked(workspace, options.storeRoot);
+      result = await runWorkspaceUnlocked(workspace, options.storeRoot, options.dryRun);
       options.onResult?.(result);
       if (!result.cancelled && !workspace.cancellation.aborted) {
         if (await waitForNextRun(workspace.cancellation, options.intervalMs ?? 60_000)) {
@@ -140,9 +143,10 @@ export async function watchWorkspace(
 async function runWorkspaceUnlocked(
   workspace: LoadedWorkspace,
   storeRoot?: string,
+  dryRun = false,
 ): Promise<WorkspaceRunResult> {
   const settled = await Promise.allSettled(workspace.sources.map((source) =>
-    runSource(workspace, source, storeRoot)
+    runSource(workspace, source, storeRoot, dryRun)
   ));
   const sources = settled.map((result) => {
     if (result.status === "rejected") throw result.reason;
@@ -175,6 +179,7 @@ async function runSource(
   workspace: LoadedWorkspace,
   source: LoadedWorkspace["sources"][number],
   storeRoot?: string,
+  dryRun = false,
 ): Promise<{ readonly result: SourceRunResult; readonly cancelled: boolean }> {
   if (source.cancellation.aborted) {
     return {
@@ -182,9 +187,9 @@ async function runSource(
       cancelled: true,
     };
   }
-  await setSourceCollectionStatus(workspace, source.id, "collecting", undefined, storeRoot);
+  if (!dryRun) await setSourceCollectionStatus(workspace, source.id, "collecting", undefined, storeRoot);
   if (source.cancellation.aborted) {
-    await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
+    if (!dryRun) await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
     return {
       result: { id: source.id, uses: source.packageName, items: [], actions: [] },
       cancelled: true,
@@ -194,30 +199,32 @@ async function runSource(
   try {
     items = await collectSource(source);
     if (source.cancellation.aborted) throw source.cancellation.reason ?? new Error("cancelled");
-    await appendSourceSnapshot(workspace, source, items, source.cancellation, storeRoot);
-    await setSourceCollectionStatus(workspace, source.id, "complete", undefined, storeRoot);
-    if (source.cancellation.aborted) {
+    if (!dryRun) {
+      await appendSourceSnapshot(workspace, source, items, source.cancellation, storeRoot);
+      await setSourceCollectionStatus(workspace, source.id, "complete", undefined, storeRoot);
+    }
+    if (source.cancellation.aborted && source.actions.length === 0) {
       return {
-        result: { id: source.id, uses: source.packageName, items: [], actions: [] },
-        cancelled: true,
+        result: { id: source.id, uses: source.packageName, items, actions: [] },
+        cancelled: false,
       };
     }
   } catch (error) {
     if (source.cancellation.aborted) {
-      await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
+      if (!dryRun) await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
       return {
         result: { id: source.id, uses: source.packageName, items: [], actions: [] },
         cancelled: true,
       };
     }
     const message = errorMessage(error);
-    await setSourceCollectionStatus(workspace, source.id, "failed", message, storeRoot);
+    if (!dryRun) await setSourceCollectionStatus(workspace, source.id, "failed", message, storeRoot);
     return {
       result: { id: source.id, uses: source.packageName, items: [], actions: [], error: message },
       cancelled: false,
     };
   }
-  const actions = await runActions(workspace, source, items, storeRoot);
+  const actions = await runActions(workspace, source, items, storeRoot, dryRun);
   return {
     result: { id: source.id, uses: source.packageName, items, actions: actions.results },
     cancelled: actions.cancelled,
@@ -229,6 +236,7 @@ async function runActions(
   source: LoadedWorkspace["sources"][number],
   items: readonly Item[],
   storeRoot?: string,
+  dryRun = false,
 ): Promise<{ readonly results: ActionRunResult[]; readonly cancelled: boolean }> {
   const results: ActionRunResult[] = [];
   const successes = await successfulActionKeys(workspace, source, storeRoot);
@@ -242,19 +250,12 @@ async function runActions(
           workspace: { id: workspace.id, path: workspace.path },
           source: {
             id: source.id,
-            source: Object.assign(
-              {
-                kind: source.source.config !== null &&
-                    typeof source.source.config === "object" &&
-                    typeof (source.source.config as Record<string, unknown>)["kind"] === "string"
-                  ? (source.source.config as Record<string, unknown>)["kind"]
-                  : source.packageName,
-                uses: source.packageName,
-              },
-              source.source.config !== null && typeof source.source.config === "object"
+            source: {
+              uses: source.packageName,
+              ...(source.source.config !== null && typeof source.source.config === "object"
                 ? source.source.config
-                : { value: source.source.config },
-            ),
+                : { value: source.source.config }),
+            },
             actions: source.actions.map((configured) => ({
               id: configured.id,
               uses: configured.packageName,
@@ -268,6 +269,10 @@ async function runActions(
         if (action.id) actions[action.id] = { inputs };
         renderedHash = renderedActionHash(action.packageName, inputs);
         if (source.cancellation.aborted) return { results, cancelled: true };
+        if (dryRun) {
+          results.push({ itemId: item.id, actionIndex, uses: action.packageName, skipped: true });
+          continue;
+        }
         const context = {
           workspaceId: workspace.id,
           sourceId: source.id,

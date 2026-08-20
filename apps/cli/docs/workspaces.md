@@ -50,12 +50,12 @@ AgentBoard uses the workspace id in Store paths and action environment variables
 id = "local"
 
 [sources.source]
-kind = "qmd"
+uses = "@agentboard/source-qmd"
 collections = ["tasks"]
 query = "intent: ready work"
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }}"
@@ -72,8 +72,8 @@ Source-specific fields are documented by source crates:
 
 Action-specific inputs are documented by action crates:
 
-- [`agentboard/worktree`](/actions/worktree)
-- [`agentboard/run-cmd`](/actions/run-cmd)
+- [`@agentboard/action-worktree`](/actions/worktree)
+- [`@agentboard/action-run-cmd`](/actions/run-cmd)
 
 ## CLI validation rules
 

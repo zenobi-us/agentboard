@@ -327,9 +327,8 @@ function parseDataWorkspace(path: string): {
   } catch (error) {
     throw new Error(`Workspace data parse failed for ${path}: ${String(error)}`);
   }
-  const migrated = migrateWorkspaceData(value);
-  validateWorkspaceData(migrated, path);
-  return migrated;
+  validateWorkspaceData(value, path);
+  return value;
 }
 
 function validateExecutableWorkspace(
@@ -476,56 +475,6 @@ function validateWorkspaceData(value: unknown, path: string): asserts value is {
       throw new Error(`Workspace data validation failed for ${path}: source ${id} actions must be an array of objects`);
     }
   }
-}
-
-
-const legacySourcePackages: Record<string, string> = {
-  github: "@agentboard/source-github",
-  jira: "@agentboard/source-jira",
-  qmd: "@agentboard/source-qmd",
-};
-
-const legacyActionPackages: Record<string, string> = {
-  "agentboard/run-cmd": "@agentboard/action-run-cmd",
-  "agentboard/worktree": "@agentboard/action-worktree",
-};
-
-function migrateWorkspaceData(value: unknown): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const workspace = value as Record<string, unknown>;
-  const sources = workspace["sources"];
-  if (!Array.isArray(sources)) return value;
-  return {
-    ...workspace,
-    sources: sources.map((entry) => {
-      if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
-      const record = entry as Record<string, unknown>;
-      const actions = record["actions"];
-      return {
-        ...record,
-        source: migratePlugin(record["source"], legacySourcePackages),
-        actions: Array.isArray(actions)
-          ? actions.map((action: unknown) => migratePlugin(action, legacyActionPackages))
-          : actions,
-      };
-    }),
-  };
-}
-
-function migratePlugin(value: unknown, packages: Record<string, string>): unknown {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
-  const plugin = value as Record<string, unknown>;
-  const uses = plugin["uses"];
-  if (typeof uses === "string") {
-    const replacement = packages[uses];
-    return replacement ? { ...plugin, uses: replacement } : plugin;
-  }
-  const kind = plugin["kind"];
-  if (typeof kind === "string" && packages[kind]) {
-    const { kind: _kind, ...payload } = plugin;
-    return { uses: packages[kind], ...payload };
-  }
-  return plugin;
 }
 
 function readPackageName(value: Record<string, unknown>, location: string): string {

@@ -30,6 +30,11 @@ tasks:
       - "dist/cli"
 
   build:
+    deps:
+      - "~:ts-build"
+    command: "noop"
+
+  rust-build:
     command: "cargo build -p agentboard"
     inputs:
       - "Cargo.toml"
@@ -40,6 +45,11 @@ tasks:
       - "/target/debug/agentboard"
 
   check:
+    deps:
+      - "~:ts-typecheck"
+    command: "noop"
+
+  rust-check:
     command: "cargo check -p agentboard"
     inputs:
       - "Cargo.toml"
@@ -49,7 +59,7 @@ tasks:
 
   typecheck:
     deps:
-      - "~:check"
+      - "~:ts-typecheck"
     command: "noop"
 
   ts-test:
@@ -63,6 +73,9 @@ tasks:
   test:
     deps:
       - "~:ts-test"
+    command: "noop"
+
+  rust-test:
     command: "cargo test -p agentboard"
     inputs:
       - "Cargo.toml"
@@ -72,7 +85,7 @@ tasks:
 
   bats:
     deps:
-      - "~:build"
+      - "~:rust-build"
     command: "bats --formatter pretty test/*.bats"
     inputs:
       - "Cargo.toml"
@@ -84,13 +97,13 @@ tasks:
 
   lint:
     deps:
-      - "~:check"
+      - "~:ts-typecheck"
     command: "noop"
 
   install:
     deps:
-      - "~:build"
-    command: "cargo install --path . --force --locked"
+      - "~:ts-build"
+    command: "noop"
 
   publish:
     type: run

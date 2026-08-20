@@ -1,8 +1,8 @@
 import { app } from "./app.ts";
+import { initializeWorkspace } from "./workspace.ts";
 
 export const initCmd = app
   .sub("init")
-  .meta({ description: "Create an empty workspace" })
-  .run(() => {
-    console.log("init placeholder");
-  });
+  .args([{ name: "path", type: "string", default: ".agentboard.toml" }])
+  .meta({ description: "Create an empty Workspace" })
+  .run(({ args }) => initializeWorkspace(args.path));

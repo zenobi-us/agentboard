@@ -5,6 +5,11 @@
     "": {
       "name": "agentboard",
       "dependencies": {
+        "@agentboard/action-run-cmd": "workspace:*",
+        "@agentboard/action-worktree": "workspace:*",
+        "@agentboard/source-github": "workspace:*",
+        "@agentboard/source-jira": "workspace:*",
+        "@agentboard/source-qmd": "workspace:*",
         "@moonrepo/cli": "*",
         "@playwright/cli": "^0.1.14",
         "@types/bun": "^1.3.14",
@@ -39,6 +44,11 @@
     },
     "apps/demo": {
       "name": "agentboard-demo",
+      "dependencies": {
+        "@agentboard/action-run-cmd": "workspace:*",
+        "@agentboard/action-worktree": "workspace:*",
+        "@agentboard/source-github": "workspace:*",
+      },
       "devDependencies": {
         "@eslint/css": "^1.4.0",
         "@html-eslint/eslint-plugin": "^0.64.0",
