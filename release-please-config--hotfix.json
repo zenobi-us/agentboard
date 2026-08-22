@@ -6,7 +6,7 @@
     "apps/cli": {
       "component": "agentboard",
       "group": "application",
-      "release-type": "rust"
+      "release-type": "node"
     },
     "apps/docs": {
       "component": "docs",

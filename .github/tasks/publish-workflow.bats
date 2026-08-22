@@ -44,10 +44,10 @@ setup() {
   grep -F 'moon run "${PUBLISH_TARGET}:publish" --force' "${PUBLISH}"
 }
 
-@test "GitHub assets use computed release tag" {
+@test "CLI publishes through the Node package helper" {
   cli_moon="${BATS_TEST_DIRNAME}/../../apps/cli/moon.yml"
-  grep -F 'gh release upload "${PUBLISH_RELEASE_TAG}"' "${cli_moon}"
-  ! grep -F 'gh release upload "${PUBLISH_CHANNEL}"' "${cli_moon}"
+  grep -F 'pkgs/tools/deployment/npm-publish' "${cli_moon}"
+  ! grep -F 'cargo' "${cli_moon}"
 }
 
 @test "release workflow explicitly targets current hotfix branch" {

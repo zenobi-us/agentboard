@@ -9,23 +9,17 @@ setup() {
   git -C "${REPO}" init -q -b main
   git -C "${REPO}" config user.name Test
   git -C "${REPO}" config user.email test@example.com
-  mkdir -p "${REPO}/apps/node" "${REPO}/apps/rust"
+  mkdir -p "${REPO}/apps/node"
   printf '%s\n' '{"name":"node-app","version":"1.2.3"}' >"${REPO}/apps/node/package.json"
-  printf '%s\n' '[package]' 'name = "rust-app"' 'version = "2.3.4"' >"${REPO}/apps/rust/Cargo.toml"
   git -C "${REPO}" add .
   git -C "${REPO}" commit -qm root
 
-  export MOON_MOCK_OUTPUT='{"projects":[{"id":"node-app","source":"apps/node","tasks":{"publish":{}}},{"id":"rust-app","source":"apps/rust","tasks":{"publish":{}}},{"id":"private-app","source":"apps/node","tasks":{"test":{}}}]}'
+  export MOON_MOCK_OUTPUT='{"projects":[{"id":"node-app","source":"apps/node","tasks":{"publish":{}}},{"id":"private-app","source":"apps/node","tasks":{"test":{}}}]}'
   cat >"${MOCK_DIR}/moon" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${MOON_MOCK_OUTPUT}"
 EOF
-  cat >"${MOCK_DIR}/cargo" <<'EOF'
-#!/usr/bin/env bash
-manifest="$(cd "$(dirname "$3")" && pwd -P)/Cargo.toml"
-printf '{"packages":[{"manifest_path":"%s","version":"2.3.4"}]}\n' "${manifest}"
-EOF
-  chmod +x "${MOCK_DIR}/moon" "${MOCK_DIR}/cargo"
+  chmod +x "${MOCK_DIR}/moon"
   cd "${REPO}"
 }
 
@@ -78,12 +72,6 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
-@test "Cargo version source resolves through cargo metadata" {
-  run bash "${SCRIPT}" rust-app latest main 1
-  [ "$status" -eq 0 ]
-  run jq -e '.current_version == "2.3.4" and .release_tag == "rust-app-v2.3.4"' <<<"$output"
-  [ "$status" -eq 0 ]
-}
 
 @test "rejects unknown non-publishable branch and malformed version" {
   run bash "${SCRIPT}" missing latest main 1

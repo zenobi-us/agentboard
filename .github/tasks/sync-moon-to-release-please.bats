@@ -6,24 +6,18 @@ setup() {
   MOCK_DIR="$(mktemp -d)"
   export PATH="${MOCK_DIR}:${PATH}"
 
-  mkdir -p "${REPO}/apps/node" "${REPO}/apps/rust" "${REPO}/apps/private"
+  mkdir -p "${REPO}/apps/node" "${REPO}/apps/private"
   printf '%s\n' '{"version":"1.2.3"}' >"${REPO}/apps/node/package.json"
-  printf '%s\n' '[package]' 'name = "rust-app"' 'version = "2.3.4"' >"${REPO}/apps/rust/Cargo.toml"
   printf '%s\n' '{}' >"${REPO}/.release-please-manifest.json"
   printf '%s\n' '{"packages":{}}' >"${REPO}/release-please-config--release.json"
   printf '%s\n' '{"packages":{}}' >"${REPO}/release-please-config--hotfix.json"
 
-  export MOON_MOCK_OUTPUT='{"projects":[{"id":"node-app","source":"apps/node","layer":"application","tasks":{"publish":{}}},{"id":"rust-app","source":"apps/rust","layer":"application","tasks":{"publish":{}}},{"id":"private-app","source":"apps/private","tasks":{"test":{}}}]}'
+  export MOON_MOCK_OUTPUT='{"projects":[{"id":"node-app","source":"apps/node","layer":"application","tasks":{"publish":{}}},{"id":"private-app","source":"apps/private","tasks":{"test":{}}}]}'
   cat >"${MOCK_DIR}/moon" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "${MOON_MOCK_OUTPUT}"
 EOF
-  cat >"${MOCK_DIR}/cargo" <<'EOF'
-#!/usr/bin/env bash
-manifest="$(cd "$(dirname "$3")" && pwd -P)/Cargo.toml"
-printf '{"packages":[{"manifest_path":"%s","version":"2.3.4"}]}\n' "${manifest}"
-EOF
-  chmod +x "${MOCK_DIR}/moon" "${MOCK_DIR}/cargo"
+  chmod +x "${MOCK_DIR}/moon"
   cd "${REPO}"
 }
 
@@ -31,19 +25,18 @@ teardown() {
   rm -rf "${REPO}" "${MOCK_DIR}"
 }
 
-@test "sync discovers Node and Cargo projects and preserves manifest versions" {
+@test "sync discovers Node projects and preserves manifest versions" {
   printf '%s\n' '{"apps/node":"9.9.9"}' >.release-please-manifest.json
 
   run bash "${SCRIPT}" sync
   [ "$status" -eq 0 ]
 
-  run jq -e '. == {"apps/node":"9.9.9","apps/rust":"2.3.4"}' .release-please-manifest.json
+  run jq -e '. == {"apps/node":"9.9.9"}' .release-please-manifest.json
   [ "$status" -eq 0 ]
 
   for config in release-please-config--release.json release-please-config--hotfix.json; do
     run jq -e '.packages == {
-      "apps/node":{"component":"node-app","group":"application","release-type":"node"},
-      "apps/rust":{"component":"rust-app","group":"application","release-type":"rust"}
+      "apps/node":{"component":"node-app","group":"application","release-type":"node"}
     }' "${config}"
     [ "$status" -eq 0 ]
   done

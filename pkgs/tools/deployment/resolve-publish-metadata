@@ -37,14 +37,6 @@ if [[ -f "${source}/package.json" ]]; then
     echo "ERROR: package version missing in '${source}/package.json'" >&2
     exit 1
   }
-elif [[ -f "${source}/Cargo.toml" ]]; then
-  manifest_path="$(cd "${source}" && pwd -P)/Cargo.toml"
-  current_version="$(cargo metadata --manifest-path "${source}/Cargo.toml" --no-deps --format-version 1 | jq -er --arg manifest "${manifest_path}" '
-    first(.packages[]? | select(.manifest_path == $manifest) | .version) // error("package not found")
-  ')" || {
-    echo "ERROR: package version missing for '${source}/Cargo.toml'" >&2
-    exit 1
-  }
 else
   echo "ERROR: unsupported version source for publishable target '${target}' at '${source}'" >&2
   exit 1

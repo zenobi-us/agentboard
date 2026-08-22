@@ -4,7 +4,7 @@ set -euo pipefail
 
 require_tools() {
   local tool
-  for tool in moon jq diff cargo; do
+  for tool in moon jq diff; do
     command -v "${tool}" >/dev/null || { echo "${tool} not found" >&2; exit 1; }
   done
 }
@@ -19,15 +19,6 @@ discover_release_files() {
   [[ -f "${manifest_file}" ]] || { echo "${manifest_file} not found." >&2; exit 1; }
 }
 
-cargo_version() {
-  local source="${1}"
-  local manifest_path
-  manifest_path="$(cd "${source}" && pwd -P)/Cargo.toml"
-  cargo metadata --manifest-path "${source}/Cargo.toml" --no-deps --format-version 1 \
-    | jq -er --arg manifest "${manifest_path}" '
-        first(.packages[]? | select(.manifest_path == $manifest) | .version) // error("package not found")
-      '
-}
 
 moon_query_to_project_map() {
   local rows
@@ -48,12 +39,6 @@ moon_query_to_project_map() {
       release_type="node"
       version="$(jq -er '.version | select(type == "string" and length > 0)' "${source}/package.json")" || {
         echo "Missing package version: ${source}/package.json" >&2
-        return 1
-      }
-    elif [[ -f "${source}/Cargo.toml" ]]; then
-      release_type="rust"
-      version="$(cargo_version "${source}")" || {
-        echo "Unable to resolve Cargo package version: ${source}/Cargo.toml" >&2
         return 1
       }
     else
