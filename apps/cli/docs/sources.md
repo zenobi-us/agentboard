@@ -72,4 +72,4 @@ The CLI validates Source ids before a Run:
 - Source ids must be nonempty.
 - Source ids must be unique within one Workspace.
 
-Source crates own Source-specific validation and collection behavior.
+Source packages own Source-specific validation and collection behavior.

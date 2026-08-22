@@ -6,5 +6,5 @@
 deps = "bun install"
 
 [[pre-merge]]
-# Keep merges from landing when Rust/TypeScript checks are broken.
+# Keep merges from landing when TypeScript checks are broken.
 typecheck = "moon run repo:typecheck"

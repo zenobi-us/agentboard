@@ -18,7 +18,7 @@ _Avoid_: Continuous session monitor, harness lifecycle
 
 ## Boundaries
 
-- This crate executes already-rendered inputs only.
+- This package executes already-rendered inputs only.
 - The CLI owns template rendering, action hashing, retry decisions, and action attempt persistence.
 - The action owns process execution, cwd handling, stdout/stderr capping, and exit-status translation into `ActionRun`.
 - Do not add custom shell parsing; `sh -c` is the contract.

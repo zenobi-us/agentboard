@@ -9,13 +9,6 @@
   "bin": {
     "agentboard": "dist/cli"
   },
-  "scripts": {
-    "dev": "bun run src/cli/index.ts",
-    "build": "bun build src/cli/index.ts --target bun --format esm --external minijinja-js --outfile dist/cli",
-    "typecheck": "tsc --noEmit",
-    "test": "bun test ./src",
-    "start": "./dist/cli"
-  },
   "dependencies": {
     "@agentboard/action-run-cmd": "workspace:*",
     "@agentboard/action-worktree": "workspace:*",

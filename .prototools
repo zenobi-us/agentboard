@@ -2,7 +2,6 @@
 # Keep in sync with .moon/toolchains.yml.
 
 bun = "1.3.14"
-rust = "stable"
 worktrunk = "0.62.0"
 bats = "1.13.0"
 trufflehog = "3.95.5"
@@ -11,7 +10,7 @@ watchexec = "2.3.2"
 [settings]
 detect-strategy = "only-prototools"
 auto-install = true
-builtin-plugins = ["bun", "rust"]
+builtin-plugins = ["bun"]
 
 [plugins.tools]
 trufflehog = "file://./proto/plugins/trufflehog.toml"

@@ -14,8 +14,8 @@ _Avoid_: Existing directory success; arbitrary directories are errors
 
 ## Boundaries
 
-- This crate uses plain `git worktree` so workspace configs stay portable.
-- This crate executes already-rendered inputs only.
+- This package uses plain `git worktree` so workspace configs stay portable.
+- This package executes already-rendered inputs only.
 - The CLI owns template rendering, action hashing, retry decisions, and action attempt persistence.
 - Existing roots are only reusable when they are already on the requested branch.
 

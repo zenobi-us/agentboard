@@ -88,7 +88,7 @@ workspace config
 load + validate -> collect items -> append store -> render action -> execute action
       |                 |              |              |                |
       v                 v              v              v                v
- apps/cli       source crates    apps/cli store   apps/cli      action crates
+ apps/cli       source packages  apps/cli store   apps/cli      action packages
 ```
 
 ## ADRs

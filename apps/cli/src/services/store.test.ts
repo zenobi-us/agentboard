@@ -53,7 +53,7 @@ describe("Store bucket paths", () => {
 });
 
 describe("Source Snapshot selection", () => {
-  test("uses the Rust-compatible Source ID, kind, and config key", async () => {
+  test("uses the stable Source ID, kind, and config key", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
     const configured = source("issues");
     await appendSourceSnapshot(workspace([configured]), configured as never, [], new AbortController().signal, root);
@@ -108,7 +108,7 @@ describe("Source Snapshot selection", () => {
 });
 
 describe("Action attempt paths", () => {
-  test("reads attempts from the Rust configured-Source hash path", async () => {
+  test("reads attempts from the configured-Source hash path", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
     const configured = {
       ...source("issues"),

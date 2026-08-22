@@ -1,6 +1,6 @@
 ---
 $schema: "file://../../../.moon/cache/schemas/project.json"
-language: rust
+language: typescript
 layer: library
 
 tasks:
@@ -23,10 +23,7 @@ tasks:
   check:
     deps:
       - "~:ts-typecheck"
-    command: "cargo check"
-    inputs:
-      - "Cargo.toml"
-      - "src/**/*.rs"
+    command: "noop"
 
   typecheck:
     deps:
@@ -36,13 +33,7 @@ tasks:
   test:
     deps:
       - "~:ts-test"
-    command: "cargo test"
-    inputs:
-      - "Cargo.toml"
-      - "package.json"
-      - "tsconfig.json"
-      - "src/**/*.rs"
-      - "src/**/*.ts"
+    command: "noop"
 
   build:
     deps:

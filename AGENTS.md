@@ -2,12 +2,12 @@
 
 ## Project
 
-`agentboard` is a Moon + proto monorepo for a Rust CLI that collects task-tracking items from external and local sources, stores normalized local copies, then runs workspace-configured actions.
+`agentboard` is a Moon + proto monorepo for a Bun CLI that collects task-tracking items from external and local sources, stores normalized local copies, then runs workspace-configured actions.
 
-- `apps/cli`: Rust CLI.
+- `apps/cli`: Bun CLI.
 - `pkgs/crates/agentboard-core`: shared model/types.
-- `pkgs/crates/agentboard-source-*`: one crate per source adapter.
-- `pkgs/crates/agentboard-action-*`: one crate per action executor.
+- `pkgs/crates/agentboard-source-*`: one package per source adapter.
+- `pkgs/crates/agentboard-action-*`: one package per action executor.
 - `apps/docs`: docs app scaffold.
 - `pkgs/tools/deployment`: release/deployment helper scripts.
 
@@ -18,7 +18,7 @@ Also read nested `AGENTS.md` files in apps/pkgs.
 - Use Bun for JS package management.
 - Use Moon for repo tasks.
 - Use proto for tool versions.
-- Use Rust for the CLI.
+- Use Bun and TypeScript for the CLI.
 - Do not use root mise tasks; use package `moon.yml` tasks.
 
 ## Common commands

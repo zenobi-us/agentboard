@@ -1,6 +1,6 @@
 # AgentBoard Core Context
 
-`agentboard-core` contains shared data structures and internal registration contracts used by the CLI, source crates, and action crates.
+`agentboard-core` contains shared data structures and internal registration contracts used by the CLI, source packages, and action packages.
 
 ## Language
 
@@ -51,10 +51,10 @@ _Avoid_: Success flag, exit status
 ## Boundaries
 
 - Core owns shared types, Source and Action registration contracts, the internal Registry, and tiny cross-crate helpers.
-- Core must not depend on CLI orchestration, source crates, or action crates.
-- The retained Rust runtime uses explicit static registration. The Bun runtime resolves discovered Plugin Descriptors into Core configuration nodes.
+- Core must not depend on CLI orchestration, source packages, or action packages.
+- The Bun runtime resolves discovered Plugin Descriptors into Core configuration nodes.
 - Keep normalized `Item` small and store source-specific payloads in `raw`.
-- Keep Workspace config envelopes boring and explicit while registered Source and Action crates own their typed configuration.
+- Keep Workspace config envelopes boring and explicit while registered Source and Action packages own their typed configuration.
 
 ## ADRs
 

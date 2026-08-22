@@ -290,7 +290,7 @@ function sourceKind(source: LoadedWorkspaceSource): string {
 
 function sourceSnapshotKey(source: LoadedWorkspaceSource): string {
   const config = JSON.stringify(source.source.config ?? {});
-  return rustDefaultHasher([source.id, sourceKind(source), config]);
+  return defaultHasher([source.id, sourceKind(source), config]);
 }
 
 function configuredSourceHash(source: LoadedWorkspaceSource): string {
@@ -308,7 +308,7 @@ function sourceConfig(source: LoadedWorkspaceSource): Record<string, unknown> {
     : { kind: sourceKind(source), value: config };
 }
 
-function rustDefaultHasher(values: readonly string[]): string {
+function defaultHasher(values: readonly string[]): string {
   const encoded = values.map((value) => new TextEncoder().encode(value));
   const bytes = new Uint8Array(encoded.reduce((size, value) => size + value.length + 1, 0));
   let byteOffset = 0;

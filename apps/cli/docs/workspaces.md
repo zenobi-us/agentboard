@@ -65,12 +65,12 @@ Unknown fields are validation errors. Keys under `[sources.actions.with]` must m
 
 ## Where specific config lives
 
-Source-specific fields are documented by source crates:
+Source-specific fields are documented by source packages:
 
 - [QMD source](/sources/qmd)
 - [Jira source](/sources/jira)
 
-Action-specific inputs are documented by action crates:
+Action-specific inputs are documented by action packages:
 
 - [`@agentboard/action-worktree`](/actions/worktree)
 - [`@agentboard/action-run-cmd`](/actions/run-cmd)

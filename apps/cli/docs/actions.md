@@ -10,7 +10,7 @@ Define them in the `sources.actions` array in your workspace config.
 
 Each action is a sequential step that runs for each item in the source. Actions are blocking per item.
 
-This CLI doc only covers orchestration: ordering, retry identity, and trust model. Action-specific config belongs in each action crate doc.
+This CLI doc only covers orchestration: ordering, retry identity, and trust model. Action-specific config belongs in each action package doc.
 
 ## Workspace Shape
 

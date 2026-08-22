@@ -1,18 +1,18 @@
 ---
 $schema: "file://../../.moon/cache/schemas/project.json"
 id: agentboard
-language: rust
+language: typescript
 layer: application
 
 tasks:
-  ts-dev:
-    command: "bun run dev"
+  dev:
+    command: "bun --hot src/cli/index.ts"
     toolchains: ["javascript", "bun"]
     options:
       runInCI: false
 
   ts-typecheck:
-    command: "bun run typecheck"
+    command: "tsc --noEmit"
     toolchains: ["javascript", "bun"]
     inputs:
       - "package.json"
@@ -20,7 +20,7 @@ tasks:
       - "src/**/*.ts"
 
   ts-build:
-    command: "bun run build"
+    command: "bun build src/cli/index.ts --target bun --format esm --external minijinja-js --outfile dist/cli"
     toolchains: ["javascript", "bun"]
     inputs:
       - "package.json"
@@ -34,28 +34,10 @@ tasks:
       - "~:ts-build"
     command: "noop"
 
-  rust-build:
-    command: "cargo build -p agentboard"
-    inputs:
-      - "Cargo.toml"
-      - "src/**/*.rs"
-      - "/pkgs/crates/agentboard-*/Cargo.toml"
-      - "/pkgs/crates/agentboard-*/src/**/*.rs"
-    outputs:
-      - "/target/debug/agentboard"
-
   check:
     deps:
       - "~:ts-typecheck"
     command: "noop"
-
-  rust-check:
-    command: "cargo check -p agentboard"
-    inputs:
-      - "Cargo.toml"
-      - "src/**/*.rs"
-      - "/pkgs/crates/agentboard-*/Cargo.toml"
-      - "/pkgs/crates/agentboard-*/src/**/*.rs"
 
   typecheck:
     deps:
@@ -63,7 +45,7 @@ tasks:
     command: "noop"
 
   ts-test:
-    command: "bun run test"
+    command: "bun test ./src"
     toolchains: ["javascript", "bun"]
     inputs:
       - "package.json"
@@ -75,26 +57,6 @@ tasks:
       - "~:ts-test"
     command: "noop"
 
-  rust-test:
-    command: "cargo test -p agentboard"
-    inputs:
-      - "Cargo.toml"
-      - "src/**/*.rs"
-      - "/pkgs/crates/agentboard-*/Cargo.toml"
-      - "/pkgs/crates/agentboard-*/src/**/*.rs"
-
-  bats:
-    deps:
-      - "~:rust-build"
-    command: "bats --formatter pretty test/*.bats"
-    inputs:
-      - "Cargo.toml"
-      - "src/**/*.rs"
-      - "/pkgs/crates/agentboard-*/Cargo.toml"
-      - "/pkgs/crates/agentboard-*/src/**/*.rs"
-      - "test/*.bats"
-      - "test/*.bash"
-
   lint:
     deps:
       - "~:ts-typecheck"
@@ -105,61 +67,17 @@ tasks:
       - "~:ts-build"
     command: "noop"
 
+  start:
+    deps:
+      - "~:ts-build"
+    command: "./dist/cli"
+    options:
+      runInCI: false
+
   publish:
-    type: run
+    command: "${MOON_WORKSPACE_ROOT}/pkgs/tools/deployment/npm-publish"
+    deps:
+      - "~:build"
     options:
       cache: false
       runInCI: true
-    script: |
-      set -euo pipefail
-
-      for name in PUBLISH_TARGET PUBLISH_CHANNEL PUBLISH_VERSION PUBLISH_RELEASE_TAG PUBLISH_REF; do
-        if [ -z "${!name:-}" ]; then
-          echo "ERROR: ${name} is required." >&2
-          exit 1
-        fi
-      done
-
-      cd "${MOON_WORKSPACE_ROOT}"
-
-      dist="${MOON_PROJECT_ROOT}/dist/publish"
-      rm -rf "${dist}"
-      mkdir -p "${dist}"
-
-      targets=(
-        "x86_64-unknown-linux-gnu"
-        "x86_64-apple-darwin"
-        "x86_64-pc-windows-gnu"
-      )
-
-      rustup target add "${targets[@]}"
-
-      for target in "${targets[@]}"; do
-        case "${target}" in
-          *apple-darwin)
-            docker run --rm \
-              -v "${MOON_WORKSPACE_ROOT}:/io" \
-              -w /io \
-              ghcr.io/rust-cross/cargo-zigbuild@sha256:b8364c2c60cdcc9b95c402d17654bff517410926a35678bd89dd924b8158d6ae \
-              cargo zigbuild --release -p agentboard --target "${target}"
-            ;;
-          *)
-            cargo build --release -p agentboard --target "${target}"
-            ;;
-        esac
-
-        case "${target}" in
-          *windows*)
-            binary="target/${target}/release/agentboard.exe"
-            archive="${dist}/agentboard-${PUBLISH_VERSION}-${target}.zip"
-            (cd "$(dirname "${binary}")" && zip -q -9 "${archive}" "$(basename "${binary}")")
-            ;;
-          *)
-            binary="target/${target}/release/agentboard"
-            archive="${dist}/agentboard-${PUBLISH_VERSION}-${target}.tar.gz"
-            tar -C "$(dirname "${binary}")" -czf "${archive}" "$(basename "${binary}")"
-            ;;
-        esac
-      done
-
-      gh release upload "${PUBLISH_RELEASE_TAG}" "${dist}"/* --clobber

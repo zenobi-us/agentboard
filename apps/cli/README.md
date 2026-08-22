@@ -10,7 +10,7 @@ The tracker or markdown collection stays the source of truth. AgentBoard keeps a
 
 ## Quick start
 
-Create a workspace. Source and Action fields are documented in their crate docs; the CLI wires them together:
+Create a workspace. Source and Action fields are documented in their package docs; the CLI wires them together:
 
 ```toml
 [[sources]]
@@ -55,9 +55,9 @@ See [docs/commands.md](docs/commands.md) for examples.
 ## Docs
 
 - [Workspaces](docs/workspaces.md) — config files, ids, validation, examples.
-- [Sources](docs/sources.md) — how Sources fit into Workspaces, with links to source crate docs.
+- [Sources](docs/sources.md) — how Sources fit into Workspaces, with links to source package docs.
 - [Templates](docs/templates.md) — MiniJinja context, `slugify`, path expansion.
-- [Actions](docs/actions.md) — orchestration, retry behavior, with links to action crate docs.
+- [Actions](docs/actions.md) — orchestration, retry behavior, with links to action package docs.
 - [Store](docs/store.md) — append-only JSONL layout and derived state.
 - [Commands](docs/commands.md) — command reference.
 - [Troubleshooting](docs/troubleshooting.md) — common failures.
