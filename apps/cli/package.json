@@ -16,7 +16,12 @@
     "@agentboard/source-github": "workspace:*",
     "@agentboard/source-jira": "workspace:*",
     "@agentboard/source-qmd": "workspace:*",
-    "minijinja-js": "^2.24.0"
+    "@opentui/core": "^0.5.6",
+    "@opentui/react": "^0.5.6",
+    "@xstate/react": "^6.1.0",
+    "minijinja-js": "^2.24.0",
+    "react": "^19.2.8",
+    "xstate": "^5.32.5"
   },
   "devDependencies": {
     "@crustjs/core": "^0.0.19",

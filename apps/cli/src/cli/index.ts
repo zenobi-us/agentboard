@@ -10,6 +10,7 @@ import { listCmd } from "./list.ts";
 import { runCmd } from "./run.ts";
 import { schemaCmd } from "./schema.ts";
 import { showCmd } from "./show.ts";
+import { tuiCmd } from "./tui.ts";
 import { workspaceCmd, workspacesCmd } from "./workspace.ts";
 
 const globalFlags = new Set(["-v", "--verbose", "-q", "--quiet", "--color", "--log-file"]);
@@ -37,6 +38,7 @@ await app
   .command(runCmd)
   .command(schemaCmd)
   .command(showCmd)
+  .command(tuiCmd)
   .command(workspaceCmd)
   .command(workspacesCmd)
   .execute();
