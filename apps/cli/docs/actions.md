@@ -26,7 +26,7 @@ cmd = "echo {{ item.id }}"
 
 Sources run concurrently. Item Actions inside one Source are serial.
 
-For each Item returned by a Source, AgentBoard executes Actions in the order defined in the `sources.actions` array. This includes Items that were stored by an earlier Run.
+For each Item returned by a Source, AgentBoard executes Actions in the order defined in the `sources.actions` array.
 
 Actions are blocking per item. If action `0` fails for an item, action `1` for that item does not run during that Run.
 
