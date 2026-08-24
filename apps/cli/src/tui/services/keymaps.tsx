@@ -109,6 +109,7 @@ export const appKeymap: Keymap = {
   "app.refresh": ["ctrl", "r"],
   "app.run": ["r"],
   "app.watch": ["w"],
+  "app.list": ["l"],
   "app.open-settings": ["ctrl", "s"],
 }
 

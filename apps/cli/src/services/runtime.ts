@@ -46,6 +46,7 @@ export interface WorkspaceRunResult {
 export interface RunWorkspaceOptions {
   readonly storeRoot?: string;
   readonly dryRun?: boolean;
+  readonly sourceIds?: readonly string[];
 }
 
 export interface WatchWorkspaceOptions extends RunWorkspaceOptions {
@@ -106,10 +107,10 @@ export async function runWorkspace(
   workspace: LoadedWorkspace,
   options: RunWorkspaceOptions = {},
 ): Promise<WorkspaceRunResult> {
-  if (options.dryRun) return runWorkspaceUnlocked(workspace, options.storeRoot, true);
+  if (options.dryRun) return runWorkspaceUnlocked(workspace, options.storeRoot, true, options.sourceIds);
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
-    return await runWorkspaceUnlocked(workspace, options.storeRoot, false);
+    return await runWorkspaceUnlocked(workspace, options.storeRoot, false, options.sourceIds);
   } finally {
     await releaseLock();
   }
@@ -119,12 +120,12 @@ export async function watchWorkspace(
   workspace: LoadedWorkspace,
   options: WatchWorkspaceOptions = {},
 ): Promise<WorkspaceRunResult> {
-  if (options.dryRun) return runWorkspaceUnlocked(workspace, options.storeRoot, true);
+  if (options.dryRun) return runWorkspaceUnlocked(workspace, options.storeRoot, true, options.sourceIds);
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
     let result: WorkspaceRunResult;
     do {
-      result = await runWorkspaceUnlocked(workspace, options.storeRoot, options.dryRun);
+      result = await runWorkspaceUnlocked(workspace, options.storeRoot, options.dryRun, options.sourceIds);
       options.onResult?.(result);
       if (!result.cancelled && !workspace.cancellation.aborted) {
         if (await waitForNextRun(workspace.cancellation, options.intervalMs ?? 60_000)) {
@@ -144,8 +145,12 @@ async function runWorkspaceUnlocked(
   workspace: LoadedWorkspace,
   storeRoot?: string,
   dryRun = false,
+  sourceIds?: readonly string[],
 ): Promise<WorkspaceRunResult> {
-  const settled = await Promise.allSettled(workspace.sources.map((source) =>
+  const selectedSources = sourceIds
+    ? workspace.sources.filter((source) => sourceIds.includes(source.id))
+    : workspace.sources;
+  const settled = await Promise.allSettled(selectedSources.map((source) =>
     runSource(workspace, source, storeRoot, dryRun)
   ));
   const sources = settled.map((result) => {

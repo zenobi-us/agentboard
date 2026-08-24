@@ -8,7 +8,7 @@ export type AppRoute =
   | { name: "item"; sourceId: string; itemId: string }
 
 type RunRequest = {
-  mode: "idle" | "run" | "watch"
+  mode: "idle" | "run" | "watch" | "list"
   id: number
   stopping: boolean
 }
@@ -103,6 +103,13 @@ export const tuiMachine = setup({
             })),
           },
           {
+            guard: ({ event, context }) => event.code === "app.list" && context.runRequest.mode === "list",
+            actions: assign(({ context }) => ({
+              runRequest: { ...context.runRequest, stopping: true },
+              message: "Stopping...",
+            })),
+          },
+          {
             guard: ({ event, context }) => event.code === "app.run" && context.runRequest.mode === "idle",
             actions: assign(({ context }) => ({
               message: "Running...",
@@ -114,6 +121,13 @@ export const tuiMachine = setup({
             actions: assign(({ context }) => ({
               message: "Watching...",
               runRequest: { mode: "watch" as const, id: context.runRequest.id + 1, stopping: false },
+            })),
+          },
+          {
+            guard: ({ event, context }) => event.code === "app.list" && context.runRequest.mode === "idle",
+            actions: assign(({ context }) => ({
+              message: "Listing...",
+              runRequest: { mode: "list" as const, id: context.runRequest.id + 1, stopping: false },
             })),
           },
           {

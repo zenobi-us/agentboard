@@ -37,6 +37,7 @@ function AppScreen() {
     let active = true
     const controller = new AbortController()
     setRunError(undefined)
+    const listSourceId = runRequest.mode === "list" && route.name === "source" ? route.sourceId : undefined
     const executionWorkspace = {
       ...executableWorkspace,
       cancellation: controller.signal,
@@ -44,17 +45,22 @@ function AppScreen() {
     }
     const applyResult = (result: WorkspaceRunResult) => {
       if (!active) return
-      setSourceItems(Object.fromEntries(result.sources.map((source) => [source.id, source.items])))
+      setSourceItems((current: Record<string, readonly Item[]>) => ({
+        ...current,
+        ...Object.fromEntries(result.sources.map((source) => [source.id, source.items])),
+      }))
     }
     const run = runRequest.mode === "watch"
       ? watchWorkspace(executionWorkspace, { onResult: applyResult })
-      : runWorkspace(executionWorkspace).then(applyResult)
-
+      : runWorkspace(executionWorkspace, {
+        dryRun: runRequest.mode === "list",
+        sourceIds: listSourceId ? [listSourceId] : undefined,
+      }).then(applyResult)
     void run
       .then(() => {
         if (controller.signal.aborted) {
           appActor.send({ type: "COMMAND", code: "app.run-stopped" })
-        } else if (active && runRequest.mode === "run") {
+        } else if (active && (runRequest.mode === "run" || runRequest.mode === "list")) {
           appActor.send({ type: "COMMAND", code: "app.run-complete" })
         }
       })
@@ -121,12 +127,12 @@ function AppScreen() {
 
 
           <box position="relative" flexGrow={1} padding={1}>
-            {route.name === "workspace" ? <WorkspaceView workspace={executableWorkspace} /> : null}
+            {route.name === "workspace" ? <WorkspaceView workspace={executableWorkspace} sourceItems={sourceItems} /> : null}
             {route.name === "source" ? (
               <SourceView
                 key={`${route.sourceId}:${sourceItems.length}`}
                 appActor={appActor}
-                sourceId={route.sourceId}
+                source={executableWorkspace.sources.find((source) => source.id === route.sourceId)!}
                 items={sourceItems[route.sourceId] ?? []}
               />
             ) : null}

@@ -4,7 +4,7 @@ import { Loader } from "./loader.tsx"
 export function ActionButton(props: {
   label: string
   shortcut: string
-  themeToken: "button.run" | "button.watch"
+  themeToken: "button.run" | "button.watch" | "button.list"
   loading?: boolean
   disabled?: boolean
   onPress: () => void

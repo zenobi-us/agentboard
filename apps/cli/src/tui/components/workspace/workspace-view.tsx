@@ -1,4 +1,5 @@
 import { useActorRef, useSelector } from "@xstate/react"
+import type { Item } from "@agentboard/core/config"
 import { SourceSummaryCard } from "./source-summary-card.tsx"
 import { KeymapScope, workspaceKeymap } from "../../services/keymaps.tsx"
 import { workspaceMachine } from "../../services/workspace/workspace.machine.ts"
@@ -10,7 +11,10 @@ import type { LoadedWorkspace } from "../../../services/config/workspace.ts"
  *
  * Selecting a source, navigates to the source view.
  */
-export function WorkspaceView(props: { workspace: LoadedWorkspace }) {
+export function WorkspaceView(props: {
+  workspace: LoadedWorkspace
+  sourceItems: Record<string, readonly Item[]>
+}) {
   const appActor = AppMachineContext.useActorRef()
   const actor = useActorRef(workspaceMachine, {
     input: { appActor, sources: props.workspace.sources.map((source) => source.id) },
@@ -27,7 +31,7 @@ export function WorkspaceView(props: { workspace: LoadedWorkspace }) {
             <SourceSummaryCard
               key={sourceId}
               sourceId={sourceId}
-              items={[]}
+              items={[...(props.sourceItems[sourceId] ?? [])]}
               actions={(source?.actions ?? []).map((action, index) => ({
                 actionId: action.id ?? action.packageName,
                 step: index + 1,
