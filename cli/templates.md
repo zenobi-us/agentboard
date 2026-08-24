@@ -27,7 +27,7 @@ Example values:
 {{ workspace.id }}
 {{ workspace.path }}
 {{ source.id }}
-{{ source.source.kind }}
+{{ source.source.uses }}
 {{ source.actions[0].uses }}
 {{ item.id }}
 {{ item.reference_id }}

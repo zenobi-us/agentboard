@@ -4,44 +4,28 @@
 
 # Workspaces [#workspaces]
 
-A Workspace is a TOML file that names Sources and the Actions to run for each Source.
+A Workspace is one TOML file. It names Sources and the Actions for each Source.
 
-## Location [#location]
+## File selection [#file-selection]
 
-When the Workspace argument is omitted, AgentBoard reads `.agentboard.toml` from the current directory:
+Operational commands use `.agentboard.toml` in the current directory when no Workspace argument is provided:
 
 ```bash
 agentboard run
 ```
 
-AgentBoard checks only the current directory. It does not search parent directories.
+AgentBoard does not search parent directories. A supplied path selects exactly one file. AgentBoard does not merge files, load profiles, or apply field-level CLI overrides.
 
-Named workspaces live under the user config directory:
-
-```text
-~/.config/agentboard/work.toml
-```
-
-Run by name:
+Named Workspaces are not resolved by operational commands. `workspace list` only lists `*.toml` files under the platform config directory. Pass the listed file path to another command:
 
 ```bash
-agentboard run work
+agentboard workspace list
+agentboard run "$HOME/.config/agentboard/work.toml"
 ```
 
-Or pass a path:
+The config directory follows the platform. On Linux, `XDG_CONFIG_HOME` sets the base directory; otherwise AgentBoard uses `~/.config`. AgentBoard adds the `agentboard` directory below that base.
 
-```bash
-agentboard run ./work.toml
-```
-
-An explicit name or path always takes precedence over `.agentboard.toml`.
-
-## Workspace ids [#workspace-ids]
-
-AgentBoard uses the workspace id in Store paths and action environment variables.
-
-* Named workspace: `work`
-* Path workspace: file stem plus canonical path hash, for example `work-a1b2c3d4e5f6`
+The Workspace id uses the canonical path, so moving a Workspace creates a different Store location.
 
 ## Minimal shape [#minimal-shape]
 
@@ -58,32 +42,28 @@ query = "intent: ready work"
 uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
-cmd = "echo {{ item.id }}"
+cmd = "echo {{ item.reference_id }}"
 ```
 
-Unknown fields are validation errors. Keys under `[sources.actions.with]` must match the selected Action registration.
+A Source id must be a non-empty unique string. A Source can omit `actions`; this means that no Action runs and the Store reports the Action plan as successful.
 
-## Where specific config lives [#where-specific-config-lives]
+Each Source package owns its fields. Each Action package owns the fields under `[sources.actions.with]`. Unknown fields fail Workspace validation. Action input values are strings in data Workspaces.
 
-Source-specific fields are documented by source packages:
+## Validation [#validation]
+
+Validation has two layers:
+
+* Workspace loading checks TOML structure, required fields, types, plugin names, unknown fields, Source ids, and Action ids.
+* `doctor` and the normal Run path perform package-specific validation and environment checks.
+
+Action ids are optional. When present, an Action id must match `[A-Za-z_][A-Za-z0-9_]*` and be unique within its Source. Later named Actions can use the id in templates.
+
+`agentboard schema` describes structural fields and types. It does not express every runtime rule. Use `doctor` to test the configured environment.
+
+## Source and Action docs [#source-and-action-docs]
 
 * [QMD source](/sources/qmd)
 * [Jira source](/sources/jira)
-
-Action-specific inputs are documented by action packages:
-
+* [GitHub source](/sources/github)
 * [`@agentboard/action-worktree`](/actions/worktree)
 * [`@agentboard/action-run-cmd`](/actions/run-cmd)
-
-## CLI validation rules [#cli-validation-rules]
-
-* Source ids must be non-empty and unique.
-* Action ids are optional, unique within one Source, and match `[A-Za-z_][A-Za-z0-9_]*`.
-* Unknown Actions fail validation.
-* Unknown Workspace, Source, and typed Action input fields fail validation.
-
-Generate the JSON Schema from the same registered Source and Action schemas used by loading:
-
-```bash
-agentboard schema > agentboard.schema.json
-```

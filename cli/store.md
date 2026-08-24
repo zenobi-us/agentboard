@@ -17,7 +17,6 @@ AgentBoard stores data under the user's XDG data directory:
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
   run.lock
-  events.jsonl
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
   items-<source.slug>.snapshots
@@ -36,8 +35,7 @@ latest committed Snapshot. A committed empty Snapshot is valid.
 Sources that share an Item Store keep separate Snapshot membership and their
 source-specific normalized Item values.
 
-Normal Runs append structured diagnostic events to `events.jsonl`. The global
-`--log-file` option writes these events to a different path.
+The global `--log-file` option appends one structured `run.complete` event to the given JSONL path. AgentBoard does not create `events.jsonl` in the Store.
 
 Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 
@@ -77,12 +75,11 @@ A new Run appends new observations. It does not rewrite older lines.
 
 `list` reads the latest committed Source Snapshot for each configured Source.
 It groups output in Workspace order and does not infer current membership from
-legacy Item records. JSON output contains one object per Source and keeps
+older Item records. JSON output contains one object per Source and keeps
 missing and ready-empty Snapshots distinct.
 
-`show` keeps its output and item-reference rules. It now uses committed Source
-Snapshot membership, so legacy Item observations without Snapshot boundaries are
-not eligible for `show`.
+`show` uses committed Source Snapshot membership. Older Item observations without
+Snapshot boundaries are not eligible for `show`.
 
 ## `actions-<source.slug>-<source.hash>.jsonl` [#actions-sourceslug-sourcehashjsonl]
 

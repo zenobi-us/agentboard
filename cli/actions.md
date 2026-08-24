@@ -4,7 +4,7 @@
 
 # Actions [#actions]
 
-Actions are steps that are run after new items have been retrieved from a source.
+Actions are side effects that run for each Item collected from a Source.
 
 Define them in the `sources.actions` array in your workspace config.
 
@@ -26,7 +26,7 @@ cmd = "echo {{ item.id }}"
 
 Sources run concurrently. Item Actions inside one Source are serial.
 
-For each item retrieved by a Source, agentboard will then execute Actions in the order they are defined in the `sources.actions` array.
+For each Item returned by a Source, AgentBoard executes Actions in the order defined in the `sources.actions` array.
 
 Actions are blocking per item. If action `0` fails for an item, action `1` for that item does not run during that Run.
 
