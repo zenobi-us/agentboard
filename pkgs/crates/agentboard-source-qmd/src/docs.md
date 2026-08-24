@@ -18,9 +18,9 @@ limit = 50
 ```
 
 AgentBoard runs `qmd query --format json --full -n <limit>` and reads each result's raw
-document body. It passes each configured collection with `-c <collection>`. Each matched note must have YAML frontmatter with string fields for `id`, `title`, and `status`. `url` is optional; when absent AgentBoard uses the QMD document reference.
+document body. It passes each configured collection with `-c <collection>`. Each matched note must have YAML frontmatter with string values at the paths configured by `map` for `id`, `title`, and `status`. `url` is optional; when absent AgentBoard uses the QMD document reference.
 
-`collections` and `query` are required. `limit` defaults to 50 and must be positive. `map` is optional and defaults to `id`, `title`, `status`, and `url`.
+`collections` and `query` are required. `limit` defaults to 50 and must be positive. `map` is optional and defaults to the paths `id`, `title`, `status`, and `url`.
 
 The QMD document reference is `item.id`. The mapped frontmatter `id` is
 `item.reference_id`, so moving reference mapping does not change Store or Action

@@ -107,7 +107,7 @@ Validate a Workspace and its local environment:
 agentboard doctor ./work.toml
 ```
 
-The command checks Source configuration, Action configuration, Store access, and package-specific health requirements. It prints JSON and exits with status `1` when a check reports an error.
+The command checks Source configuration, Action configuration, and package-specific health requirements. It prints JSON and exits with status `1` when a check reports an error.
 
 ## `schema`
 

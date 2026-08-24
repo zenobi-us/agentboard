@@ -79,9 +79,9 @@ cmd = "echo 'launch your agent for {{ item.url }}'"
 Replace `OWNER/REPO` with the repository to watch. The example Action is deliberately harmless: replace the `echo` command with your agent launcher when the dry run shows the expected Issues. AgentBoard runs that command through `sh -c` for each matching Item.
 
 ```bash
-agentboard doctor work
-agentboard run work --dry-run
-agentboard run work --watch --interval 60s
+agentboard doctor ./work.toml
+agentboard run ./work.toml --dry-run
+agentboard run ./work.toml --watch --interval 60s
 ```
 
 A dry run collects and renders pending Actions without executing them or writing to the Store. `run --watch` repeats the Run until you stop it with Ctrl-C.
