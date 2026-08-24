@@ -4,11 +4,11 @@
 
 # Run Command Action [#run-command-action]
 
-Use `agentboard/run-cmd` to run a shell command for each collected item.
+Use `@agentboard/action-run-cmd` to run a shell command for each collected item.
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }} {{ item.title }}"

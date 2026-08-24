@@ -1,1 +1,0 @@
-import{t as e}from"./flexsearch-static-Dr-IPQZ-.js";export default e();

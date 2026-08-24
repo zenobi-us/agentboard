@@ -10,13 +10,13 @@ Define them in the `sources.actions` array in your workspace config.
 
 Each action is a sequential step that runs for each item in the source. Actions are blocking per item.
 
-This CLI doc only covers orchestration: ordering, retry identity, and trust model. Action-specific config belongs in each action crate doc.
+This CLI doc only covers orchestration: ordering, retry identity, and trust model. Action-specific config belongs in each action package doc.
 
 ## Workspace Shape [#workspace-shape]
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }}"
@@ -44,8 +44,8 @@ Failed Actions retry on the next `run`, including `run --watch`, until they succ
 
 ## Action Docs [#action-docs]
 
-* [`agentboard/worktree`](/actions/worktree)
-* [`agentboard/run-cmd`](/actions/run-cmd)
+* [`@agentboard/action-worktree`](/actions/worktree)
+* [`@agentboard/action-run-cmd`](/actions/run-cmd)
 
 ## Trust Model [#trust-model]
 

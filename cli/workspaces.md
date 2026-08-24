@@ -50,12 +50,12 @@ AgentBoard uses the workspace id in Store paths and action environment variables
 id = "local"
 
 [sources.source]
-kind = "qmd"
+uses = "@agentboard/source-qmd"
 collections = ["tasks"]
 query = "intent: ready work"
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }}"
@@ -65,15 +65,15 @@ Unknown fields are validation errors. Keys under `[sources.actions.with]` must m
 
 ## Where specific config lives [#where-specific-config-lives]
 
-Source-specific fields are documented by source crates:
+Source-specific fields are documented by source packages:
 
 * [QMD source](/sources/qmd)
 * [Jira source](/sources/jira)
 
-Action-specific inputs are documented by action crates:
+Action-specific inputs are documented by action packages:
 
-* [`agentboard/worktree`](/actions/worktree)
-* [`agentboard/run-cmd`](/actions/run-cmd)
+* [`@agentboard/action-worktree`](/actions/worktree)
+* [`@agentboard/action-run-cmd`](/actions/run-cmd)
 
 ## CLI validation rules [#cli-validation-rules]
 

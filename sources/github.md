@@ -4,14 +4,14 @@
 
 # GitHub source [#github-source]
 
-Use `kind = "github"` with `mode = "issue"` to collect GitHub issues through GitHub issue search.
+Use `uses = "@agentboard/source-github"` with `mode = "issue"` to collect GitHub issues through GitHub issue search.
 
 ```toml
 [[sources]]
 id = "github-ready"
 
 [sources.source]
-kind = "github"
+uses = "@agentboard/source-github"
 mode = "issue"
 query = "repo:zenobi-us/agentboard is:open label:ready"
 limit = 50

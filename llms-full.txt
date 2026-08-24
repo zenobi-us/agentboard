@@ -167,13 +167,13 @@ Define them in the `sources.actions` array in your workspace config.
 
 Each action is a sequential step that runs for each item in the source. Actions are blocking per item.
 
-This CLI doc only covers orchestration: ordering, retry identity, and trust model. Action-specific config belongs in each action crate doc.
+This CLI doc only covers orchestration: ordering, retry identity, and trust model. Action-specific config belongs in each action package doc.
 
 ## Workspace Shape [#workspace-shape]
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }}"
@@ -201,8 +201,8 @@ Failed Actions retry on the next `run`, including `run --watch`, until they succ
 
 ## Action Docs [#action-docs]
 
-* [`agentboard/worktree`](/actions/worktree)
-* [`agentboard/run-cmd`](/actions/run-cmd)
+* [`@agentboard/action-worktree`](/actions/worktree)
+* [`@agentboard/action-run-cmd`](/actions/run-cmd)
 
 ## Trust Model [#trust-model]
 
@@ -343,7 +343,7 @@ Checks include:
 * Workspace config validation.
 * Store directory writability.
 * Required Source commands, for example `qmd`.
-* Required Action commands, for example `git` for `agentboard/worktree`.
+* Required Action commands, for example `git` for `@agentboard/action-worktree`.
 * Source reachability by collecting items.
 
 ## `schema` [#schema]
@@ -376,11 +376,11 @@ For Source-specific config and behavior, see the specific source docs.
 id = "local"
 
 [sources.source]
-kind = "qmd"
+uses = "@agentboard/source-qmd"
 # source-specific fields live here
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.reference_id }}"
@@ -431,7 +431,7 @@ The CLI validates Source ids before a Run:
 * Source ids must be nonempty.
 * Source ids must be unique within one Workspace.
 
-Source crates own Source-specific validation and collection behavior.
+Source packages own Source-specific validation and collection behavior.
 
 
 # Store (/cli/store)
@@ -629,14 +629,14 @@ absent, and missing or forward references fail rendering for that Item.
 ```toml
 [[sources.actions]]
 id = "issue_worktree"
-uses = "agentboard/worktree"
+uses = "@agentboard/action-worktree"
 [sources.actions.with]
 repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 branch = "{{ item.id | slugify }}"
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 [sources.actions.with]
 cwd = "{{ actions.issue_worktree.inputs.root }}"
 cmd = "pwd"
@@ -675,20 +675,20 @@ AgentBoard processes Action inputs in three stages:
 
 1. MiniJinja renders every input.
 2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
-   * `agentboard/run-cmd`: `cwd`
-   * `agentboard/worktree`: `repo`, `root`
-3. `agentboard/run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
+   * `@agentboard/action-run-cmd`: `cwd`
+   * `@agentboard/action-worktree`: `repo`, `root`
+3. `@agentboard/action-run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/worktree"
+uses = "@agentboard/action-worktree"
 [sources.actions.with]
 repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 branch = "{{ item.id | slugify }}"
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 [sources.actions.with]
 cwd = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 cmd = '''printf '%s: %s\n' "{{ item.reference_id }}" "$PWD"'''
@@ -760,7 +760,7 @@ Fix: install QMD or remove the QMD Source from the Workspace.
 
 ## `required command git not found` [#required-command-git-not-found]
 
-The Workspace uses `agentboard/worktree`, but `git` is not on `PATH`.
+The Workspace uses `@agentboard/action-worktree`, but `git` is not on `PATH`.
 
 Fix: install Git or remove that Action.
 
@@ -776,7 +776,7 @@ Fix the command, credentials, paths, or Source item data. Then run again.
 
 ## Worktree Action refused an existing root [#worktree-action-refused-an-existing-root]
 
-`agentboard/worktree` only manages an exact worktree root from the configured `repo`. It reuses the requested branch, but refuses to switch dirty worktrees or a branch checked out in another worktree.
+`@agentboard/action-worktree` only manages an exact worktree root from the configured `repo`. It reuses the requested branch, but refuses to switch dirty worktrees or a branch checked out in another worktree.
 
 Fix the `repo` or `root`, commit or remove tracked and untracked changes, or release the requested branch from its other worktree. The Action never forces, resets, or cleans a worktree.
 
@@ -786,13 +786,13 @@ First identify where expansion belongs.
 
 AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
 
-* `agentboard/run-cmd.cwd`
-* `agentboard/worktree.repo`
-* `agentboard/worktree.root`
+* `@agentboard/action-run-cmd.cwd`
+* `@agentboard/action-worktree.repo`
+* `@agentboard/action-worktree.root`
 
 For these fields, check that the variable exists in the environment of the `agentboard` process, not only an interactive shell startup file.
 
-Variables in `agentboard/run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
+Variables in `@agentboard/action-run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
 
 MiniJinja expressions such as `{{ item.reference_id }}` always render before either kind of environment expansion.
 
@@ -884,12 +884,12 @@ AgentBoard uses the workspace id in Store paths and action environment variables
 id = "local"
 
 [sources.source]
-kind = "qmd"
+uses = "@agentboard/source-qmd"
 collections = ["tasks"]
 query = "intent: ready work"
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }}"
@@ -899,15 +899,15 @@ Unknown fields are validation errors. Keys under `[sources.actions.with]` must m
 
 ## Where specific config lives [#where-specific-config-lives]
 
-Source-specific fields are documented by source crates:
+Source-specific fields are documented by source packages:
 
 * [QMD source](/sources/qmd)
 * [Jira source](/sources/jira)
 
-Action-specific inputs are documented by action crates:
+Action-specific inputs are documented by action packages:
 
-* [`agentboard/worktree`](/actions/worktree)
-* [`agentboard/run-cmd`](/actions/run-cmd)
+* [`@agentboard/action-worktree`](/actions/worktree)
+* [`@agentboard/action-run-cmd`](/actions/run-cmd)
 
 ## CLI validation rules [#cli-validation-rules]
 
@@ -929,14 +929,14 @@ agentboard schema > agentboard.schema.json
 
 # GitHub source [#github-source]
 
-Use `kind = "github"` with `mode = "issue"` to collect GitHub issues through GitHub issue search.
+Use `uses = "@agentboard/source-github"` with `mode = "issue"` to collect GitHub issues through GitHub issue search.
 
 ```toml
 [[sources]]
 id = "github-ready"
 
 [sources.source]
-kind = "github"
+uses = "@agentboard/source-github"
 mode = "issue"
 query = "repo:zenobi-us/agentboard is:open label:ready"
 limit = 50
@@ -986,14 +986,14 @@ The credential helper is any command that writes a token to stdout. `gh auth tok
 
 # Jira source [#jira-source]
 
-Use `kind = "jira"` to collect Jira issues with JQL.
+Use `uses = "@agentboard/source-jira"` to collect Jira issues with JQL.
 
 ```toml
 [[sources]]
 id = "jira-ready"
 
 [sources.source]
-kind = "jira"
+uses = "@agentboard/source-jira"
 site = "https://example.atlassian.net"
 jql = "project = AB AND statusCategory = Todo"
 limit = 50
@@ -1004,7 +1004,7 @@ and `JIRA_API_TOKEN`.
 
 ```toml
 [sources.source]
-kind = "jira"
+uses = "@agentboard/source-jira"
 site = "https://example.atlassian.net"
 email_env = "JIRA_EMAIL"
 token_env = "JIRA_API_TOKEN"
@@ -1017,7 +1017,7 @@ stdin (`protocol`, `host`) and reads either `username`/`password` or
 
 ```toml
 [sources.source]
-kind = "jira"
+uses = "@agentboard/source-jira"
 site = "https://example.atlassian.net"
 jql = "project = AB ORDER BY updated DESC"
 
@@ -1068,14 +1068,14 @@ fields = ["assignee"]
 
 # QMD source [#qmd-source]
 
-Use `kind = "qmd"` to collect items from [QMD](https://github.com/tobi/qmd) collections.
+Use `uses = "@agentboard/source-qmd"` to collect items from [QMD](https://github.com/tobi/qmd) collections.
 
 ```toml
 [[sources]]
 id = "local-ready"
 
 [sources.source]
-kind = "qmd"
+uses = "@agentboard/source-qmd"
 collections = ["tasks"]
 query = "intent: Find ready work items\nlex: status ready"
 limit = 50
@@ -1111,11 +1111,11 @@ url = "links.issue"
 
 # Run Command Action [#run-command-action]
 
-Use `agentboard/run-cmd` to run a shell command for each collected item.
+Use `@agentboard/action-run-cmd` to run a shell command for each collected item.
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }} {{ item.title }}"
@@ -1163,13 +1163,13 @@ skips the healthcheck. A timeout fails the action, so a later run retries it.
 
 # Worktree action [#worktree-action]
 
-Use `agentboard/worktree` to ensure each item has a Git worktree on its
+Use `@agentboard/action-worktree` to ensure each item has a Git worktree on its
 requested branch. The Action creates an absent worktree, reuses a matching
 worktree, or safely switches a clean managed worktree.
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/worktree"
+uses = "@agentboard/action-worktree"
 
 [sources.actions.with]
 repo = "/home/me/dev/myrepo"
@@ -1182,5 +1182,5 @@ is a local branch name to create or switch to for the item. Existing roots must
 be exact worktree roots from `repo`; switching refuses tracked or untracked
 changes and branches already checked out elsewhere.
 
-Pair it with `agentboard/run-cmd` when you want to open the new worktree in a
+Pair it with `@agentboard/action-run-cmd` when you want to open the new worktree in a
 terminal or agent session.

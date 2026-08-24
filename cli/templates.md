@@ -49,14 +49,14 @@ absent, and missing or forward references fail rendering for that Item.
 ```toml
 [[sources.actions]]
 id = "issue_worktree"
-uses = "agentboard/worktree"
+uses = "@agentboard/action-worktree"
 [sources.actions.with]
 repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 branch = "{{ item.id | slugify }}"
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 [sources.actions.with]
 cwd = "{{ actions.issue_worktree.inputs.root }}"
 cmd = "pwd"
@@ -95,20 +95,20 @@ AgentBoard processes Action inputs in three stages:
 
 1. MiniJinja renders every input.
 2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
-   * `agentboard/run-cmd`: `cwd`
-   * `agentboard/worktree`: `repo`, `root`
-3. `agentboard/run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
+   * `@agentboard/action-run-cmd`: `cwd`
+   * `@agentboard/action-worktree`: `repo`, `root`
+3. `@agentboard/action-run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
 
 ```toml
 [[sources.actions]]
-uses = "agentboard/worktree"
+uses = "@agentboard/action-worktree"
 [sources.actions.with]
 repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 branch = "{{ item.id | slugify }}"
 
 [[sources.actions]]
-uses = "agentboard/run-cmd"
+uses = "@agentboard/action-run-cmd"
 [sources.actions.with]
 cwd = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 cmd = '''printf '%s: %s\n' "{{ item.reference_id }}" "$PWD"'''
