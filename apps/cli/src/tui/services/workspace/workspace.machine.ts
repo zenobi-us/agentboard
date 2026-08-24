@@ -16,7 +16,7 @@ type WorkspaceEvent =
 
 export const workspaceMachine = setup({
   types: {
-    input: {} as { appActor: AnyActorRef },
+    input: {} as { appActor: AnyActorRef; sources: readonly string[] },
     context: {} as WorkspaceContext,
     events: {} as WorkspaceEvent,
   },
@@ -27,7 +27,7 @@ export const workspaceMachine = setup({
     appActor: input.appActor,
     sourceIndex: 0,
     itemIndex: 0,
-    sources: ["github", "jira", "notes"],
+    sources: input.sources,
     items: ["Fix sync failure", "Review source mapping", "Update dashboard"],
   }),
   states: {

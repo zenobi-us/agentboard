@@ -1,7 +1,7 @@
 // @ts-expect-error The TUI currently has no local React type package.
 import { useEffect, useState } from "react"
 
-type SpinnerSize = "sm" | "lg"
+type SpinnerSize = "sm" | "md" | "lg"
 type SpinnerFrame = readonly (readonly string[])[]
 
 const spinnerFrames: Record<SpinnerSize, readonly SpinnerFrame[]> = {
@@ -95,7 +95,7 @@ const spinnerFrames: Record<SpinnerSize, readonly SpinnerFrame[]> = {
   ],
 }
 
-export function Loader(props: { size?: SpinnerSize }) {
+export function Loader(props: { size?: SpinnerSize; fg?: string }) {
   const frames = spinnerFrames[props.size ?? "sm"]
   const [frameIndex, setFrameIndex] = useState(0)
 
@@ -114,7 +114,7 @@ export function Loader(props: { size?: SpinnerSize }) {
       {frame.map((row, rowIndex) => (
         <box key={rowIndex} flexDirection="row">
           {row.map((cell, cellIndex) => (
-            <text key={cellIndex}>{cell}</text>
+            <text key={cellIndex} fg={props.fg}>{cell}</text>
           ))}
         </box>
       ))}

@@ -107,6 +107,8 @@ export function KeymapScope(props: {
 export const appKeymap: Keymap = {
   "app.quit": ["ctrl", "q"],
   "app.refresh": ["ctrl", "r"],
+  "app.run": ["r"],
+  "app.watch": ["w"],
   "app.open-settings": ["ctrl", "s"],
 }
 
@@ -115,7 +117,6 @@ export const workspaceKeymap: Keymap = {
   "workspace.previous": ["up"],
   "workspace.open-source": ["return"],
   "workspace.open-item": ["tab"],
-  "workspace.refresh": ["r"],
 }
 
 export const sourceKeymap: Keymap = {

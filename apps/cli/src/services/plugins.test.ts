@@ -19,7 +19,7 @@ import {
   loadWorkspacePlugins,
   type LoadedWorkspace,
 } from "./config/workspace.ts";
-import { loadRunWorkspace } from "../cli/run.ts";
+import { loadWorkspace } from "./workspace.ts";
 import { loadSchemaWorkspace } from "../cli/schema.ts";
 
 const roots: string[] = [];
@@ -785,7 +785,7 @@ describe("Plugin Package discovery", () => {
       `,
     );
 
-    const loaded = await loadRunWorkspace(configPath, join(root, "global"));
+    const loaded = await loadWorkspace(configPath, join(root, "global"));
 
     expect(loaded.sources).toHaveLength(1);
     expect(loaded.sources[0]?.source.config).toEqual({ query: "runtime" });
@@ -801,7 +801,7 @@ describe("Plugin Package discovery", () => {
       `[[sources]]\nid = "one"\n[sources.source]\nuses = "selected"\nquery = "runtime"\n`,
     );
 
-    const loaded = await loadRunWorkspace(configPath, join(root, "global"));
+    const loaded = await loadWorkspace(configPath, join(root, "global"));
 
     expect(loaded.sources).toHaveLength(1);
     expect(loaded.sources[0]?.source.config).toEqual({ query: "runtime" });

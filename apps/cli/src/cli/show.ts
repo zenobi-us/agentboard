@@ -1,9 +1,10 @@
 import { app, watchView } from "./app.ts";
-import { loadRunWorkspace, parseRunInterval } from "./run.ts";
+import { parseRunInterval } from "./run.ts";
 import { installCancellationHandlers } from "./cancellation.ts";
+import { loadWorkspace } from "../services/workspace.ts";
 import { readStoredItems } from "../services/store.ts";
 
-async function renderShow(workspace: Awaited<ReturnType<typeof loadRunWorkspace>>, itemRef: string, asJson: boolean): Promise<string> {
+async function renderShow(workspace: Awaited<ReturnType<typeof loadWorkspace>>, itemRef: string, asJson: boolean): Promise<string> {
   const value = (await readStoredItems(workspace)).find(({ item }) => item.id === itemRef || item.reference_id === itemRef);
   if (!value) throw new Error(`item ${itemRef} not found`);
   if (asJson) return `${JSON.stringify({ source_slug: value.sourceSlug, item: value.item, actions: value.actions }, null, 2)}\n`;
@@ -28,7 +29,7 @@ export const showCmd = app
     const controller = new AbortController();
     const removeHandlers = installCancellationHandlers(controller);
     try {
-      const workspace = await loadRunWorkspace(workspacePath, undefined, controller.signal, false);
+      const workspace = await loadWorkspace(workspacePath, undefined, controller.signal, false);
       if (flags.watch && flags.json) throw new Error("--watch cannot be combined with --json");
       if (flags.watch) {
         await watchView("show", flags.interval, () => renderShow(workspace, itemRef, false), controller.signal);

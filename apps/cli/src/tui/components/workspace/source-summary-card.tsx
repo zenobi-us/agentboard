@@ -1,3 +1,5 @@
+import { useTheme } from "../../services/theme/theme.tsx"
+
 type SourceSummaryAction<T> = {
   actionId: string;
   step: number;
@@ -8,6 +10,7 @@ type SourceSummary<T, A extends SourceSummaryAction<T>> = {
   sourceId: string;
   items: T[];
   actions: A[];
+  onClick?: () => void;
 }
 
 /**
@@ -18,13 +21,26 @@ type SourceSummary<T, A extends SourceSummaryAction<T>> = {
  * - the number of items at that step
  */
 export function SourceSummaryCard<T, A extends SourceSummaryAction<T>>(props: SourceSummary<T, A>) {
+  const theme = useTheme()
+  const summaryStyle = theme.component("source.summary")
+  const idStyle = theme.component("source.summary.id")
+
   return (
-    <box border={true} borderStyle="single" padding={1} marginBottom={1} flexDirection="row" justifyContent="space-between">
-      <box flexDirection="column" justifyContent="space-between">
-        <text fg="#f2c94c">{props.sourceId}</text>
+    <box
+      border={true}
+      borderStyle="single"
+      borderColor={summaryStyle.border}
+      padding={1}
+      marginBottom={1}
+      flexDirection="row"
+      justifyContent="flex-start"
+      onMouseDown={props.onClick}
+    >
+      <box flexDirection="column" marginRight={2} >
+        <text fg={idStyle.fg}>{props.sourceId}</text>
         <text>{props.items.length} items</text>
       </box>
-      <box flexDirection="row" marginTop={1}>
+      <box flexDirection="row">
         {props.actions.length > 0 && props.actions.map((action) => (
           <SourceSummaryActionStep
             actionId={action.actionId}
@@ -42,10 +58,16 @@ export function SourceSummaryCard<T, A extends SourceSummaryAction<T>>(props: So
 
 
 function SourceSummaryActionStep<T>(props: { actionId: string; step: number, items: T[] }) {
+  const theme = useTheme()
+  const actionStyle = theme.component("source.summary.action")
+
   return (
     <box flexDirection="column" marginRight={2}>
-      <text fg="#8d99ae">{props.actionId}</text>
-      <text>{props.step} steps</text>
+      <box flexDirection="row" alignItems="center">
+        <text paddingRight={1}>{props.step}</text>
+        <text fg={actionStyle.fg}>{props.actionId}</text>
+      </box>
+
       {props.items.length > 0 && (
         <text>{props.items.length} items</text>
       )}

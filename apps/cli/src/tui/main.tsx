@@ -19,7 +19,7 @@ function disposeExistingTui(): void {
   previous.renderer.destroy();
 }
 
-export async function startTui(): Promise<void> {
+export async function startTui(workspacePath: string, version: string): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("TUI requires interactive stdin and stdout");
   }
@@ -30,7 +30,7 @@ export async function startTui(): Promise<void> {
   globalHost.__agentboardTui = { renderer, root };
 
   try {
-    root.render(<App />);
+    root.render(<App workspacePath={workspacePath} version={version} />);
     await new Promise<void>((resolve) => renderer.once("destroy", resolve));
   } finally {
     if (globalHost.__agentboardTui?.renderer === renderer) {

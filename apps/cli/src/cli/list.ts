@@ -1,10 +1,11 @@
 import { app, watchView } from "./app.ts";
-import { loadRunWorkspace, parseRunInterval } from "./run.ts";
+import { parseRunInterval } from "./run.ts";
 import { installCancellationHandlers } from "./cancellation.ts";
+import { loadWorkspace } from "../services/workspace.ts";
 import { readStoredItems, readStoreViews } from "../services/store.ts";
 
 export async function storedItems(workspacePath: string): Promise<unknown[]> {
-  const workspace = await loadRunWorkspace(workspacePath, undefined, undefined, false);
+  const workspace = await loadWorkspace(workspacePath, undefined, undefined, false);
   return (await readStoredItems(workspace)).map(({ item, sourceSlug, actionState }) => ({
     item,
     action_state: actionState,
@@ -12,7 +13,7 @@ export async function storedItems(workspacePath: string): Promise<unknown[]> {
   }));
 }
 
-async function renderList(workspace: Awaited<ReturnType<typeof loadRunWorkspace>>, asJson: boolean): Promise<string> {
+async function renderList(workspace: Awaited<ReturnType<typeof loadWorkspace>>, asJson: boolean): Promise<string> {
   if (asJson) {
     const snapshots = await readStoreViews(workspace);
     return `${JSON.stringify(snapshots.map(({ sourceId, state, items, collectionStatus }) => ({
@@ -59,7 +60,7 @@ export const listCmd = app
     const controller = new AbortController();
     const removeHandlers = installCancellationHandlers(controller);
     try {
-      const workspace = await loadRunWorkspace(args.workspace, undefined, controller.signal, false);
+      const workspace = await loadWorkspace(args.workspace, undefined, controller.signal, false);
       if (flags.watch && flags.json) throw new Error("--watch cannot be combined with --json");
       if (flags.watch) {
         await watchView("list", flags.interval, () => renderList(workspace, false), controller.signal);
@@ -72,6 +73,6 @@ export const listCmd = app
   });
 
 export async function storedSnapshots(workspacePath: string) {
-  const workspace = await loadRunWorkspace(workspacePath, undefined, undefined, false);
+  const workspace = await loadWorkspace(workspacePath, undefined, undefined, false);
   return readStoreViews(workspace);
 }

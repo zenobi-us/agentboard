@@ -49,6 +49,7 @@ export interface LoadedWorkspaceSource {
 export interface LoadedWorkspace {
   readonly path: string;
   readonly id: string;
+  readonly config: unknown;
   readonly cancellation: AbortSignal;
   readonly registry: PluginRegistry;
   readonly sources: readonly LoadedSourceRuntime[];
@@ -143,6 +144,7 @@ export async function loadExecutableWorkspace(
   return {
     path,
     id: workspaceId(path),
+    config: data,
     cancellation,
     registry: { sources: new Map(), actions: new Map() },
     sources: createRuntimes
@@ -239,6 +241,7 @@ export async function loadDataWorkspace(
   return {
     path,
     id: workspaceId(path),
+    config: data,
     cancellation,
     registry,
     sources: createRuntimes

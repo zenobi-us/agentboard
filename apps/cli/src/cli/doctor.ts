@@ -1,7 +1,7 @@
 import { checkWorkspaceHealth } from "../services/runtime.ts";
 import { app } from "./app.ts";
 import { installCancellationHandlers } from "./cancellation.ts";
-import { loadRunWorkspace } from "./run.ts";
+import { loadWorkspace } from "../services/workspace.ts";
 
 export const doctorCmd = app
   .sub("doctor")
@@ -12,7 +12,7 @@ export const doctorCmd = app
     const removeHandlers = installCancellationHandlers(controller);
     try {
       const results = await checkWorkspaceHealth(
-        await loadRunWorkspace(args.workspace, undefined, controller.signal, false),
+        await loadWorkspace(args.workspace, undefined, controller.signal, false),
       );
       console.log(JSON.stringify(results));
       if (controller.signal.aborted) process.exitCode = 130;

@@ -1,5 +1,5 @@
 import { app } from "./app.ts";
-import { loadRunWorkspace } from "./run.ts";
+import { loadWorkspace } from "../services/workspace.ts";
 import { readStoreViews } from "../services/store.ts";
 
 function renderDashboard(snapshots: Awaited<ReturnType<typeof readStoreViews>>): string {
@@ -21,7 +21,7 @@ async function openDashboard(workspacePath: string): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("Dashboard requires interactive stdin and stdout");
   }
-  const workspace = await loadRunWorkspace(workspacePath, undefined, undefined, false);
+  const workspace = await loadWorkspace(workspacePath, undefined, undefined, false);
   const refresh = async () => {
     process.stdout.write("\x1b[2J\x1b[H" + renderDashboard(await readStoreViews(workspace)) + "\n");
   };

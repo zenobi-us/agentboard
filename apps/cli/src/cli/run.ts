@@ -1,25 +1,8 @@
 import { appendFile } from "node:fs/promises";
-import {
-  loadDataWorkspace,
-  loadExecutableWorkspace,
-  resolveWorkspaceConfigPath,
-  type LoadedWorkspace,
-} from "../services/config/workspace.ts";
+import { loadWorkspace } from "../services/workspace.ts";
 import { runWorkspace, watchWorkspace, type WorkspaceRunResult } from "../services/runtime.ts";
 import { app } from "./app.ts";
 import { installCancellationHandlers } from "./cancellation.ts";
-
-export function loadRunWorkspace(
-  configPath: string,
-  globalRoot?: string,
-  cancellation: AbortSignal = new AbortController().signal,
-  createRuntimes = true,
-): Promise<LoadedWorkspace> {
-  const path = resolveWorkspaceConfigPath(configPath);
-  return /agentboard\.config\.(ts|js)$/.test(path)
-    ? loadExecutableWorkspace(path, undefined, cancellation, createRuntimes)
-    : loadDataWorkspace(path, globalRoot, cancellation, createRuntimes);
-}
 
 export function runExitStatus(result: WorkspaceRunResult): number {
   if (result.cancelled) return 130;
@@ -86,7 +69,7 @@ export const runCmd = app
     const controller = new AbortController();
     const removeHandlers = installCancellationHandlers(controller);
     try {
-      const workspace = await loadRunWorkspace(args.workspace, undefined, controller.signal);
+      const workspace = await loadWorkspace(args.workspace, undefined, controller.signal);
       const result = flags.watch
         ? await watchWorkspace(workspace, {
           intervalMs: flags.interval,

@@ -1,41 +1,46 @@
 import { useActorRef, useSelector } from "@xstate/react"
+import type { Item } from "@agentboard/core/config"
 import type { AnyActorRef } from "xstate"
 import { KeymapScope, sourceKeymap } from "../../services/keymaps.tsx"
 import { createSourceMachine, type SourceMachineInput } from "../../services/source/source.machine.ts"
+import { useTheme } from "../../services/theme/theme.tsx"
 
-type SourceViewProps<TItem> = {
+const sourceMachine = createSourceMachine<Item>()
+
+type SourceViewProps = {
   appActor: AnyActorRef
   sourceId: string
-  items: readonly TItem[]
-  getItemId: (item: TItem) => string
-  getItemLabel: (item: TItem) => string
+  items: readonly Item[]
 }
 
-export function SourceView<TItem>(props: SourceViewProps<TItem>) {
-  const machine = createSourceMachine<TItem>()
-  const input: SourceMachineInput<TItem> = {
+export function SourceView(props: SourceViewProps) {
+  const input: SourceMachineInput<Item> = {
     appActor: props.appActor,
     sourceId: props.sourceId,
     items: props.items,
-    getItemId: props.getItemId,
+    getItemId: (item) => item.id,
   }
-  const actor = useActorRef(machine, { input })
+  const actor = useActorRef(sourceMachine, { input })
   const snapshot = useSelector(actor, (value) => value)
+  const theme = useTheme()
+  const headingStyle = theme.component("source.heading")
+  const itemStyle = theme.component("source.item")
+  const selectedStyle = theme.component("source.item.selected")
 
   return (
     <KeymapScope actor={actor} bindings={sourceKeymap}>
       <box flexDirection="column" flexGrow={1}>
-        <text fg="#f2c94c">SOURCE / {snapshot.context.sourceId}</text>
+        <text fg={headingStyle.fg}>SOURCE / {snapshot.context.sourceId}</text>
         <text marginTop={1}>Use Up and Down to select an item.</text>
         <text>Press Return to open the item.</text>
         <text>Press Escape to return to the workspace.</text>
         <box flexDirection="column" marginTop={1}>
           {snapshot.context.items.map((item, index) => (
             <text
-              key={props.getItemId(item)}
-              fg={index === snapshot.context.itemIndex ? "#f2c94c" : "#d8dee9"}
+              key={item.id}
+              fg={(index === snapshot.context.itemIndex ? selectedStyle : itemStyle).fg}
             >
-              {index === snapshot.context.itemIndex ? "> " : "  "}{props.getItemLabel(item)}
+              {index === snapshot.context.itemIndex ? "> " : "  "}{item.title} · {item.status}
             </text>
           ))}
         </box>
@@ -43,6 +48,3 @@ export function SourceView<TItem>(props: SourceViewProps<TItem>) {
     </KeymapScope>
   )
 }
-
-export type DemoSourceItem = { id: string; title: string }
-export const demoSourceMachine = createSourceMachine<DemoSourceItem>()
