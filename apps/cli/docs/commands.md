@@ -4,143 +4,117 @@ title: Commands
 
 # Commands
 
+Operational commands accept a Workspace path. If omitted, they use `.agentboard.toml` in the current directory. AgentBoard does not search parent directories.
+
 ## `workspace`
 
-List named Workspaces from `~/.config/agentboard` (or the platform config directory):
+Create an empty Workspace. The command creates the path you provide and does not overwrite an existing file:
+
+```bash
+agentboard workspace init ./work.toml
+```
+
+List TOML files in the platform config directory under `agentboard`. On Linux, this is normally `~/.config/agentboard`. The output is a JSON array of file stems:
 
 ```bash
 agentboard workspace list
 ```
 
-Output contains one Workspace name per line, sorted alphabetically. `agentboard workspaces` remains available as a compatibility alias.
-
-Create an empty named Workspace without overwriting an existing config:
+Open a Workspace in `$EDITOR`:
 
 ```bash
-agentboard workspace init work
+EDITOR=vi agentboard workspace edit ./work.toml
 ```
 
-Open an existing named Workspace in the command configured by `$EDITOR`:
+`EDITOR` must contain an executable command. AgentBoard passes the absolute Workspace path as its only argument.
 
-```bash
-EDITOR="code --wait" agentboard workspace edit work
-```
-
-AgentBoard appends the Workspace path as the final editor argument and waits for the editor to exit. `$EDITOR` must be set and non-empty. `workspace edit` accepts a Workspace name, not an explicit file path, and does not create missing Workspaces.
+`agentboard workspaces` remains an alias for `agentboard workspace list`.
 
 ## `run`
 
-Execute one Workspace Run: load config, read Sources, append item observations, render pending Actions, and execute Actions.
+Collect Items, commit a Source Snapshot, render Actions, and execute pending Actions:
 
 ```bash
-agentboard run
-agentboard run work
 agentboard run ./work.toml
 ```
 
-With no Workspace argument, AgentBoard loads `.agentboard.toml` from the current directory. It does not search parent directories. A supplied name or path keeps the existing explicit selection behavior.
-
-Dry run collects and renders pending Actions without writing Store files or executing Actions:
+Dry run collects Items and renders Actions. It does not acquire the Workspace lock, write Store files, or execute Actions:
 
 ```bash
 agentboard run ./work.toml --dry-run
 ```
 
-Watch Mode repeats the Run until Ctrl-C. The default interval is 60 seconds.
-Intervals are seconds with or without a trailing `s`.
+Watch Mode repeats normal Runs until Ctrl-C. The default interval is 60 seconds. A watched dry run performs one dry Run and then exits.
 
 ```bash
-agentboard run work --watch
-agentboard run work --watch --interval 30s
-agentboard run work --watch --dry-run
+agentboard run ./work.toml --watch --interval 30s
 ```
 
-A non-dry watched Run holds the Workspace lock until it exits. A watched dry
-Run does not acquire the lock or write Store files.
+`--interval` accepts seconds with an optional `s`, such as `30` or `30s`.
+
+Use `--json` or `--output-format json` for structured Run output. Use global `--quiet`, `--verbose`, `--color`, or `--log-file` flags for output control.
 
 ## `list`
 
-List latest stored items and derived Action state.
+List Items from the latest committed Snapshot for each configured Source:
 
 ```bash
-agentboard list
-agentboard list work
+agentboard list ./work.toml
+agentboard list ./work.toml --json
 ```
 
-Plain output:
+JSON output contains `source_id`, `snapshot`, `collection_status`, and `items`. Each Item result is `success`, `error`, or `pending`. A missing Snapshot is different from a committed empty Snapshot.
 
-```text
-Source: issues
-Reference ID	Title	Status	Action Plan Result
-AB-001	Create the first worktree	ready	pending
-```
-
-JSON output groups Items by Source and preserves missing versus ready-empty
-Snapshots:
-
-```bash
-agentboard list work --json
-```
-
-Each Source object contains `source_id`, `snapshot` (`missing` or `ready`), and
-an `items` array. Each Item entry contains `item` and `result`, where `result`
-is `error`, `pending`, or `success`.
-
-## `dashboard`
-
-Open a read-only terminal view of the local Store:
-
-```bash
-agentboard dashboard
-agentboard dashboard work
-```
-
-The Dashboard does not collect Sources, execute Actions, acquire the Run lock,
-or write Store data. Watch Mode starts enabled and polls once per minute. Use the
-Watch button to pause or resume polling. Use Left/Right or `h`/`l` to change
-the selected Source. Press `e` to expand the footer and show recent events for
-the selected Source. The left panel shows workspace actions. The right panel shows
-found Items. Use `q` or Ctrl-C to exit. The Dashboard has no in-flight Run view.
+`list --watch` refreshes the Store view in a terminal. It cannot use `--json` or redirected stdout.
 
 ## `show`
 
-Show one latest stored item and its Action attempts.
+Show one stored Item and its Action attempts:
 
 ```bash
+agentboard show ./work.toml AB-001
 agentboard show AB-001
-agentboard show work AB-001
-agentboard show work AB-001 --json
+agentboard show ./work.toml AB-001 --json
 ```
 
-If the same item id exists in multiple Store item buckets, use the qualified form shown in the ambiguity error:
+The short form uses `.agentboard.toml`. The command matches either `item.id` or `item.reference_id`. `show --watch` refreshes the human view and cannot use `--json` or redirected stdout.
+
+## `dashboard`
+
+Open the read-only Store dashboard:
 
 ```bash
-agentboard show work jira-team-a-atlassian-net-abc123:AB-001
+agentboard dashboard ./work.toml
 ```
+
+The Dashboard requires interactive stdin and stdout. It reads committed Snapshots and collection status. It does not collect Sources, execute Actions, acquire the Workspace lock, or write Store files. It refreshes every 60 seconds. Press `r` to refresh or `q` or Esc to exit.
+
+## `tui`
+
+Open the experimental OpenTUI shell:
+
+```bash
+agentboard tui
+```
+
+This shell requires a terminal. It is not a supported Store-backed view.
 
 ## `doctor`
 
-Validate a Workspace and local environment.
+Validate a Workspace and its local environment:
 
 ```bash
-agentboard doctor
-agentboard doctor work
+agentboard doctor ./work.toml
 ```
 
-Checks include:
-
-- Workspace config validation.
-- Store directory writability.
-- Required Source commands, for example `qmd`.
-- Required Action commands, for example `git` for `@agentboard/action-worktree`.
-- Source reachability by collecting items.
+The command checks Source configuration, Action configuration, and package-specific health requirements. It prints JSON and exits with status `1` when a check reports an error.
 
 ## `schema`
 
-Print the Workspace JSON Schema.
+Print the JSON Schema built from the registered Source and Action packages:
 
 ```bash
 agentboard schema > agentboard.schema.json
 ```
 
-Use this for editor validation and config discovery.
+The schema describes structure and types. It does not express every semantic rule, such as unique Source ids, non-empty Source maps, or required built-in Action inputs.

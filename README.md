@@ -2,9 +2,9 @@
 
 # AgentBoard
 
-AgentBoard is a CLI for collecting work from task trackers and running an action for each matching item.
+AgentBoard is a Bun CLI for collecting work from GitHub Issues, Jira Cloud, or QMD collections, then running Actions for each matching Item.
 
-Define a Workspace that selects only the work you care about—for example, open GitHub Issues assigned to you with a `ready-for-agent` label. AgentBoard stores local copies, then runs the commands you configured. That command can launch a coding agent, create a worktree, send a notification, or do anything else available in your shell.
+Define a Workspace that selects only the work you care about—for example, open GitHub Issues assigned to you with a `ready-for-agent` label. AgentBoard stores local copies, then runs the Actions you configured. The built-in Actions create Git worktrees and run shell commands.
 
 AgentBoard provides the queue and action pipeline. It does not include an agent runtime.
 
@@ -49,8 +49,8 @@ Authenticate GitHub CLI first. AgentBoard uses it as a credential helper:
 
 ```bash
 gh auth login
-agentboard workspace init work
-agentboard workspace edit work # opens $EDITOR
+agentboard workspace init ./work.toml
+agentboard workspace edit ./work.toml # opens $EDITOR
 ```
 
 Configure the Workspace:
@@ -79,9 +79,9 @@ cmd = "echo 'launch your agent for {{ item.url }}'"
 Replace `OWNER/REPO` with the repository to watch. The example Action is deliberately harmless: replace the `echo` command with your agent launcher when the dry run shows the expected Issues. AgentBoard runs that command through `sh -c` for each matching Item.
 
 ```bash
-agentboard doctor work
-agentboard run work --dry-run
-agentboard run work --watch --interval 60s
+agentboard doctor ./work.toml
+agentboard run ./work.toml --dry-run
+agentboard run ./work.toml --watch --interval 60s
 ```
 
 A dry run collects and renders pending Actions without executing them or writing to the Store. `run --watch` repeats the Run until you stop it with Ctrl-C.
@@ -89,7 +89,7 @@ A dry run collects and renders pending Actions without executing them or writing
 ## How AgentBoard fits together
 
 - **Workspace** — TOML file containing Sources and their Actions.
-- **Source** — GitHub Issues, Jira Cloud, or QMD-backed markdown selected by a query.
+- **Source** — GitHub Issues, Jira Cloud, or QMD collections selected by a query.
 - **Item** — normalized local copy of one task-like record, including its raw source payload.
 - **Store** — local append-only JSONL history of Item observations and Action attempts.
 - **Action** — configured side effect, currently a shell command or Git worktree creation.
