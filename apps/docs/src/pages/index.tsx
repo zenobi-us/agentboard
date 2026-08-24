@@ -14,7 +14,7 @@ export default function HomePage() {
         <CtaHero
           tagline={<Logo suffix={<span className="text-rp-foam">.</span>} />}
           title={<>AgentBoard collects work items and runs workspace actions.</>}
-          subtitle="A Bun CLI for local agent queues: Jira, Linear, markdown, GitHub Projects, and GitHub Issues in; synced store, worktrees, and commands out."
+          subtitle="A Bun CLI for local agent queues: Jira, QMD collections, and GitHub Issues in; a local Store, Git worktrees, and shell commands out."
         >
           <HeroActions>
             <HeroAction primary asChild>

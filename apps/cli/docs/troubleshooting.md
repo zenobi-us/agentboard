@@ -97,8 +97,8 @@ Use the schema:
 agentboard schema > agentboard.schema.json
 ```
 
-## `list` shows stale items
+## `list` shows unexpected Items
 
-The Store is append-only. `list` shows the latest observed item by id from Store files. If the Source no longer returns an item, old observations can still exist locally.
+`list` shows the latest committed Source Snapshot for each configured Source. It does not show older observations that are not members of that Snapshot.
 
-For now, inspect or remove the Workspace Store manually if you need a clean local view.
+If the Snapshot is missing, run the Workspace successfully. If an Item remains unexpected, inspect the Source query and the matching Snapshot records in the Store.

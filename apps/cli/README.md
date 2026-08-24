@@ -1,16 +1,22 @@
 # AgentBoard CLI
 
-AgentBoard turns task-tracking sources into local agent work queues, then runs source-configured actions for matching items.
+AgentBoard collects Items from configured Sources, stores local observations, and runs Actions for matching Items.
 
 ```text
-workspace -> sources -> store -> templates -> actions
+Workspace -> Sources -> Store -> templates -> Actions
 ```
 
-The tracker or markdown collection stays the source of truth. AgentBoard keeps an append-only local Store so Runs are inspectable and retryable.
+The upstream system remains the source of truth. AgentBoard does not include an agent runtime or a hosted service.
 
 ## Quick start
 
-Create a workspace. Source and Action fields are documented in their package docs; the CLI wires them together:
+Create a TOML Workspace at an explicit path:
+
+```bash
+agentboard workspace init ./work.toml
+```
+
+Add a Source and an Action:
 
 ```toml
 [[sources]]
@@ -18,18 +24,20 @@ id = "local"
 
 [sources.source]
 uses = "@agentboard/source-qmd"
-# qmd fields go here
+collections = ["tasks"]
+query = "intent: ready work items"
 
 [[sources.actions]]
 uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
-# run-cmd inputs go here
+cmd = "echo {{ item.reference_id }}"
 ```
 
-Run it:
+Run the Workspace:
 
 ```bash
+agentboard doctor ./work.toml
 agentboard run ./work.toml --dry-run
 agentboard run ./work.toml
 agentboard list ./work.toml
@@ -38,33 +46,30 @@ agentboard list ./work.toml
 ## Commands
 
 ```text
+agentboard init <path>
+agentboard workspace init <path>
 agentboard workspace list
-agentboard workspace init <name>
-agentboard workspace edit <name> # requires $EDITOR
-agentboard workspaces             # compatibility alias
-agentboard run <workspace> [--dry-run] [--watch] [--interval 60s]
-agentboard list <workspace> [--json]
+agentboard workspace edit <path>
+agentboard workspaces
+agentboard run [workspace] [--dry-run] [--watch] [--interval 60s]
+agentboard list [workspace] [--json] [--watch] [--interval 60s]
+agentboard show [workspace] <item> [--json] [--watch] [--interval 60s]
 agentboard dashboard [workspace]
-agentboard show <workspace> <item-id> [--json]
-agentboard doctor <workspace>
+agentboard tui
+agentboard doctor [workspace]
 agentboard schema
 ```
 
-See [docs/commands.md](docs/commands.md) for examples.
+Operational commands use `.agentboard.toml` when the Workspace argument is omitted. They do not search parent directories. A Workspace path is one TOML file; AgentBoard does not merge files or apply field overrides.
 
 ## Docs
 
-- [Workspaces](docs/workspaces.md) — config files, ids, validation, examples.
-- [Sources](docs/sources.md) — how Sources fit into Workspaces, with links to source package docs.
-- [Templates](docs/templates.md) — MiniJinja context, `slugify`, path expansion.
-- [Actions](docs/actions.md) — orchestration, retry behavior, with links to action package docs.
-- [Store](docs/store.md) — append-only JSONL layout and derived state.
+- [Workspaces](docs/workspaces.md) — file selection, validation, and examples.
+- [Sources](docs/sources.md) — Source execution and normalized Items.
+- [Templates](docs/templates.md) — MiniJinja context and path expansion.
+- [Actions](docs/actions.md) — ordering, retry behavior, and trust model.
+- [Store](docs/store.md) — append-only JSONL records and derived state.
 - [Commands](docs/commands.md) — command reference.
-- [Troubleshooting](docs/troubleshooting.md) — common failures.
+- [Troubleshooting](docs/troubleshooting.md) — common errors.
 
-## Non-goals
-
-- No hosted service.
-- No hosted UI. The read-only terminal Dashboard is local and Store-backed.
-- No tracker replacement.
-- No sandbox for actions; workspace configs are trusted local code.
+The `tui` command is an experimental OpenTUI shell. It is not the Store-backed `dashboard` command and does not provide a supported data view.

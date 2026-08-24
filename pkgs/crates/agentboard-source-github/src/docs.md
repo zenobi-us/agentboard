@@ -18,9 +18,14 @@ limit = 50
 
 [sources.source.credentials]
 helper = "gh auth token"
+
+[sources.source.status_map]
+ready = "ready"
 ```
 
-Issue mode injects `is:issue` when it is missing so GitHub pull requests do not become AgentBoard Items.
+`mode`, `query`, `credentials`, and a non-empty `status_map` are required. Issue mode injects `is:issue` when it is missing, so GitHub pull requests do not become AgentBoard Items.
+
+`limit` defaults to 50. `field_map` is optional. Each `status_map` key matches an issue label or the GitHub state, and its value becomes the normalized Item status.
 
 ## Identity, reference, and status
 
