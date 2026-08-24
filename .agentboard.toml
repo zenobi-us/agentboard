@@ -4,7 +4,7 @@ id = "implement"
 [sources.source]
 uses = "@agentboard/source-github"
 mode = "issue"
-query = '''repo:zenobi-us/agentboard is:open label:"ready-for-agent" -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
+query = '''repo:zenobi-us/agentboard is:open (label:"ready-for-agent" OR label:"agentboard:changes-requested") -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
 limit = 1
 
 [sources.source.credentials]
@@ -15,45 +15,13 @@ helper = "gh auth token"
 "agentboard:changes-requested" = "changes-requested"
 
 [[sources.actions]]
-id = "worktree"
-uses = "@agentboard/action-worktree"
-
-[sources.actions.with]
-repo = "."
-root = "../AgentBoard.worktrees/{{ item.id | slugify }}"
-branch = "agentboard/{{ item.id | slugify }}"
-
-[[sources.actions]]
 uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
-cwd = "{{ actions.worktree.inputs.root }}"
+cwd = "."
 cmd = '''
 : "{{ item.raw.github.issue.updated_at }}";
-artifact_root="${XDG_DATA_HOME:-$HOME/.local/share}/agentboard/$AGENTBOARD_WORKSPACE_ID/exports/$AGENTBOARD_SOURCE_ID"
-session_dir="$artifact_root/sessions"
-session_id="$AGENTBOARD_SOURCE_ID-{{ item.reference_id }}"
-
-mkdir -p "$session_dir"
-
-pi \
-  --print \
-  --approve \
-  --session-dir "$session_dir" \
-  --session-id "$session_id" \
-  --name "implement-{{ item.reference_id }}" \
-  "/implement {{ item.reference_id }}"
-status=$?
-
-session_file=$(find "$session_dir" -maxdepth 1 -type f \
-  -name "*_${session_id}.jsonl" -print -quit)
-
-if [ -n "$session_file" ]; then
-  pi --export "$session_file" "$artifact_root/$session_id.html" ||
-    [ "$status" -ne 0 ] 
-fi
-
-exit "$status"
+./scripts/agentboard-herdr-run.sh implement "{{ item.reference_id }}" "{{ item.id | slugify }}"
 '''
 
 [[sources]]
@@ -73,43 +41,11 @@ helper = "gh auth token"
 "agentboard:review-complete" = "review-complete"
 
 [[sources.actions]]
-id = "worktree"
-uses = "@agentboard/action-worktree"
-
-[sources.actions.with]
-repo = "."
-root = "../AgentBoard.worktrees/{{ item.id | slugify }}"
-branch = "agentboard/{{ item.id | slugify }}"
-
-[[sources.actions]]
 uses = "@agentboard/action-run-cmd"
 
 [sources.actions.with]
-cwd = "{{ actions.worktree.inputs.root }}"
+cwd = "."
 cmd = '''
 : "{{ item.raw.github.issue.updated_at }}";
-artifact_root="${XDG_DATA_HOME:-$HOME/.local/share}/agentboard/$AGENTBOARD_WORKSPACE_ID/exports/$AGENTBOARD_SOURCE_ID"
-session_dir="$artifact_root/sessions"
-session_id="$AGENTBOARD_SOURCE_ID-{{ item.reference_id }}"
-
-mkdir -p "$session_dir"
-
-pi \
-  --print \
-  --approve \
-  --session-dir "$session_dir" \
-  --session-id "$session_id" \
-  --name "review-{{ item.reference_id }}" \
-  "/review {{ item.reference_id }}"
-status=$?
-
-session_file=$(find "$session_dir" -maxdepth 1 -type f \
-  -name "*_${session_id}.jsonl" -print -quit)
-
-if [ -n "$session_file" ]; then
-  pi --export "$session_file" "$artifact_root/$session_id.html" ||
-    [ "$status" -ne 0 ]
-fi
-
-exit "$status"
+./scripts/agentboard-herdr-run.sh review "{{ item.reference_id }}" "{{ item.id | slugify }}"
 '''

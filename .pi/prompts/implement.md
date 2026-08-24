@@ -6,9 +6,18 @@ Implement GitHub issue #$1 in `zenobi-us/agentboard` and create or update its pu
 
 Load and follow the Matt Pocock `implement` skill as the governing workflow.
 
+## Required preflight
+
+- You MUST run inside a Herdr-managed pane. If `HERDR_ENV` is not `1`, stop before changing files or ticket state.
+- You MUST use Worktrunk for worktree and branch operations. Use `wt`, not `git worktree`, for these operations.
+- You MUST read the Worktrunk state with `wt -C "$PWD" list --format json` before changing files.
+- You MUST confirm that the current directory is the issue worktree and that its branch is not `main`.
+- You MUST NOT create a second worktree for this issue.
+- You MUST NOT work in the repository root or a base-branch worktree.
+
 - Use `gh` to read the issue, comments, and any existing pull request for the branch.
 - Before changing files, claim the issue: remove `ready-for-agent` and `agentboard:changes-requested`, add `agentboard:implementing`, then comment that implementation started.
-- Work only in the current AgentBoard-managed worktree.
+- Work only in the current Worktrunk worktree.
 - Implement the written acceptance criteria.
 - Use `origin/main` as the fixed point for the required code review.
 - Run relevant Moon tasks regularly and final validation once at the end.
