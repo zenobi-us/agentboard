@@ -110,6 +110,8 @@ export const appKeymap: Keymap = {
   "app.run": ["r"],
   "app.watch": ["w"],
   "app.list": ["l"],
+  "app.view-workspace": ["1"],
+  "app.view-items": ["2"],
   "app.open-settings": ["ctrl", "s"],
 }
 

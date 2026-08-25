@@ -4,8 +4,10 @@ import { loadWorkspace } from "../../../services/workspace.ts"
 
 export type AppRoute =
   | { name: "workspace" }
+  | { name: "items" }
   | { name: "source"; sourceId: string }
   | { name: "item"; sourceId: string; itemId: string }
+  | { name: "action-item"; sourceId: string; itemId: string; actionIndex: number }
 
 type RunRequest = {
   mode: "idle" | "run" | "watch" | "list"
@@ -27,8 +29,10 @@ type MachineContext = {
 type MachineEvents =
   | { type: "COMMAND"; code: string }
   | { type: "ROUTE_WORKSPACE" }
+  | { type: "ROUTE_ITEMS" }
   | { type: "ROUTE_SOURCE"; sourceId: string }
   | { type: "ROUTE_ITEM"; sourceId: string; itemId: string }
+  | { type: "ROUTE_ACTION_ITEM"; sourceId: string; itemId: string; actionIndex: number }
   | { type: "REFRESH" }
   | { type: "QUIT" }
   | { type: "MODAL_CLOSED" }
@@ -87,6 +91,14 @@ export const tuiMachine = setup({
           {
             guard: ({ event }) => event.code === "app.refresh",
             actions: assign({ message: "Refreshed" }),
+          },
+          {
+            guard: ({ event }) => event.code === "app.view-workspace",
+            actions: assign({ route: { name: "workspace" } }),
+          },
+          {
+            guard: ({ event }) => event.code === "app.view-items",
+            actions: assign({ route: { name: "items" } }),
           },
           {
             guard: ({ event, context }) => event.code === "app.run" && context.runRequest.mode === "run",
@@ -153,6 +165,9 @@ export const tuiMachine = setup({
         ROUTE_WORKSPACE: {
           actions: assign({ route: { name: "workspace" } }),
         },
+        ROUTE_ITEMS: {
+          actions: assign({ route: { name: "items" } }),
+        },
         ROUTE_SOURCE: {
           actions: assign(({ event }) => ({
             route: { name: "source", sourceId: event.sourceId },
@@ -164,6 +179,16 @@ export const tuiMachine = setup({
               name: "item",
               sourceId: event.sourceId,
               itemId: event.itemId,
+            },
+          })),
+        },
+        ROUTE_ACTION_ITEM: {
+          actions: assign(({ event }) => ({
+            route: {
+              name: "action-item",
+              sourceId: event.sourceId,
+              itemId: event.itemId,
+              actionIndex: event.actionIndex,
             },
           })),
         },

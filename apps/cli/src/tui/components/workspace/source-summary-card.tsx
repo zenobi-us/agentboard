@@ -10,6 +10,7 @@ type SourceSummary<T, A extends SourceSummaryAction<T>> = {
   sourceId: string;
   items: T[];
   actions: A[];
+  selected?: boolean;
   onClick?: () => void;
 }
 
@@ -24,12 +25,14 @@ export function SourceSummaryCard<T, A extends SourceSummaryAction<T>>(props: So
   const theme = useTheme()
   const summaryStyle = theme.component("source.summary")
   const idStyle = theme.component("source.summary.id")
+  const selectedStyle = theme.component("source.item.selected")
 
   return (
     <box
       border={true}
       borderStyle="single"
-      borderColor={summaryStyle.border}
+      borderColor={props.selected ? selectedStyle.border : summaryStyle.border}
+      backgroundColor={props.selected ? selectedStyle.bg : summaryStyle.bg}
       padding={1}
       marginBottom={1}
       flexDirection="row"
@@ -37,7 +40,7 @@ export function SourceSummaryCard<T, A extends SourceSummaryAction<T>>(props: So
       onMouseDown={props.onClick}
     >
       <box flexDirection="column" marginRight={2} >
-        <text fg={idStyle.fg}>{props.sourceId}</text>
+        <text fg={props.selected ? selectedStyle.fg : idStyle.fg}>{props.sourceId}</text>
         <text>{props.items.length} items</text>
       </box>
       <box flexDirection="row">

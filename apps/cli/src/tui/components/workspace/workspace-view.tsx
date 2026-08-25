@@ -24,13 +24,14 @@ export function WorkspaceView(props: {
   return (
     <KeymapScope actor={actor} bindings={workspaceKeymap}>
       <box flexDirection="column" flexGrow={1}>
-        {snapshot.context.sources.map((sourceId) => {
+        {snapshot.context.sources.map((sourceId, index) => {
           const source = props.workspace.sources.find((item) => item.id === sourceId)
 
           return (
             <SourceSummaryCard
               key={sourceId}
               sourceId={sourceId}
+              selected={index === snapshot.context.sourceIndex}
               items={[...(props.sourceItems[sourceId] ?? [])]}
               actions={(source?.actions ?? []).map((action, index) => ({
                 actionId: action.id ?? action.packageName,

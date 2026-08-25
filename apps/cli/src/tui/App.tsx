@@ -2,15 +2,17 @@ import { useSelector } from "@xstate/react"
 // @ts-expect-error The TUI currently has no local React type package.
 import { useEffect, useState } from "react"
 import { useRenderer } from "@opentui/react"
-import { AppHeader } from "./components/app/app-header.tsx"
+import { AppHeader, MainTabs } from "./components/app/app-header.tsx"
 import { AppLayout } from "./components/app/layout.tsx"
 import { SettingsModal } from "./components/app/settings-modal.tsx"
 import { ItemView } from "./components/workspace/item-view.tsx"
+import { ActionItemView } from "./components/workspace/action-item-view.tsx"
 import { Loader } from "./components/app/loader.tsx";
 import { SourceView } from "./components/workspace/source-view.tsx"
 import { WorkspaceView } from "./components/workspace/workspace-view.tsx"
+import { ItemsView } from "./components/workspace/items-view.tsx"
 import type { Item } from "@agentboard/core/config"
-import { runWorkspace, watchWorkspace, type WorkspaceRunResult } from "../services/runtime.ts"
+import { runWorkspace, watchWorkspace, type SourceRunResult, type WorkspaceRunResult } from "../services/runtime.ts"
 import { AppMachineContext, AppMachineProvider } from "./services/app/provider.tsx"
 import { KeymapScope, KeymapProvider, appKeymap } from "./services/keymaps.tsx"
 import { GlobalControl } from "./components/app/global-control.tsx"
@@ -29,6 +31,7 @@ function AppScreen() {
   const theme = useTheme()
   const errorStyle = theme.component("error")
   const [sourceItems, setSourceItems] = useState<Record<string, readonly Item[]>>({})
+  const [sourceRuns, setSourceRuns] = useState<Record<string, SourceRunResult>>({})
   const [runError, setRunError] = useState<string>()
 
   useEffect(() => {
@@ -48,6 +51,10 @@ function AppScreen() {
       setSourceItems((current: Record<string, readonly Item[]>) => ({
         ...current,
         ...Object.fromEntries(result.sources.map((source) => [source.id, source.items])),
+      }))
+      setSourceRuns((current: Record<string, SourceRunResult>) => ({
+        ...current,
+        ...Object.fromEntries(result.sources.map((source) => [source.id, source])),
       }))
     }
     const run = runRequest.mode === "watch"
@@ -118,6 +125,7 @@ function AppScreen() {
                 <GlobalControl />
               </box>
             </box>
+            <MainTabs />
           </box>
         }
         footer={< text > Ctrl + S Settings · Ctrl + R Refresh · Ctrl + Q Quit</text >}
@@ -128,12 +136,14 @@ function AppScreen() {
 
           <box position="relative" flexGrow={1} padding={1}>
             {route.name === "workspace" ? <WorkspaceView workspace={executableWorkspace} sourceItems={sourceItems} /> : null}
+            {route.name === "items" ? <ItemsView workspace={executableWorkspace} sourceItems={sourceItems} /> : null}
             {route.name === "source" ? (
               <SourceView
                 key={`${route.sourceId}:${sourceItems.length}`}
                 appActor={appActor}
                 source={executableWorkspace.sources.find((source) => source.id === route.sourceId)!}
                 items={sourceItems[route.sourceId] ?? []}
+                runResult={sourceRuns[route.sourceId]}
               />
             ) : null}
             {route.name === "item" ? (
@@ -142,6 +152,16 @@ function AppScreen() {
                 appActor={appActor}
                 sourceId={route.sourceId}
                 itemId={route.itemId}
+              />
+            ) : null}
+            {route.name === "action-item" ? (
+              <ActionItemView
+                key={`${route.sourceId}:${route.itemId}:${route.actionIndex}`}
+                appActor={appActor}
+                source={executableWorkspace.sources.find((source) => source.id === route.sourceId)!}
+                item={sourceItems[route.sourceId]?.find((item: Item) => item.id === route.itemId)!}
+                actionIndex={route.actionIndex}
+                runResult={sourceRuns[route.sourceId]}
               />
             ) : null}
             {settingsOpen ? <SettingsModal /> : null}

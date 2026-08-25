@@ -6,6 +6,7 @@ import { createSourceMachine, type SourceMachineInput } from "../../services/sou
 import { useTheme } from "../../services/theme/theme.tsx"
 import { SourceSummaryCard } from "./source-summary-card.tsx"
 import type { LoadedWorkspaceSource } from "../../../services/config/workspace.ts"
+import type { ActionRunResult, SourceRunResult } from "../../../services/runtime.ts"
 
 const sourceMachine = createSourceMachine<Item>()
 
@@ -13,6 +14,7 @@ type SourceViewProps = {
   appActor: AnyActorRef
   source: LoadedWorkspaceSource
   items: readonly Item[]
+  runResult?: SourceRunResult
 }
 
 export function SourceView(props: SourceViewProps) {
@@ -30,6 +32,9 @@ export function SourceView(props: SourceViewProps) {
   const selectedStyle = theme.component("source.item.selected")
   const summaryStyle = theme.component("source.summary")
   const config = isRecord(props.source.source.config) ? props.source.source.config : {}
+  const actionResults = props.source.actions.map((_, actionIndex) =>
+    props.runResult?.actions.filter((result) => result.actionIndex === actionIndex) ?? []
+  )
 
   return (
     <KeymapScope actor={actor} bindings={sourceKeymap}>
@@ -41,7 +46,9 @@ export function SourceView(props: SourceViewProps) {
           actions={props.source.actions.map((action, index) => ({
             actionId: action.id ?? action.packageName,
             step: index + 1,
-            items: [],
+            items: (actionResults[index] ?? [])
+              .map((result) => props.items.find((item) => item.id === result.itemId))
+              .filter((item): item is Item => item !== undefined),
           }))}
         />
         <SourceDetailsCard
@@ -50,22 +57,89 @@ export function SourceView(props: SourceViewProps) {
           borderColor={summaryStyle.border}
           foreground={summaryStyle.fg}
         />
+        <ActionStepsCard
+          appActor={props.appActor}
+          source={props.source}
+          items={props.items}
+          results={actionResults}
+          borderColor={summaryStyle.border}
+          foreground={summaryStyle.fg}
+        />
         <text marginTop={1}>Use Up and Down to select an item.</text>
         <text>Press Return to open the item.</text>
         <text>Press Escape to return to the workspace.</text>
         <box flexDirection="column" marginTop={1}>
           {snapshot.context.items.map((item, index) => (
-            <text
+            <box
               key={item.id}
-              fg={(index === snapshot.context.itemIndex ? selectedStyle : itemStyle).fg}
+              flexDirection="row"
+              backgroundColor={(index === snapshot.context.itemIndex ? selectedStyle : itemStyle).bg}
             >
-              {index === snapshot.context.itemIndex ? "> " : "  "}{item.title} · {item.status}
-            </text>
+              <text fg={(index === snapshot.context.itemIndex ? selectedStyle : itemStyle).fg}>
+                {index === snapshot.context.itemIndex ? "> " : "  "}{item.title} · {item.status}
+              </text>
+            </box>
           ))}
         </box>
       </box>
     </KeymapScope>
   )
+}
+
+function ActionStepsCard(props: {
+  appActor: AnyActorRef
+  source: LoadedWorkspaceSource
+  items: readonly Item[]
+  results: readonly ActionRunResult[][]
+  borderColor?: string
+  foreground?: string
+}) {
+  return (
+    <box
+      border={true}
+      borderStyle="single"
+      borderColor={props.borderColor}
+      padding={1}
+      marginBottom={1}
+      flexDirection="column"
+    >
+      <text fg={props.foreground}>ACTIONS</text>
+      {props.source.actions.map((action, actionIndex) => {
+        const results = props.results[actionIndex] ?? []
+        return (
+          <box key={`${action.packageName}:${actionIndex}`} flexDirection="column" marginTop={1}>
+            <text>{action.packageName}: {results.length} items</text>
+            {results.length === 0 ? (
+              <text>  No item results.</text>
+            ) : results.map((result) => {
+              const item = props.items.find((candidate) => candidate.id === result.itemId)
+              return (
+                <text
+                  key={`${result.itemId}:${result.actionIndex}`}
+                  onMouseDown={() => props.appActor.send({
+                    type: "ROUTE_ACTION_ITEM",
+                    sourceId: props.source.id,
+                    itemId: result.itemId,
+                    actionIndex: result.actionIndex,
+                  })}
+                >
+                  [{item?.reference_id ?? result.itemId}] {item?.title ?? "Unknown item"} - {actionOutput(result)}
+                </text>
+              )
+            })}
+          </box>
+        )
+      })}
+    </box>
+  )
+}
+
+function actionOutput(result: ActionRunResult): string {
+  const output = result.result?.stdout?.trim()
+  if (output) return output.replace(/\s+/g, " ")
+  if (result.error) return `error: ${result.error}`
+  if (result.skipped) return "not executed"
+  return "no stdout"
 }
 
 function SourceDetailsCard(props: {
