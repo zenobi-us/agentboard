@@ -15,12 +15,19 @@ type RunRequest = {
   stopping: boolean
 }
 
+type ItemRunRequest = {
+  sourceId: string
+  itemId: string
+  id: number
+}
+
 type MachineContext = {
   message: string
   route: AppRoute
   workspacePath: string
   version: string
   runRequest: RunRequest
+  itemRunRequest?: ItemRunRequest
   workspaceConfig?: unknown
   executableWorkspace?: LoadedWorkspace
   error?: string
@@ -36,6 +43,7 @@ type MachineEvents =
   | { type: "REFRESH" }
   | { type: "QUIT" }
   | { type: "MODAL_CLOSED" }
+  | { type: "RUN_ITEM"; sourceId: string; itemId: string }
 
 export const tuiMachine = setup({
   types: {
@@ -161,6 +169,14 @@ export const tuiMachine = setup({
             guard: ({ event }) => event.code === "app.run-failed",
             actions: assign({ runRequest: { mode: "idle", id: 0, stopping: false }, message: "Run failed" }),
           },
+          {
+            guard: ({ event }) => event.code === "item.run-complete",
+            actions: assign({ itemRunRequest: undefined, message: "Ready" }),
+          },
+          {
+            guard: ({ event }) => event.code === "item.run-failed",
+            actions: assign({ itemRunRequest: undefined, message: "Item run failed" }),
+          },
         ],
         ROUTE_WORKSPACE: {
           actions: assign({ route: { name: "workspace" } }),
@@ -194,6 +210,16 @@ export const tuiMachine = setup({
         },
         REFRESH: {
           actions: assign({ message: "Refreshed" }),
+        },
+        RUN_ITEM: {
+          actions: assign(({ context, event }) => ({
+            itemRunRequest: {
+              sourceId: event.sourceId,
+              itemId: event.itemId,
+              id: (context.itemRunRequest?.id ?? 0) + 1,
+            },
+            message: "Running item...",
+          })),
         },
         QUIT: "exiting",
       },

@@ -12,7 +12,7 @@ import { SourceView } from "./components/workspace/source-view.tsx"
 import { WorkspaceView } from "./components/workspace/workspace-view.tsx"
 import { ItemsView } from "./components/workspace/items-view.tsx"
 import type { Item } from "@agentboard/core/config"
-import { runWorkspace, watchWorkspace, type SourceRunResult, type WorkspaceRunResult } from "../services/runtime.ts"
+import { runItem, runWorkspace, watchWorkspace, type SourceRunResult, type WorkspaceRunResult } from "../services/runtime.ts"
 import { AppMachineContext, AppMachineProvider } from "./services/app/provider.tsx"
 import { KeymapScope, KeymapProvider, appKeymap } from "./services/keymaps.tsx"
 import { GlobalControl } from "./components/app/global-control.tsx"
@@ -28,6 +28,7 @@ function AppScreen() {
   const loadingError = useSelector(appActor, (snapshot) => snapshot.context.error)
   const executableWorkspace = useSelector(appActor, (snapshot) => snapshot.context.executableWorkspace)
   const runRequest = useSelector(appActor, (snapshot) => snapshot.context.runRequest)
+  const itemRunRequest = useSelector(appActor, (snapshot) => snapshot.context.itemRunRequest)
   const theme = useTheme()
   const errorStyle = theme.component("error")
   const [sourceItems, setSourceItems] = useState<Record<string, readonly Item[]>>({})
@@ -85,6 +86,40 @@ function AppScreen() {
       controller.abort()
     }
   }, [executableWorkspace, runRequest])
+
+  useEffect(() => {
+    if (!executableWorkspace || !itemRunRequest) return
+    const item = sourceItems[itemRunRequest.sourceId]?.find((candidate: Item) => candidate.id === itemRunRequest.itemId)
+    if (!item) {
+      appActor.send({ type: "COMMAND", code: "item.run-failed" })
+      return
+    }
+
+    let active = true
+    const controller = new AbortController()
+    const executionWorkspace = {
+      ...executableWorkspace,
+      cancellation: controller.signal,
+      sources: executableWorkspace.sources.map((source) => ({ ...source, cancellation: controller.signal })),
+    }
+
+    void runItem(executionWorkspace, itemRunRequest.sourceId, item)
+      .then((source) => {
+        if (!active) return
+        setSourceRuns((current: Record<string, SourceRunResult>) => ({ ...current, [source.id]: source }))
+        appActor.send({ type: "COMMAND", code: "item.run-complete" })
+      })
+      .catch((error) => {
+        if (!active) return
+        setRunError(String(error))
+        appActor.send({ type: "COMMAND", code: "item.run-failed" })
+      })
+
+    return () => {
+      active = false
+      controller.abort()
+    }
+  }, [appActor, executableWorkspace, itemRunRequest, sourceItems])
 
   useEffect(() => {
     if (exiting) renderer.destroy()
@@ -152,6 +187,8 @@ function AppScreen() {
                 appActor={appActor}
                 sourceId={route.sourceId}
                 itemId={route.itemId}
+                runResult={sourceRuns[route.sourceId]}
+                running={itemRunRequest?.sourceId === route.sourceId && itemRunRequest.itemId === route.itemId}
               />
             ) : null}
             {route.name === "action-item" ? (

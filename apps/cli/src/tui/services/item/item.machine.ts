@@ -33,8 +33,12 @@ export const itemMachine = setup({
           },
           {
             guard: ({ event }) => event.code === "item.run",
-            // The action runtime will connect here after the screen contract is stable.
-            actions: () => undefined,
+            actions: ({ context }) =>
+              context.appActor.send({
+                type: "RUN_ITEM",
+                sourceId: context.sourceId,
+                itemId: context.itemId,
+              }),
           },
         ],
       },
