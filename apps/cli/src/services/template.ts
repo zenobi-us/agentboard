@@ -14,27 +14,27 @@ export function renderActionInputs(
   context: Record<string, unknown>,
   options: RenderActionInputsOptions = {},
 ): unknown {
-  return render(value, context, new Set(options.pathInputs ?? []));
+  return render(value, context, new Set(options.pathInputs ?? []), []);
 }
 
 function render(
   value: unknown,
   context: Record<string, unknown>,
   pathInputs: ReadonlySet<string>,
-  key?: string,
+  path: readonly string[],
 ): unknown {
   if (typeof value === "string") {
     validateActionReferences(value, context);
     validateStrictActionExpressions(value, context);
     const rendered = environment().renderStr(value, context);
-    return key !== undefined && pathInputs.has(key) ? expandPath(rendered) : rendered;
+    return pathInputs.has(path.join(".")) ? expandPath(rendered) : rendered;
   }
-  if (Array.isArray(value)) return value.map((item) => render(item, context, pathInputs));
+  if (Array.isArray(value)) return value.map((item) => render(item, context, pathInputs, path));
   if (value === null || typeof value !== "object") return value;
   return Object.fromEntries(
     Object.entries(value).map(([itemKey, item]) => [
       itemKey,
-      render(item, context, pathInputs, itemKey),
+      render(item, context, pathInputs, [...path, itemKey]),
     ]),
   );
 }

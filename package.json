@@ -13,7 +13,8 @@
     "@types/bun": "^1.3.14",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "@agentboard/action-llm": "workspace:*"
   },
   "overrides": {
     "vite": "8.0.16"
