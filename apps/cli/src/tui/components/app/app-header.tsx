@@ -2,18 +2,34 @@ import { useSelector } from "@xstate/react";
 import { useAppMachine } from "../../services/app/provider"
 import { useTheme } from "../../services/theme/theme.tsx"
 
-export function AppHeader() {
+export function AppHeader(props: {
+  children?: React.ReactNode
+}) {
   const appMachine = useAppMachine()
+  const theme = useTheme()
+  const headerStyle = theme.component("app.header")
   const version = useSelector(appMachine, (snapshot) => snapshot.context.version)
+  const workspaceId = useSelector(appMachine, (snapshot) => {
+    return snapshot.context.executableWorkspace?.id ?? "No Workspace"
+  })
 
   return (
-    <box flexDirection="row" border={false} marginBottom={1}>
-      <box flexDirection="row" flexGrow={1}>
-        <text>AgentBoard</text>
+    <box
+      flexDirection="column"
+      border={["bottom"]}
+      borderColor={headerStyle.border}
+      marginBottom={1}
+      flexGrow={1}
+    >
+      <box flexDirection="row" border={false} marginBottom={1}>
+        <box flexDirection="row" flexGrow={1}>
+          <text>AgentBoard · {workspaceId}</text>
+        </box>
+        <box flexDirection="row" border={false} marginLeft={1}>
+          <text>v{version}</text>
+        </box>
       </box>
-      <box flexDirection="row" border={false} marginLeft={1}>
-        <text>v{version}</text>
-      </box>
+      {props.children}
     </box>
   )
 }

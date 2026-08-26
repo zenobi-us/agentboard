@@ -21,7 +21,9 @@ export function ActionItemView(props: {
       itemId: props.item.id,
     },
   })
-  const headingStyle = useTheme().component("item.heading")
+  const theme = useTheme()
+  const headingStyle = theme.component("item.heading")
+  const panelStyle = theme.component("source.summary")
   const action = props.source.actions[props.actionIndex]
   const result = props.runResult?.actions.find(
     (candidate) => candidate.itemId === props.item.id && candidate.actionIndex === props.actionIndex,
@@ -32,28 +34,78 @@ export function ActionItemView(props: {
   return (
     <KeymapScope actor={actor} bindings={itemKeymap}>
       <box flexDirection="column" flexGrow={1}>
-        <text fg={headingStyle.fg}>ACTION ITEM</text>
-        <text marginTop={1}>Source: {props.source.id}</text>
-        <text>Reference: {props.item.reference_id}</text>
-        <text>Title: {props.item.title}</text>
-        <text>Status: {props.item.status}</text>
-        <text>Action: {action.id ?? action.packageName}</text>
-        <text>Step: {props.actionIndex + 1}</text>
-        <text>Uses: {action.packageName}</text>
-        <text>Outcome: {actionOutcome(result)}</text>
-        <text marginTop={1}>Action configuration:</text>
-        <text>{JSON.stringify(action.config, null, 2)}</text>
-        <text marginTop={1}>Stdout:</text>
-        <text>{result?.result?.stdout || "(none)"}</text>
-        <text marginTop={1}>Stderr:</text>
-        <text>{result?.result?.stderr || "(none)"}</text>
-        {result?.result?.message || result?.error ? (
-          <>
-            <text marginTop={1}>Message:</text>
-            <text>{result.result?.message ?? result.error}</text>
-          </>
-        ) : null}
-        <text marginTop={1}>Press Escape to return to the source.</text>
+        <text fg={headingStyle.fg}>ACTION / {props.source.id} / {props.item.reference_id} / STEP {props.actionIndex + 1}</text>
+
+        <box
+          border={true}
+          borderStyle="single"
+          borderColor={panelStyle.border}
+          padding={1}
+          marginTop={1}
+          marginBottom={1}
+          flexDirection="column"
+        >
+          <text fg={panelStyle.fg}>{props.item.title}</text>
+          <box flexDirection="row" marginTop={1}>
+            <box flexDirection="column" marginRight={3}>
+              <text>Source  {props.source.id}</text>
+              <text>Status  {props.item.status}</text>
+            </box>
+            <box flexDirection="column">
+              <text>Reference  {props.item.reference_id}</text>
+              <text>Action     {action.id ?? action.packageName}</text>
+            </box>
+          </box>
+        </box>
+
+        <box
+          border={true}
+          borderStyle="single"
+          borderColor={panelStyle.border}
+          padding={1}
+          marginBottom={1}
+          flexDirection="column"
+        >
+          <text fg={panelStyle.fg}>EXECUTION</text>
+          <text marginTop={1}>Step     {props.actionIndex + 1}</text>
+          <text>Uses     {action.packageName}</text>
+          <text>Outcome  {actionOutcome(result)}</text>
+        </box>
+
+        <box
+          border={true}
+          borderStyle="single"
+          borderColor={panelStyle.border}
+          padding={1}
+          marginBottom={1}
+          flexDirection="column"
+        >
+          <text fg={panelStyle.fg}>OUTPUT</text>
+          <text marginTop={1}>Stdout</text>
+          <text>{result?.result?.stdout || "(none)"}</text>
+          <text marginTop={1}>Stderr</text>
+          <text>{result?.result?.stderr || "(none)"}</text>
+          {result?.result?.message || result?.error ? (
+            <>
+              <text marginTop={1}>Message</text>
+              <text>{result.result?.message ?? result.error}</text>
+            </>
+          ) : null}
+        </box>
+
+        <box
+          border={true}
+          borderStyle="single"
+          borderColor={panelStyle.border}
+          padding={1}
+          marginBottom={1}
+          flexDirection="column"
+        >
+          <text fg={panelStyle.fg}>CONFIGURATION</text>
+          <text marginTop={1}>{JSON.stringify(action.config, null, 2)}</text>
+        </box>
+
+        <text>Press Escape to return to the source.</text>
       </box>
     </KeymapScope>
   )

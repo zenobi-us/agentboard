@@ -152,16 +152,12 @@ function AppScreen() {
     <KeymapScope actor={appActor} bindings={appKeymap}>
       <AppLayout
         header={
-          <box flexDirection="column" border={false} marginBottom={1} flexGrow={1} >
-            <AppHeader />
+          <AppHeader>
             <box flexDirection="row" flexGrow={1} justifyContent="space-between" width="100%">
-              <text>Workspace: {executableWorkspace.id}</text>
-              <box flexDirection="row">
-                <GlobalControl />
-              </box>
+              <MainTabs />
+              <GlobalControl />
             </box>
-            <MainTabs />
-          </box>
+          </AppHeader>
         }
         footer={< text > Ctrl + S Settings · Ctrl + R Refresh · Ctrl + Q Quit</text >}
       >
@@ -185,8 +181,8 @@ function AppScreen() {
               <ItemView
                 key={`${route.sourceId}:${route.itemId}`}
                 appActor={appActor}
-                sourceId={route.sourceId}
-                itemId={route.itemId}
+                source={executableWorkspace.sources.find((source) => source.id === route.sourceId)!}
+                item={sourceItems[route.sourceId]?.find((item: Item) => item.id === route.itemId)!}
                 runResult={sourceRuns[route.sourceId]}
                 running={itemRunRequest?.sourceId === route.sourceId && itemRunRequest.itemId === route.itemId}
               />
