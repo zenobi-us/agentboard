@@ -15,14 +15,28 @@ helper = "gh auth token"
 "agentboard:changes-requested" = "changes-requested"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+id = "worktree"
+uses = "@agentboard/action-worktree"
 
 [sources.actions.with]
-cwd = "."
-cmd = '''
-: "{{ item.raw.github.issue.updated_at }}";
-./scripts/agentboard-herdr-run.sh implement "{{ item.reference_id }}" "{{ item.id | slugify }}"
+repo = "."
+root = "worktrees/issue-{{ item.id | slugify }}"
+branch = "agentboard/{{ item.id | slugify }}"
+
+[[sources.actions]]
+id = "run_llm"
+uses = "@agentboard/action-llm"
+
+[sources.actions.with]
+prompt = '''
+/implement {{ item.reference_id }}
+Source updated at: {{ item.raw.github.issue.updated_at }}
 '''
+cwd = "{{ actions.worktree.inputs.root }}"
+
+[sources.actions.with.terminal]
+kind = "herdr"
+container = "tab"
 
 [[sources]]
 id = "review"
@@ -41,11 +55,25 @@ helper = "gh auth token"
 "agentboard:review-complete" = "review-complete"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+id = "worktree"
+uses = "@agentboard/action-worktree"
 
 [sources.actions.with]
-cwd = "."
-cmd = '''
-: "{{ item.raw.github.issue.updated_at }}";
-./scripts/agentboard-herdr-run.sh review "{{ item.reference_id }}" "{{ item.id | slugify }}"
+repo = "."
+root = "worktrees/issue-{{ item.id | slugify }}"
+branch = "agentboard/{{ item.id | slugify }}"
+
+[[sources.actions]]
+id = "run_llm"
+uses = "@agentboard/action-llm"
+
+[sources.actions.with]
+prompt = '''
+/review {{ item.reference_id }}
+Source updated at: {{ item.raw.github.issue.updated_at }}
 '''
+cwd = "{{ actions.worktree.inputs.root }}"
+
+[sources.actions.with.terminal]
+kind = "herdr"
+container = "tab"
