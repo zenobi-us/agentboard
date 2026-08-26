@@ -17,11 +17,61 @@ import {
 import { installCancellationHandlers } from "../cli/cancellation.ts";
 import { parseRunInterval, runExitStatus } from "../cli/run.ts";
 import { loadExecutableWorkspace } from "./config/workspace.ts";
-import { checkWorkspaceHealth, runWorkspace, watchWorkspace } from "./runtime.ts";
+import { checkWorkspaceHealth, runItem, runWorkspace, watchWorkspace } from "./runtime.ts";
 import { acquireWorkspaceLock, readStoreViews, setSourceCollectionStatus } from "./store.ts";
 import { renderActionInputs } from "./template.ts";
 
 describe("Workspace runtime orchestration", () => {
+  test("runs the action pipeline for one existing item", async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-item-run-"));
+    const path = new URL("./runtime.test.ts", import.meta.url).pathname;
+    const item: Item = {
+      id: "item-1",
+      reference_id: "AB-1",
+      title: "Run one item",
+      status: "ready",
+      url: "https://example.test/items/1",
+      source_id: "issues",
+      source_kind: "memory",
+      raw: {},
+    };
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: () => ({ collect: () => [] }),
+      healthCheck: () => undefined,
+    });
+    const actionPlugin = definePlugin(import.meta, {
+      kind: "action",
+      validate: () => undefined,
+      schema: Type.Object({}),
+      runtime: () => ({
+        execute: ({ item: value }): ActionResult => ({
+          outcome: "success",
+          stdout: value.reference_id,
+          stderr: "",
+        }),
+      }),
+      healthCheck: () => undefined,
+    });
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{
+        id: "issues",
+        source: source(sourcePlugin, {}, path),
+        actions: [action(actionPlugin, {}, path)],
+      }],
+    }));
+
+    try {
+      const result = await runItem(workspace, "issues", item, { storeRoot });
+      expect(result.items).toEqual([item]);
+      expect(result.actions[0]?.result).toEqual({ outcome: "success", stdout: "AB-1", stderr: "" });
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
   test("runs a QMD Plugin through the Workspace runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-qmd-cli-"));
     const bin = join(root, "qmd");

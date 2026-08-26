@@ -49,6 +49,10 @@ export interface RunWorkspaceOptions {
   readonly sourceIds?: readonly string[];
 }
 
+export interface RunItemOptions {
+  readonly storeRoot?: string;
+}
+
 export interface WatchWorkspaceOptions extends RunWorkspaceOptions {
   readonly intervalMs?: number;
   readonly onResult?: (result: WorkspaceRunResult) => void;
@@ -111,6 +115,23 @@ export async function runWorkspace(
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
     return await runWorkspaceUnlocked(workspace, options.storeRoot, false, options.sourceIds);
+  } finally {
+    await releaseLock();
+  }
+}
+
+export async function runItem(
+  workspace: LoadedWorkspace,
+  sourceId: string,
+  item: Item,
+  options: RunItemOptions = {},
+): Promise<SourceRunResult> {
+  const source = workspace.sources.find((candidate) => candidate.id === sourceId);
+  if (!source) throw new Error(`source ${sourceId} not found`);
+  const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
+  try {
+    const actions = await runActions(workspace, source, [item], options.storeRoot);
+    return { id: source.id, uses: source.packageName, items: [item], actions: actions.results };
   } finally {
     await releaseLock();
   }
