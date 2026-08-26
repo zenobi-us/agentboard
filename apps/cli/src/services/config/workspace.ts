@@ -88,6 +88,7 @@ export async function loadExecutableWorkspace(
   configuration?: unknown,
   cancellation: AbortSignal = new AbortController().signal,
   createRuntimes = true,
+  globalRoot?: string,
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   let data = configuration;
@@ -101,7 +102,7 @@ export async function loadExecutableWorkspace(
   }
   validateExecutableWorkspace(data, path);
   validateUniqueSourceIds(data.sources, path, "Executable Workspace configuration");
-  await validateExecutablePluginPackages(data, path);
+  await validateExecutablePluginPackages(data, path, globalRoot);
   throwIfCancelled(cancellation);
   let actionPosition = 0;
   const sources: LoadedWorkspaceSource[] = [];
@@ -382,6 +383,7 @@ function packageNameForPlugin(
 async function validateExecutablePluginPackages(
   configuration: WorkspaceConfig,
   path: string,
+  globalRoot?: string,
 ): Promise<void> {
   const names = new Set<string>();
   for (const record of configuration.sources) {
@@ -390,7 +392,7 @@ async function validateExecutablePluginPackages(
       if (name) names.add(name);
     }
   }
-  if (names.size > 0) await loadWorkspacePlugins(path, [...names]);
+  if (names.size > 0) await loadWorkspacePlugins(path, [...names], globalRoot);
 }
 
 function externalPluginPackageName(plugin: ReturnType<typeof pluginFor>): string | undefined {

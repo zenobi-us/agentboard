@@ -701,6 +701,20 @@ describe("Plugin Package discovery", () => {
     );
   });
 
+  test("validates executable Plugins against the configured global package root", async () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    const globalRoot = join(root, "global");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(globalRoot, "selected", "selected", pluginSource("source"));
+    const { defineConfig, source } = await import("@agentboard/core/config");
+    const plugin = (await import(pathToFileURL(join(globalRoot, "selected/index.ts")).href)).default;
+
+    await expect(loadExecutableWorkspace(configPath, defineConfig({
+      sources: [{ id: "one", source: source(plugin as never, { query: "ready" } as never, configPath) }],
+    }), undefined, false, globalRoot)).resolves.toBeDefined();
+  });
+
   test("does not trust an executable Plugin packageName to bypass package rules", async () => {
     const root = fixture();
     const configPath = join(root, "agentboard.config.ts");
