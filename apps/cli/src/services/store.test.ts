@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { createHash } from "node:crypto";
 import { appendFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -42,13 +41,12 @@ function source(id: string, config: unknown = {}): TestSource {
 
 describe("Store bucket paths", () => {
   test("uses the registered Source kind and Item Bucket identity", () => {
-    expect(sourceSlug(source("issues") as never)).toBe("github-github-com-3aeb00246038");
+    expect(sourceSlug(source("issues") as never)).toBe("github-github-com-d0bc5a474405");
   });
 
   test("does not truncate long Item Bucket identities", () => {
     const identity = "a".repeat(60);
-    const hash = createHash("sha256").update(identity).digest("hex").slice(0, 12);
-    expect(sourceSlug({ ...source("issues"), itemBucketIdentity: identity } as never)).toBe(`github-${identity}-${hash}`);
+    expect(sourceSlug({ ...source("issues"), itemBucketIdentity: identity } as never)).toBe(`github-${identity}-209524c46551`);
   });
 });
 
@@ -58,7 +56,7 @@ describe("Source Snapshot selection", () => {
     const configured = source("issues");
     await appendSourceSnapshot(workspace([configured]), configured as never, [], new AbortController().signal, root);
 
-    const path = join(root, "test", "items-github-github-com-3aeb00246038.snapshots");
+    const path = join(root, "test", "items-github-github-com-d0bc5a474405.snapshots");
     const boundary = JSON.parse((await readFile(path, "utf8")).trim()) as { snapshot_key: string };
     expect(boundary.snapshot_key).toBe("dc7f8a622c44073e");
   });
@@ -70,7 +68,7 @@ describe("Source Snapshot selection", () => {
     await appendSourceSnapshot(workspace([first]), first as never, [item("first", "issues")], new AbortController().signal, root);
     await appendSourceSnapshot(workspace([second]), second as never, [item("second", "issues")], new AbortController().signal, root);
 
-    const path = join(root, "test", "items-github-github-com-3aeb00246038.snapshots");
+    const path = join(root, "test", "items-github-github-com-d0bc5a474405.snapshots");
     const boundaries = (await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line)) as Array<{ snapshot_key: string }>;
     expect(boundaries[0]?.snapshot_key).toBe(boundaries[1]?.snapshot_key);
   });
@@ -91,7 +89,7 @@ describe("Source Snapshot selection", () => {
   test("does not erase a concurrent boundary after cancellation", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
     const configured = source("issues");
-    const boundaryPath = join(root, "test", "items-github-github-com-3aeb00246038.snapshots");
+    const boundaryPath = join(root, "test", "items-github-github-com-d0bc5a474405.snapshots");
     let reads = 0;
     const cancellation = {
       get aborted() {

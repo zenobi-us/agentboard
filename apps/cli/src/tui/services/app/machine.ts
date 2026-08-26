@@ -53,7 +53,7 @@ export const tuiMachine = setup({
   },
   actors: {
     loadWorkspace: fromPromise(({ input, signal }: { input: { workspacePath: string }; signal: AbortSignal }) =>
-      loadWorkspace(input.workspacePath, undefined, signal, true),
+      loadWorkspace(input.workspacePath, undefined, signal, false),
     ),
   },
 }).createMachine({

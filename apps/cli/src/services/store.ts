@@ -281,7 +281,8 @@ function actionPath(
 export function sourceSlug(source: LoadedWorkspaceSource): string {
   const kind = sourceKind(source);
   const identity = source.itemBucketIdentity;
-  return `${kind}-${slugify(identity)}-${shortHash(identity)}`;
+  const packageHash = `${source.packageName}\0${identity}`;
+  return `${slugify(kind)}-${slugify(identity)}-${shortHash(packageHash)}`;
 }
 
 function sourceKind(source: LoadedWorkspaceSource): string {
@@ -290,7 +291,10 @@ function sourceKind(source: LoadedWorkspaceSource): string {
 
 function sourceSnapshotKey(source: LoadedWorkspaceSource): string {
   const config = JSON.stringify(source.source.config ?? {});
-  return defaultHasher([source.id, sourceKind(source), config]);
+  const packageIdentity = source.packageName.startsWith("@agentboard/") || source.packageName.startsWith("agentboard-source-")
+    ? sourceKind(source)
+    : source.packageName;
+  return defaultHasher([source.id, packageIdentity, config]);
 }
 
 function configuredSourceHash(source: LoadedWorkspaceSource): string {

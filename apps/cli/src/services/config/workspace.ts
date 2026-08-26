@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
-import { basename, extname, resolve } from "node:path";
+import { basename, delimiter, extname, relative, resolve, sep } from "node:path";
 import Type, { type TSchema } from "typebox";
 import {
   action,
@@ -23,6 +23,7 @@ import {
 import { validateActionInputs } from "../template.ts";
 import {
   discoverPluginPackages,
+  globalPluginRoot,
   loadAllPlugins,
   loadSelectedPlugins,
   registerPlugins,
@@ -92,12 +93,18 @@ export async function loadExecutableWorkspace(
 ): Promise<LoadedWorkspace> {
   const path = resolve(configPath);
   let data = configuration;
+  const previousNodePath = process.env["NODE_PATH"];
   if (data === undefined) {
     try {
+      const packageRoot = globalRoot ?? globalPluginRoot();
+      process.env["NODE_PATH"] = [packageRoot, previousNodePath].filter(Boolean).join(delimiter);
       const module = await import(pathToFileURL(path).href);
       data = module.default ?? module;
     } catch (error) {
       throw new Error(`Executable Workspace configuration failed for ${path}: ${String(error)}`);
+    } finally {
+      if (previousNodePath === undefined) delete process.env["NODE_PATH"];
+      else process.env["NODE_PATH"] = previousNodePath;
     }
   }
   validateExecutableWorkspace(data, path);
@@ -114,8 +121,8 @@ export async function loadExecutableWorkspace(
       throwIfCancelled(cancellation);
       validateActionInputs(configured.config);
       const plugin = pluginFor(configured);
-      plugin.validate!(configured.config);
       const normalized = normalizeInlineIdentity(configured, path, "action", actionPosition++);
+      plugin.validate?.(normalized.config);
       const runtime = createRuntimes
         ? await createActionRuntime(normalized, {
           workspaceId: workspaceId(path),
@@ -126,7 +133,7 @@ export async function loadExecutableWorkspace(
       throwIfCancelled(cancellation);
       const loaded = {
         ...normalized,
-        packageName: packageNameForPlugin(plugin, normalized.identity),
+        packageName: packageNameForPlugin(plugin, normalized.identity, globalRoot),
         runtime,
       };
       copyPluginReference(normalized, loaded);
@@ -137,7 +144,7 @@ export async function loadExecutableWorkspace(
     sources.push({
       ...record,
       source: normalizedSource,
-      packageName: packageNameForPlugin(sourcePlugin, normalizedSource.identity),
+      packageName: packageNameForPlugin(sourcePlugin, normalizedSource.identity, globalRoot),
       itemBucketIdentity: sourcePlugin.itemBucketIdentity!(normalizedSource.config),
       actions,
     });
@@ -204,12 +211,12 @@ export async function loadDataWorkspace(
         throw new TypeError("configuration id must be a string");
       }
       validateActionInputs(inputs);
-      actionPackage.plugin.validate!(inputs);
       const resolved = action(
         actionPackage.plugin as never,
         inputs as never,
         path,
       ) as ResolvedAction<TSchema>;
+      actionPackage.plugin.validate?.(resolved.config);
       const runtime = createRuntimes
         ? await createActionRuntime(resolved, {
           workspaceId: workspaceId(path),
@@ -373,8 +380,9 @@ function validateExecutableWorkspace(
 function packageNameForPlugin(
   plugin: ReturnType<typeof pluginFor>,
   identity?: ResolvedAction<TSchema>["identity"],
+  globalRoot?: string,
 ): string {
-  const externalName = externalPluginPackageName(plugin);
+  const externalName = externalPluginPackageName(plugin, globalRoot);
   if (externalName) return externalName;
   if (identity) return `inline:${identity.path}:${identity.role}:${identity.position}`;
   return plugin.meta.url;
@@ -388,18 +396,22 @@ async function validateExecutablePluginPackages(
   const names = new Set<string>();
   for (const record of configuration.sources) {
     for (const configured of [record.source, ...(record.actions ?? [])]) {
-      const name = externalPluginPackageName(pluginFor(configured));
+      const name = externalPluginPackageName(pluginFor(configured), globalRoot);
       if (name) names.add(name);
     }
   }
   if (names.size > 0) await loadWorkspacePlugins(path, [...names], globalRoot);
 }
 
-function externalPluginPackageName(plugin: ReturnType<typeof pluginFor>): string | undefined {
+function externalPluginPackageName(
+  plugin: ReturnType<typeof pluginFor>,
+  globalRoot = globalPluginRoot(),
+): string | undefined {
   if (!plugin.meta.url.startsWith("file:")) return plugin.meta.packageName ?? plugin.meta.url;
   const modulePath = fileURLToPath(plugin.meta.url);
-  const external = modulePath.includes("/node_modules/") ||
-    modulePath.includes("/agentboard/plugins/npm/");
+  const globalRelative = relative(resolve(globalRoot), modulePath);
+  const external = modulePath.includes(`${sep}node_modules${sep}`) ||
+    (globalRelative !== "" && !globalRelative.startsWith(`..${delimiter}`) && !globalRelative.startsWith(".."));
   let directory = resolve(modulePath, "..");
   while (true) {
     const manifestPath = resolve(directory, "package.json");

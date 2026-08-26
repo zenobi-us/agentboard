@@ -12,6 +12,8 @@ import { SourceView } from "./components/workspace/source-view.tsx"
 import { WorkspaceView } from "./components/workspace/workspace-view.tsx"
 import { ItemsView } from "./components/workspace/items-view.tsx"
 import type { Item } from "@agentboard/core/config"
+import { createActionRuntime } from "../services/actions.ts"
+import { createSourceRuntime } from "../services/sources.ts"
 import { runItem, runWorkspace, watchWorkspace, type SourceRunResult, type WorkspaceRunResult } from "../services/runtime.ts"
 import { AppMachineContext, AppMachineProvider } from "./services/app/provider.tsx"
 import { KeymapScope, KeymapProvider, appKeymap } from "./services/keymaps.tsx"
@@ -42,11 +44,6 @@ function AppScreen() {
     const controller = new AbortController()
     setRunError(undefined)
     const listSourceId = runRequest.mode === "list" && route.name === "source" ? route.sourceId : undefined
-    const executionWorkspace = {
-      ...executableWorkspace,
-      cancellation: controller.signal,
-      sources: executableWorkspace.sources.map((source) => ({ ...source, cancellation: controller.signal })),
-    }
     const applyResult = (result: WorkspaceRunResult) => {
       if (!active) return
       setSourceItems((current: Record<string, readonly Item[]>) => ({
@@ -58,18 +55,44 @@ function AppScreen() {
         ...Object.fromEntries(result.sources.map((source) => [source.id, source])),
       }))
     }
-    const run = runRequest.mode === "watch"
-      ? watchWorkspace(executionWorkspace, { onResult: applyResult })
-      : runWorkspace(executionWorkspace, {
-        dryRun: runRequest.mode === "list",
-        sourceIds: listSourceId ? [listSourceId] : undefined,
-      }).then(applyResult)
+    const run = (async () => {
+      const sources = await Promise.all(executableWorkspace.sources.map(async (source) => ({
+        ...(await createSourceRuntime(source, controller.signal)),
+        actions: await Promise.all(source.actions.map(async (action) => ({
+          ...action,
+          runtime: await createActionRuntime(action, {
+            workspaceId: executableWorkspace.id,
+            sourceId: source.id,
+            cancellation: controller.signal,
+          }),
+        }))),
+      })))
+      const executionWorkspace = {
+        ...executableWorkspace,
+        cancellation: controller.signal,
+        sources,
+      }
+      return runRequest.mode === "watch"
+        ? watchWorkspace(executionWorkspace, { onResult: applyResult })
+        : runWorkspace(executionWorkspace, {
+          dryRun: runRequest.mode === "list",
+          sourceIds: listSourceId ? [listSourceId] : undefined,
+        }).then((result) => {
+          applyResult(result)
+          return result
+        })
+    })()
     void run
-      .then(() => {
+      .then((result) => {
         if (controller.signal.aborted) {
           appActor.send({ type: "COMMAND", code: "app.run-stopped" })
         } else if (active && (runRequest.mode === "run" || runRequest.mode === "list")) {
-          appActor.send({ type: "COMMAND", code: "app.run-complete" })
+          const failed = result.sources.some((source) =>
+            source.error !== undefined || source.actions.some((action) =>
+              action.error !== undefined || action.result?.outcome === "failure"
+            )
+          )
+          appActor.send({ type: "COMMAND", code: failed ? "app.run-failed" : "app.run-complete" })
         }
       })
       .catch((error) => {

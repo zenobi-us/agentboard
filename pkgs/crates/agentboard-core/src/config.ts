@@ -168,7 +168,7 @@ export type Plugin<
     ) => MaybePromise<Runtime>;
     readonly itemBucketIdentity?: never;
     /** Applies Action-specific validation after schema validation. */
-    readonly validate: (config: Static<Schema>) => unknown;
+    readonly validate?: (config: Static<Schema>) => unknown;
   };
 
 /** Author-supplied Plugin fields before AgentBoard adds module metadata. */
@@ -300,7 +300,7 @@ export function isPluginDescriptor(value: unknown): value is AnyPlugin {
     typeof candidate.runtime === "function" &&
     (candidate.kind === "source"
       ? typeof candidate.itemBucketIdentity === "function"
-      : typeof candidate.validate === "function") &&
+      : (candidate.validate === undefined || typeof candidate.validate === "function")) &&
     typeof candidate.meta?.url === "string"
   );
 }
@@ -360,7 +360,7 @@ function resolve<
   expectedRole: Role,
   plugin: Plugin<Role, Schema, Runtime>,
   config: ConfigWithId<Schema>,
-  path: string,
+  path = "",
 ): ResolvedConfiguration<Role, Schema> {
   if (plugin.kind !== expectedRole) {
     throw new TypeError(
@@ -398,7 +398,7 @@ function resolve<
 export function source<const Schema extends TSchema, Runtime extends SourceRuntime>(
   plugin: Plugin<"source", Schema, Runtime>,
   config: ConfigWithId<Schema>,
-  path: string,
+  path?: string,
 ): ResolvedSource<Schema> {
   return resolve("source", plugin, config, path);
 }
@@ -407,7 +407,7 @@ export function source<const Schema extends TSchema, Runtime extends SourceRunti
 export function action<const Schema extends TSchema, Runtime extends ActionRuntime<Static<Schema>>>(
   plugin: Plugin<"action", Schema, Runtime>,
   config: ConfigWithId<Schema>,
-  path: string,
+  path?: string,
 ): ResolvedAction<Schema> {
   return resolve("action", plugin, config, path);
 }
