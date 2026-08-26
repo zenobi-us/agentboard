@@ -166,9 +166,10 @@ async function launchHerdr(
   return run({ argv: ["herdr", "pane", "run", paneId, command] }, signal, env);
 }
 
-export function runtime(config: LlmConfig): ActionRuntime<LlmConfig> {
+export function runtime(_config: LlmConfig): ActionRuntime<LlmConfig> {
   return {
     execute: async (context): Promise<ActionResult> => {
+      const inputs = context.inputs;
       const env = {
         ...process.env,
         AGENTBOARD_WORKSPACE_ID: context.workspaceId,
@@ -177,20 +178,20 @@ export function runtime(config: LlmConfig): ActionRuntime<LlmConfig> {
       };
       let stdout = "";
       try {
-        const prompt = config.prompt_file
-          ? await readFile(config.prompt_file, "utf8")
-          : config.prompt ?? "";
-        const cwd = await ensureWorktree(config, context.cancellation, env);
-        const piArgs = buildPiArgs(config, prompt);
-        const command = config.terminal && config.terminal.kind !== "herdr"
-          ? terminalCommand(config.terminal, cwd ?? process.cwd(), piArgs, env)
+        const prompt = inputs.prompt_file
+          ? await readFile(inputs.prompt_file, "utf8")
+          : inputs.prompt ?? "";
+        const cwd = await ensureWorktree(inputs, context.cancellation, env);
+        const piArgs = buildPiArgs(inputs, prompt);
+        const command = inputs.terminal && inputs.terminal.kind !== "herdr"
+          ? terminalCommand(inputs.terminal, cwd ?? process.cwd(), piArgs, env)
           : { argv: piArgs, cwd };
-        if (!config.terminal && config.mode === "background") {
+        if (!inputs.terminal && inputs.mode === "background") {
           start(command, env);
           return { outcome: "success", stdout: "started\n", stderr: "" };
         }
-        const result = config.terminal?.kind === "herdr"
-          ? await launchHerdr(config.terminal, cwd ?? process.cwd(), piArgs, env, context.cancellation)
+        const result = inputs.terminal?.kind === "herdr"
+          ? await launchHerdr(inputs.terminal, cwd ?? process.cwd(), piArgs, env, context.cancellation)
           : await run(command, context.cancellation, env);
         stdout = result.stdout;
         if (result.cancelled) return { outcome: "cancelled", stdout, stderr: result.stderr, message: "action cancelled" };

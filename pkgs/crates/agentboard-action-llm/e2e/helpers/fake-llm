@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == "--version" ]]; then
+  printf 'fake-llm 1.0\n'
+  exit 0
+fi
+
+runner=$1
+shift
+prompt="${!#}"
+jq -n --arg runner "$runner" --arg prompt "$prompt" --arg cwd "$PWD" \
+  '{runner: $runner, prompt: $prompt, cwd: $cwd, outcome: "completed"}' > "$FAKE_LLM_RECORD"
+cat "$FAKE_LLM_RECORD"
+exit "${FAKE_LLM_EXIT_CODE:-0}"

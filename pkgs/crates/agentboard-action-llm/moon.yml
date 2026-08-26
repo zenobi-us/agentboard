@@ -17,6 +17,10 @@ tasks:
     command: "bun test ./src"
     toolchains: ["javascript", "bun"]
 
+  e2e:
+    command: "bats e2e/*/case.bats"
+
+
   build:
     deps:
       - "~:check"
