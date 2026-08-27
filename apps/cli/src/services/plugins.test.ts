@@ -189,6 +189,22 @@ describe("Plugin Package discovery", () => {
     );
   });
 
+  test("ignores the same package discovered through a nested symlink", () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/first", "first", "export default undefined;");
+    packageFixture(root, "node_modules/second", "second", "export default undefined;");
+    const nested = join(root, "node_modules/first/node_modules");
+    mkdirSync(nested, { recursive: true });
+    symlinkSync(join(root, "node_modules/first"), join(nested, "first"), "dir");
+
+    expect(discoverPluginPackages(configPath, join(root, "global")).map((item) => item.name)).toEqual([
+      "first",
+      "second",
+    ]);
+  });
+
   test("loads every discovered package for schema generation", async () => {
     const root = fixture();
     const configPath = join(root, "agentboard.config.ts");

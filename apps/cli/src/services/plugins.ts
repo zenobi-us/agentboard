@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -135,6 +135,9 @@ function scanNodeModules(directory: string, found: PluginPackage[]): void {
 }
 
 function inspectPackage(root: string, found: PluginPackage[]): void {
+  if (!existsSync(root)) return;
+  const canonicalRoot = realpathSync(root);
+  if (found.some((item) => item.root === canonicalRoot)) return;
   const manifestPath = join(root, "package.json");
   if (!existsSync(manifestPath)) return;
   const manifest = readManifest(manifestPath);
@@ -147,7 +150,7 @@ function inspectPackage(root: string, found: PluginPackage[]): void {
   }
   found.push({
     name: manifest.name,
-    root: resolve(root),
+    root: canonicalRoot,
     manifestPath,
     manifest,
   });
