@@ -32,11 +32,11 @@ prompt = '''
 /implement {{ item.reference_id }}
 Source updated at: {{ item.raw.github.issue.updated_at }}
 '''
-cwd = "{{ actions.worktree.inputs.root }}"
 
 [sources.actions.with.terminal]
 kind = "herdr"
 container = "tab"
+cwd = "{{ actions.worktree.inputs.root }}"
 
 [[sources]]
 id = "review"
@@ -72,8 +72,8 @@ prompt = '''
 /review {{ item.reference_id }}
 Source updated at: {{ item.raw.github.issue.updated_at }}
 '''
-cwd = "{{ actions.worktree.inputs.root }}"
 
 [sources.actions.with.terminal]
 kind = "herdr"
 container = "tab"
+cwd = "{{ actions.worktree.inputs.root }}"

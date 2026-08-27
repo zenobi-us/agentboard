@@ -79,7 +79,7 @@ function canonical(path: string): string {
 }
 
 async function ensureWorktree(config: LlmConfig, signal: AbortSignal, env: Record<string, string | undefined>): Promise<string | undefined> {
-  if (!config.worktree) return config.cwd ?? undefined;
+  if (!config.worktree) return config.terminal?.cwd ?? undefined;
   const worktree = config.worktree;
   const repo = canonical(worktree.repo);
   const root = canonical(worktree.root);
@@ -104,13 +104,9 @@ async function ensureWorktree(config: LlmConfig, signal: AbortSignal, env: Recor
   return root;
 }
 
-export function buildPiArgs(config: LlmConfig, prompt: string): string[] {
-  const args: string[] = [config.runner ?? "pi"];
-  if (config.provider) args.push("--provider", config.provider);
-  if (config.model) args.push("--model", config.model);
-  if (config.thinking) args.push("--thinking", config.thinking);
-  args.push(prompt);
-  return args;
+export function buildHarnessArgs(terminal: LlmConfig["terminal"], prompt: string): string[] {
+  if (!terminal) return ["pi", prompt];
+  return [terminal.harness ?? "pi", ...(terminal.harness_args ?? []), prompt];
 }
 
 function shellQuote(value: string): string {
@@ -124,19 +120,19 @@ function positionArgs(position: Position | undefined): string[] {
   return ["--direction", position.direction, ...(position.size ? ["--size", position.size] : [])];
 }
 
-function terminalCommand(terminal: Exclude<NonNullable<LlmConfig["terminal"]>, { kind: "herdr" }>, cwd: string, piArgs: string[], env: Record<string, string | undefined>): Command {
+function terminalCommand(terminal: Exclude<NonNullable<LlmConfig["terminal"]>, { kind: "herdr" }>, cwd: string, harnessArgs: string[], env: Record<string, string | undefined>): Command {
   const name = "name" in terminal ? terminal.name ?? `agentboard-${env["AGENTBOARD_ITEM_ID"] ?? "item"}` : undefined;
   if (terminal.kind === "zellij") {
-    if (terminal.container === "session") return { argv: ["zellij", "--session", name!, "--cwd", cwd, "--", ...piArgs] };
+    if (terminal.container === "session") return { argv: ["zellij", "--session", name!, "--cwd", cwd, "--", ...harnessArgs] };
     const action = terminal.container === "tab" ? "new-tab" : "new-pane";
-    return { argv: ["zellij", "action", action, ...("name" in terminal && name ? ["--name", name] : []), "--cwd", cwd, ...positionArgs(terminal.position), "--", ...piArgs] };
+    return { argv: ["zellij", "action", action, ...("name" in terminal && name ? ["--name", name] : []), "--cwd", cwd, ...positionArgs(terminal.position), "--", ...harnessArgs] };
   }
   if (terminal.kind === "tmux") {
-    if (terminal.container === "session") return { argv: ["tmux", "new-session", "-d", "-s", name!, "-c", cwd, ...piArgs] };
+    if (terminal.container === "session") return { argv: ["tmux", "new-session", "-d", "-s", name!, "-c", cwd, ...harnessArgs] };
     const direction = terminal.position?.direction === "left" || terminal.position?.direction === "right" ? "-h" : "-v";
-    return { argv: ["tmux", "split-window", direction, "-c", cwd, ...piArgs] };
+    return { argv: ["tmux", "split-window", direction, "-c", cwd, ...harnessArgs] };
   }
-  if (terminal.kind === "generic") return { argv: [terminal.command, ...(terminal.args ?? []), ...piArgs], cwd };
+  if (terminal.kind === "generic") return { argv: [terminal.command, ...(terminal.args ?? []), ...harnessArgs], cwd };
   throw new Error("unsupported terminal kind");
 }
 
@@ -147,7 +143,7 @@ function nameFor(env: Record<string, string | undefined>): string {
 async function launchHerdr(
   terminal: Extract<NonNullable<LlmConfig["terminal"]>, { kind: "herdr" }>,
   cwd: string,
-  piArgs: string[],
+  harnessArgs: string[],
   env: Record<string, string | undefined>,
   signal: AbortSignal,
 ): Promise<Result> {
@@ -162,7 +158,7 @@ async function launchHerdr(
   const parsed = JSON.parse(opened.stdout) as { result?: { root_pane?: { pane_id?: string }; pane?: { pane_id?: string } } };
   const paneId = parsed.result?.root_pane?.pane_id ?? parsed.result?.pane?.pane_id;
   if (!paneId) throw new Error("Herdr did not return a pane id");
-  const command = piArgs.map(shellQuote).join(" ");
+  const command = harnessArgs.map(shellQuote).join(" ");
   return run({ argv: ["herdr", "pane", "run", paneId, command] }, signal, env);
 }
 
@@ -182,16 +178,16 @@ export function runtime(_config: LlmConfig): ActionRuntime<LlmConfig> {
           ? await readFile(inputs.prompt_file, "utf8")
           : inputs.prompt ?? "";
         const cwd = await ensureWorktree(inputs, context.cancellation, env);
-        const piArgs = buildPiArgs(inputs, prompt);
+        const harnessArgs = buildHarnessArgs(inputs.terminal, prompt);
         const command = inputs.terminal && inputs.terminal.kind !== "herdr"
-          ? terminalCommand(inputs.terminal, cwd ?? process.cwd(), piArgs, env)
-          : { argv: piArgs, cwd };
+          ? terminalCommand(inputs.terminal, cwd ?? process.cwd(), harnessArgs, env)
+          : { argv: harnessArgs, cwd };
         if (!inputs.terminal && inputs.mode === "background") {
           start(command, env);
           return { outcome: "success", stdout: "started\n", stderr: "" };
         }
         const result = inputs.terminal?.kind === "herdr"
-          ? await launchHerdr(inputs.terminal, cwd ?? process.cwd(), piArgs, env, context.cancellation)
+          ? await launchHerdr(inputs.terminal, cwd ?? process.cwd(), harnessArgs, env, context.cancellation)
           : await run(command, context.cancellation, env);
         stdout = result.stdout;
         if (result.cancelled) return { outcome: "cancelled", stdout, stderr: result.stderr, message: "action cancelled" };
@@ -206,7 +202,12 @@ export function runtime(_config: LlmConfig): ActionRuntime<LlmConfig> {
 }
 
 export async function healthCheck(config: LlmConfig, context: HealthCheckContext): Promise<void> {
-  const command = config.terminal?.kind === "herdr" ? "herdr" : config.terminal?.kind === "zellij" ? "zellij" : config.terminal?.kind === "tmux" ? "tmux" : config.terminal?.kind === "generic" ? config.terminal.command : config.runner ?? "pi";
+  const terminal = config.terminal;
+  let command = "pi";
+  if (terminal?.kind === "herdr") command = "herdr";
+  else if (terminal?.kind === "zellij") command = "zellij";
+  else if (terminal?.kind === "tmux") command = "tmux";
+  else if (terminal?.kind === "generic") command = terminal.command;
   const result = await run({ argv: [command, "--version"] }, context.cancellation, process.env);
   if (result.cancelled) throw new Error("action cancelled");
   if (result.code !== 0) throw new Error(result.stderr || `required command ${command} returned ${result.code}`);

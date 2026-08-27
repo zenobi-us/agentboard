@@ -6,8 +6,7 @@ if [[ "${1:-}" == "--version" ]]; then
   exit 0
 fi
 
-runner=$1
-shift
+runner="fake-llm"
 prompt="${!#}"
 jq -n --arg runner "$runner" --arg prompt "$prompt" --arg cwd "$PWD" \
   '{runner: $runner, prompt: $prompt, cwd: $cwd, outcome: "completed"}' > "$FAKE_LLM_RECORD"

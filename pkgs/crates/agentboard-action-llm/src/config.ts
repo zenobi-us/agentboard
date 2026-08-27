@@ -16,7 +16,14 @@ const WorktreeSchema = Type.Object({
   branch: Type.String(),
 });
 
+const TerminalFields = {
+  harness: Type.Optional(Type.String({ default: "pi" })),
+  harness_args: Type.Optional(Type.Array(Type.String())),
+  cwd: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+};
+
 const ZellijTerminalSchema = Type.Object({
+  ...TerminalFields,
   kind: Type.Literal("zellij"),
   container: Type.Union([Type.Literal("session"), Type.Literal("tab"), Type.Literal("pane")]),
   name: Type.Optional(Type.String()),
@@ -24,12 +31,14 @@ const ZellijTerminalSchema = Type.Object({
 });
 
 const HerdrTerminalSchema = Type.Object({
+  ...TerminalFields,
   kind: Type.Literal("herdr"),
   container: Type.Union([Type.Literal("worktree"), Type.Literal("tab"), Type.Literal("pane")]),
   position: Type.Optional(PositionSchema),
 });
 
 const TmuxTerminalSchema = Type.Object({
+  ...TerminalFields,
   kind: Type.Literal("tmux"),
   container: Type.Union([Type.Literal("session"), Type.Literal("pane")]),
   name: Type.Optional(Type.String()),
@@ -37,6 +46,7 @@ const TmuxTerminalSchema = Type.Object({
 });
 
 const GenericTerminalSchema = Type.Object({
+  ...TerminalFields,
   kind: Type.Literal("generic"),
   command: Type.String(),
   args: Type.Optional(Type.Array(Type.String())),
@@ -45,14 +55,6 @@ const GenericTerminalSchema = Type.Object({
 export const LlmConfigSchema = Type.Object({
   prompt: Type.Optional(Type.String()),
   prompt_file: Type.Optional(Type.String()),
-  runner: Type.Optional(Type.Literal("pi", { default: "pi" })),
-  provider: Type.Optional(Type.String()),
-  model: Type.Optional(Type.String()),
-  thinking: Type.Optional(Type.Union([
-    Type.Literal("off"), Type.Literal("minimal"), Type.Literal("low"),
-    Type.Literal("medium"), Type.Literal("high"), Type.Literal("xhigh"), Type.Literal("max"),
-  ])),
-  cwd: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   mode: Type.Optional(Type.Union([Type.Literal("foreground"), Type.Literal("background")], { default: "foreground" })),
   worktree: Type.Optional(WorktreeSchema),
   terminal: Type.Optional(Type.Union([
@@ -80,11 +82,12 @@ export default definePlugin(import.meta, {
     if ((config.prompt === undefined) === (config.prompt_file === undefined)) {
       throw new Error("exactly one of prompt or prompt_file is required");
     }
-    if (config.worktree && config.cwd && config.cwd !== config.worktree.root) {
-      throw new Error("cwd must match worktree.root when both are set");
+    const cwd = config.terminal?.cwd;
+    if (config.worktree && cwd && cwd !== config.worktree.root) {
+      throw new Error("terminal.cwd must match worktree.root when both are set");
     }
   },
-  pathInputs: ["cwd", "prompt_file", "worktree.repo", "worktree.root"],
+  pathInputs: ["prompt_file", "terminal.cwd", "worktree.repo", "worktree.root"],
   runtime: (config) => runtime(config),
   healthCheck,
 });

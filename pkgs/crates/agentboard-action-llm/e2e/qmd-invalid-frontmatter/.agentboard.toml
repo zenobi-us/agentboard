@@ -17,4 +17,4 @@ prompt = "/implement {{ item.reference_id }}"
 [sources.actions.with.terminal]
 kind = "generic"
 command = "/usr/bin/env"
-args = ["fake-llm"]
+harness = "fake-llm"

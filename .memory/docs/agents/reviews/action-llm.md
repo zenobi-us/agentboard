@@ -4,7 +4,7 @@
 
 Added `@agentboard/action-llm` in the `agentboard/action-llm` worktree.
 
-The action accepts one rendered prompt or prompt file, passes provider/model/thinking options to Pi, optionally creates or reuses a Git worktree, and launches direct, Zellij, Herdr, tmux, or generic terminal commands.
+The action accepts one rendered prompt or prompt file, passes the prompt to a configured harness with harness arguments, optionally creates or reuses a Git worktree, and launches direct, Zellij, Herdr, tmux, or generic terminal commands.
 
 ## Validation
 

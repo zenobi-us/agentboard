@@ -22,9 +22,9 @@ uses = "@agentboard/action-llm"
 
 [sources.actions.with]
 prompt = "/implement {{ item.reference_id }}"
-cwd = "{{ actions.worktree.inputs.root }}"
 
 [sources.actions.with.terminal]
 kind = "generic"
 command = "/usr/bin/env"
-args = ["fake-llm"]
+harness = "fake-llm"
+cwd = "{{ actions.worktree.inputs.root }}"

@@ -10,10 +10,13 @@ uses = "@agentboard/action-llm"
 
 [sources.actions.with]
 prompt = "Implement {{ item.reference_id }}: {{ item.title }}"
-provider = "openai"
-model = "gpt-5"
-thinking = "high"
 mode = "foreground"
+
+[sources.actions.with.terminal]
+kind = "herdr"
+container = "tab"
+harness = "pi"
+harness_args = ["--no-session"]
 cwd = "/home/me/dev/project"
 ```
 
@@ -30,6 +33,8 @@ root = "/home/me/dev/project.trees/{{ item.id }}"
 branch = "agentboard/{{ item.id }}"
 ```
 
-Set `terminal` to `zellij`, `herdr`, `tmux`, or `generic`. Terminal launches
-return after the terminal command starts. Direct launches wait for Pi in
-`foreground` mode and return after launch in `background` mode.
+Set `terminal` to `zellij`, `herdr`, `tmux`, or `generic`. Set `harness` to the
+agent harness executable and `harness_args` to its arguments. The rendered
+prompt is the final harness argument. Terminal launches return after the
+terminal command starts. Direct launches wait for Pi in `foreground` mode and
+return after launch in `background` mode.
