@@ -7,6 +7,7 @@ import { useTheme } from "../../services/theme/theme.tsx"
 import { SourceSummaryCard } from "./source-summary-card.tsx"
 import type { LoadedWorkspaceSource } from "../../../services/config/workspace.ts"
 import type { ActionRunResult, SourceRunResult } from "../../../services/runtime.ts"
+import { Breadcrumbs } from "../app/breadcrumbs.tsx"
 
 const sourceMachine = createSourceMachine<Item>()
 
@@ -27,7 +28,6 @@ export function SourceView(props: SourceViewProps) {
   const actor = useActorRef(sourceMachine, { input })
   const snapshot = useSelector(actor, (value) => value)
   const theme = useTheme()
-  const headingStyle = theme.component("source.heading")
   const itemStyle = theme.component("source.item")
   const selectedStyle = theme.component("source.item.selected")
   const summaryStyle = theme.component("source.summary")
@@ -39,7 +39,13 @@ export function SourceView(props: SourceViewProps) {
   return (
     <KeymapScope actor={actor} bindings={sourceKeymap}>
       <box flexDirection="column" flexGrow={1}>
-        <text fg={headingStyle.fg}>SOURCE / {snapshot.context.sourceId}</text>
+        <Breadcrumbs.Row>
+          <Breadcrumbs.Item>workspaceId</Breadcrumbs.Item>
+          <Breadcrumbs.Separator />
+          <Breadcrumbs.Item>{props.source.id}</Breadcrumbs.Item>
+        </Breadcrumbs.Row>
+
+
         <SourceSummaryCard
           sourceId={props.source.id}
           items={[...props.items]}

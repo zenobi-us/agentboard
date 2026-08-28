@@ -9,10 +9,6 @@ export function AppHeader(props: {
   const theme = useTheme()
   const headerStyle = theme.component("app.header")
   const version = useSelector(appMachine, (snapshot) => snapshot.context.version)
-  const workspaceId = useSelector(appMachine, (snapshot) => {
-    return snapshot.context.executableWorkspace?.id ?? "No Workspace"
-  })
-
   return (
     <box
       flexDirection="column"
@@ -23,7 +19,7 @@ export function AppHeader(props: {
     >
       <box flexDirection="row" border={false} marginBottom={1}>
         <box flexDirection="row" flexGrow={1}>
-          <text>AgentBoard · {workspaceId}</text>
+          <text>AgentBoard</text>
         </box>
         <box flexDirection="row" border={false} marginLeft={1}>
           <text>v{version}</text>
