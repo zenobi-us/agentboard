@@ -4,7 +4,7 @@ import type { AnyActorRef } from "xstate"
 import type { LoadedWorkspaceSource } from "../../../services/config/workspace.ts"
 import type { SourceRunResult } from "../../../services/runtime.ts"
 import { KeymapScope, itemKeymap } from "../../services/keymaps.tsx"
-import { itemMachine } from "../../services/item/item.machine.ts"
+import { itemViewMachine } from "../../services/item/item.view.machine.ts"
 import { useTheme } from "../../services/theme/theme.tsx"
 
 export function ActionItemView(props: {
@@ -14,11 +14,12 @@ export function ActionItemView(props: {
   actionIndex: number
   runResult?: SourceRunResult
 }) {
-  const actor = useActorRef(itemMachine, {
+  const actor = useActorRef(itemViewMachine, {
     input: {
       appActor: props.appActor,
       sourceId: props.source.id,
       itemId: props.item.id,
+      item: props.item,
     },
   })
   const theme = useTheme()

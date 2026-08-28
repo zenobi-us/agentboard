@@ -1,6 +1,9 @@
-import { fromPromise, assign, setup } from "xstate"
+import { fromPromise, assign, sendTo, setup } from "xstate"
+import type { Item } from "@agentboard/core/config"
 import type { LoadedWorkspace } from "../../../services/config/workspace.ts"
+import type { SourceRunResult } from "../../../services/runtime.ts"
 import { loadWorkspace } from "../../../services/workspace.ts"
+import { itemRunMachine } from "../item/item.view.machine.ts"
 
 export type AppRoute =
   | { name: "workspace" }
@@ -18,7 +21,6 @@ type RunRequest = {
 type ItemRunRequest = {
   sourceId: string
   itemId: string
-  id: number
 }
 
 type MachineContext = {
@@ -31,6 +33,8 @@ type MachineContext = {
   workspaceConfig?: unknown
   executableWorkspace?: LoadedWorkspace
   error?: string
+  itemRunError?: string
+  sourceRuns: Record<string, SourceRunResult>
 }
 
 type MachineEvents =
@@ -43,7 +47,10 @@ type MachineEvents =
   | { type: "REFRESH" }
   | { type: "QUIT" }
   | { type: "MODAL_CLOSED" }
-  | { type: "RUN_ITEM"; sourceId: string; itemId: string }
+  | { type: "RUN_ITEM"; sourceId: string; itemId: string; item: Item }
+  | { type: "ITEM_RUN_COMPLETE"; result: SourceRunResult }
+  | { type: "ITEM_RUN_FAILED"; error: string }
+  | { type: "SOURCE_RUNS_UPDATED"; runs: Record<string, SourceRunResult> }
 
 export const tuiMachine = setup({
   types: {
@@ -55,6 +62,7 @@ export const tuiMachine = setup({
     loadWorkspace: fromPromise(({ input, signal }: { input: { workspacePath: string }; signal: AbortSignal }) =>
       loadWorkspace(input.workspacePath, undefined, signal, false),
     ),
+    itemRun: itemRunMachine,
   },
 }).createMachine({
   id: "tui",
@@ -65,6 +73,7 @@ export const tuiMachine = setup({
     workspacePath: input.workspacePath,
     version: input.version,
     runRequest: { mode: "idle", id: 0, stopping: false },
+    sourceRuns: {},
   }),
   states: {
     initialising: {
@@ -90,6 +99,11 @@ export const tuiMachine = setup({
       },
     },
     active: {
+      invoke: {
+        id: "itemRunner",
+        src: "itemRun",
+        input: ({ context }) => ({ workspace: context.executableWorkspace! }),
+      },
       on: {
         COMMAND: [
           {
@@ -169,14 +183,6 @@ export const tuiMachine = setup({
             guard: ({ event }) => event.code === "app.run-failed",
             actions: assign({ runRequest: { mode: "idle", id: 0, stopping: false }, message: "Run failed" }),
           },
-          {
-            guard: ({ event }) => event.code === "item.run-complete",
-            actions: assign({ itemRunRequest: undefined, message: "Ready" }),
-          },
-          {
-            guard: ({ event }) => event.code === "item.run-failed",
-            actions: assign({ itemRunRequest: undefined, message: "Item run failed" }),
-          },
         ],
         ROUTE_WORKSPACE: {
           actions: assign({ route: { name: "workspace" } }),
@@ -212,13 +218,41 @@ export const tuiMachine = setup({
           actions: assign({ message: "Refreshed" }),
         },
         RUN_ITEM: {
-          actions: assign(({ context, event }) => ({
-            itemRunRequest: {
+          guard: ({ context }) => context.itemRunRequest === undefined,
+          actions: [
+            sendTo("itemRunner", ({ event }) => ({
+              type: "RUN_ITEM",
               sourceId: event.sourceId,
-              itemId: event.itemId,
-              id: (context.itemRunRequest?.id ?? 0) + 1,
-            },
-            message: "Running item...",
+              item: event.item,
+            })),
+            assign(({ event }) => ({
+              itemRunError: undefined,
+              itemRunRequest: {
+                sourceId: event.sourceId,
+                itemId: event.itemId,
+              },
+              message: "Running item...",
+            })),
+          ],
+        },
+        ITEM_RUN_COMPLETE: {
+          actions: assign(({ context, event }) => ({
+            itemRunRequest: undefined,
+            itemRunError: undefined,
+            sourceRuns: { ...context.sourceRuns, [event.result.id]: event.result },
+            message: "Ready",
+          })),
+        },
+        ITEM_RUN_FAILED: {
+          actions: assign(({ event }) => ({
+            itemRunRequest: undefined,
+            itemRunError: event.error,
+            message: "Item run failed",
+          })),
+        },
+        SOURCE_RUNS_UPDATED: {
+          actions: assign(({ context, event }) => ({
+            sourceRuns: { ...context.sourceRuns, ...event.runs },
           })),
         },
         QUIT: "exiting",
