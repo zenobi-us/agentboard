@@ -1,36 +1,52 @@
 import { useActorRef, useSelector } from "@xstate/react"
-import type { Item } from "@agentboard/core/config"
-import type { AnyActorRef } from "xstate"
-import type { LoadedWorkspaceSource } from "../../../services/config/workspace.ts"
 import type { SourceRunResult } from "../../../services/runtime.ts"
 import { KeymapScope, itemKeymap } from "../../services/keymaps.tsx"
 import { itemViewMachine } from "../../services/item/item.view.machine.ts"
 import { useTheme } from "../../services/theme/theme.tsx"
+import { useAppMachine } from "../../services/app/provider.tsx"
 
-export function ItemView(props: {
-  appActor: AnyActorRef
-  source: LoadedWorkspaceSource
-  item: Item
-  runResult?: SourceRunResult
-  running?: boolean
-}) {
+/** Render one Item using data selected from the root machine. */
+export function ItemView() {
+  /** Reference the root machine actor. */
+  const appActor = useAppMachine()
+  /** Read the active Item route. */
+  const route = useSelector(appActor, (snapshot) => snapshot.context.route)
+  /** Read the loaded Workspace. */
+  const workspace = useSelector(appActor, (snapshot) => snapshot.context.executableWorkspace)
+  /** Read Source items from machine context. */
+  const sourceItems = useSelector(appActor, (snapshot) => snapshot.context.sourceItems)
+  /** Read Source run results from machine context. */
+  const sourceRuns = useSelector(appActor, (snapshot) => snapshot.context.sourceRuns)
+  /** Read the active Item operation request. */
+  const itemRunRequest = useSelector(appActor, (snapshot) => snapshot.context.itemRunRequest)
+  if (route.name !== "item" || !workspace) return null
+  /** Resolve the Item Source. */
+  const source = workspace.sources.find((candidate) => candidate.id === route.sourceId)
+  /** Resolve the Item data. */
+  const item = sourceItems[route.sourceId]?.find((candidate) => candidate.id === route.itemId)
+  if (!source || !item) return null
+  /** Resolve the latest Source run result. */
+  const runResult = sourceRuns[source.id]
+  /** Mark the selected Item as running. */
+  const running = itemRunRequest?.sourceId === source.id && itemRunRequest.itemId === item.id
+  /** Create the Item navigation actor. */
   const actor = useActorRef(itemViewMachine, {
     input: {
-      appActor: props.appActor,
-      sourceId: props.source.id,
-      itemId: props.item.id,
-      item: props.item,
+      appActor,
+      sourceId: source.id,
+      itemId: item.id,
+      item,
     },
   })
   const snapshot = useSelector(actor, (value) => value)
   const theme = useTheme()
   const headingStyle = theme.component("item.heading")
   const panelStyle = theme.component("source.summary")
-  const results = props.source.actions.map((action, actionIndex) => ({
+  const results = source.actions.map((action, actionIndex) => ({
     action,
     actionIndex,
-    result: props.runResult?.actions.find(
-      (candidate) => candidate.itemId === props.item.id && candidate.actionIndex === actionIndex,
+    result: runResult?.actions.find(
+      (candidate) => candidate.itemId === item.id && candidate.actionIndex === actionIndex,
     ),
   }))
   const completed = results.filter(({ result }) => result?.result || result?.error || result?.skipped).length
@@ -39,7 +55,7 @@ export function ItemView(props: {
   return (
     <KeymapScope actor={actor} bindings={itemKeymap}>
       <box flexDirection="column" flexGrow={1}>
-        <text fg={headingStyle.fg}>ITEM / {snapshot.context.sourceId} / {props.item.reference_id}</text>
+        <text fg={headingStyle.fg}>ITEM / {snapshot.context.sourceId} / {item.reference_id}</text>
 
         <box
           border={true}
@@ -50,15 +66,15 @@ export function ItemView(props: {
           marginBottom={1}
           flexDirection="column"
         >
-          <text fg={panelStyle.fg}>{props.item.title}</text>
+          <text fg={panelStyle.fg}>{item.title}</text>
           <box flexDirection="row" marginTop={1}>
             <box flexDirection="column" marginRight={3}>
-              <text>Source  {props.source.id}</text>
-              <text>Status  {props.item.status}</text>
+              <text>Source  {source.id}</text>
+              <text>Status  {item.status}</text>
             </box>
             <box flexDirection="column">
-              <text>Reference  {props.item.reference_id}</text>
-              <text>URL        {props.item.url || "(none)"}</text>
+              <text>Reference  {item.reference_id}</text>
+              <text>URL        {item.url || "(none)"}</text>
             </box>
           </box>
         </box>
@@ -77,14 +93,14 @@ export function ItemView(props: {
             <text
               key={`${action.packageName}:${actionIndex}`}
               marginTop={1}
-              onMouseDown={() => props.appActor.send({
+              onMouseDown={() => appActor.send({
                 type: "ROUTE_ACTION_ITEM",
-                sourceId: props.source.id,
-                itemId: props.item.id,
+                sourceId: source.id,
+                itemId: item.id,
                 actionIndex,
               })}
             >
-              {statusSymbol(result, props.running === true && !result)}  {action.id ?? action.packageName} · {actionOutcome(result, props.running === true && !result)}
+              {statusSymbol(result, running === true && !result)}  {action.id ?? action.packageName} · {actionOutcome(result, running === true && !result)}
             </text>
           ))}
         </box>
@@ -92,12 +108,12 @@ export function ItemView(props: {
         <box flexDirection="column" marginBottom={1}>
           <text fg={panelStyle.fg}>LAST RUN</text>
           <text marginTop={1}>
-            {props.running ? "Running actions..." : props.runResult ? `${completed} of ${results.length} actions completed` : "No run recorded."}
+            {running ? "Running actions..." : runResult ? `${completed} of ${results.length} actions completed` : "No run recorded."}
           </text>
           {output ? <text>Output  {output}</text> : null}
         </box>
 
-        <text>{props.running ? "Actions are running..." : "Press R to run actions."}  Press Escape to return.</text>
+        <text>{running ? "Actions are running..." : "Press R to run actions."}  Press Escape to return.</text>
       </box>
     </KeymapScope>
   )

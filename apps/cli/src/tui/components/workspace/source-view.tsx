@@ -6,39 +6,58 @@ import { createSourceMachine, type SourceMachineInput } from "../../services/sou
 import { useTheme } from "../../services/theme/theme.tsx"
 import { SourceSummaryCard } from "./source-summary-card.tsx"
 import type { LoadedWorkspaceSource } from "../../../services/config/workspace.ts"
-import type { ActionRunResult, SourceRunResult } from "../../../services/runtime.ts"
+import type { ActionRunResult } from "../../../services/runtime.ts"
 import { Breadcrumbs } from "../app/breadcrumbs.tsx"
 import { useAppMachine } from "../../services/app/provider.tsx"
 import { Badge } from "../app/badge.tsx"
 
 const sourceMachine = createSourceMachine<Item>()
 
-type SourceViewProps = {
-  source: LoadedWorkspaceSource
-  items: readonly Item[]
-  runResult?: SourceRunResult
-}
-
-export function SourceView(props: SourceViewProps) {
+/** Render one Source using data selected from the root machine. */
+export function SourceView() {
+  /** Reference the root machine actor. */
   const appActor = useAppMachine()
-
+  /** Read the active route. */
+  const route = useSelector(appActor, (snapshot) => snapshot.context.route)
+  /** Read the loaded Workspace. */
+  const workspace = useSelector(appActor, (snapshot) => snapshot.context.executableWorkspace)
+  /** Read Source items from machine context. */
+  const sourceItems = useSelector(appActor, (snapshot) => snapshot.context.sourceItems)
+  /** Read Source run results from machine context. */
+  const sourceRuns = useSelector(appActor, (snapshot) => snapshot.context.sourceRuns)
+  if (route.name !== "source" || !workspace) return null
+  /** Resolve the Source named by the route. */
+  const source = workspace.sources.find((candidate) => candidate.id === route.sourceId)
+  if (!source) return null
+  /** Resolve the Source data. */
+  const items = sourceItems[source.id] ?? []
+  const runResult = sourceRuns[source.id]
+  /** Supply Source data to the selection machine. */
   const input: SourceMachineInput<Item> = {
     appActor,
-    sourceId: props.source.id,
-    items: props.items,
+    sourceId: source.id,
+    items,
     getItemId: (item) => item.id,
   }
-
+  /** Read the Workspace identifier. */
   const workspaceId = useSelector(appActor, (snapshot) => snapshot.context.executableWorkspace?.id ?? "No Workspace")
+  /** Create the Source selection actor. */
   const actor = useActorRef(sourceMachine, { input })
+  /** Read the Source selection snapshot. */
   const snapshot = useSelector(actor, (value) => value)
+  /** Read the active theme. */
   const theme = useTheme()
+  /** Read the normal item style. */
   const itemStyle = theme.component("source.item")
+  /** Read the selected item style. */
   const selectedStyle = theme.component("source.item.selected")
+  /** Read the Source summary style. */
   const summaryStyle = theme.component("source.summary")
-  const config = isRecord(props.source.source.config) ? props.source.source.config : {}
-  const actionResults = props.source.actions.map((_, actionIndex) =>
-    props.runResult?.actions.filter((result) => result.actionIndex === actionIndex) ?? []
+  /** Read the Source configuration object. */
+  const config = isRecord(source.source.config) ? source.source.config : {}
+  /** Group Action results by Action step. */
+  const actionResults = source.actions.map((_, actionIndex) =>
+    runResult?.actions.filter((result) => result.actionIndex === actionIndex) ?? []
   )
 
   return (
@@ -50,33 +69,33 @@ export function SourceView(props: SourceViewProps) {
           </Breadcrumbs.Item>
           <Breadcrumbs.Separator />
           <Breadcrumbs.Item>
-            <Badge.Type type="Source" label={props.source.id} />
+            <Badge.Type type="Source" label={source.id} />
           </Breadcrumbs.Item>
 
         </Breadcrumbs.Row>
 
 
         <SourceSummaryCard
-          sourceId={props.source.id}
-          items={[...props.items]}
-          actions={props.source.actions.map((action, index) => ({
+          sourceId={source.id}
+          items={[...items]}
+          actions={source.actions.map((action, index) => ({
             actionId: action.id ?? action.packageName,
             step: index + 1,
             items: (actionResults[index] ?? [])
-              .map((result) => props.items.find((item) => item.id === result.itemId))
+              .map((result) => items.find((item) => item.id === result.itemId))
               .filter((item): item is Item => item !== undefined),
           }))}
         />
         <SourceDetailsCard
-          source={props.source}
+          source={source}
           config={config}
           borderColor={summaryStyle.border}
           foreground={summaryStyle.fg}
         />
         <ActionStepsCard
           appActor={appActor}
-          source={props.source}
-          items={props.items}
+          source={source}
+          items={items}
           results={actionResults}
           borderColor={summaryStyle.border}
           foreground={summaryStyle.fg}
