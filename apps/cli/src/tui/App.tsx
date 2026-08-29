@@ -1,4 +1,6 @@
 import { useSelector } from "@xstate/react"
+// @ts-expect-error The TUI currently has no local React type package.
+import { useEffect } from "react"
 
 import { useRenderer } from "@opentui/react"
 import { AppHeader, MainTabs } from "./components/app/app-header.tsx"
@@ -14,7 +16,8 @@ import { ItemsView } from "./components/workspace/items-view.tsx"
 import { AppMachineContext, AppMachineProvider } from "./services/app/provider.tsx"
 import { KeymapScope, KeymapProvider, appKeymap } from "./services/keymaps.tsx"
 import { GlobalControl } from "./components/app/global-control.tsx"
-import { loadTheme, ThemeProvider, useTheme } from "./services/theme/theme.tsx"
+import { loadTheme, ThemeProvider } from "./services/theme/theme.tsx"
+import { ToastProvider, useToast } from "./services/toast/toast.tsx"
 
 /** Render the TUI from the root machine snapshot. */
 function AppScreen() {
@@ -38,10 +41,10 @@ function AppScreen() {
   const sourceItems = useSelector(appActor, (snapshot) => snapshot.context.sourceItems)
   /** Read the current Workspace operation error. */
   const runError = useSelector(appActor, (snapshot) => snapshot.context.runError)
-  /** Read the active theme. */
-  const theme = useTheme()
-  /** Read the error text style. */
-  const errorStyle = theme.component("error")
+  const { toast } = useToast()
+  useEffect(() => {
+    if (runError) toast({ message: runError, variant: "error", duration: 0 })
+  }, [runError, toast])
   if (exiting) renderer.destroy()
 
 
@@ -81,9 +84,6 @@ function AppScreen() {
         footer={< text > Ctrl + S Settings · Ctrl + R Refresh · Ctrl + Q Quit</text >}
       >
         <box flexDirection="column" border={false} marginBottom={1} flexGrow={1}>
-          {runError ? <text fg={errorStyle.fg}>{runError}</text> : null}
-
-
           <box position="relative" flexGrow={1} padding={1}>
             {route.name === "workspace" ? <WorkspaceView workspace={executableWorkspace} sourceItems={sourceItems} /> : null}
             {route.name === "items" ? <ItemsView workspace={executableWorkspace} sourceItems={sourceItems} /> : null}
@@ -105,11 +105,13 @@ export function App(props: { workspacePath: string; version: string }) {
 
   return (
     <ThemeProvider theme={theme}>
-      <AppMachineProvider workspacePath={props.workspacePath} version={props.version}>
-        <KeymapProvider>
-          <AppScreen />
-        </KeymapProvider>
-      </AppMachineProvider>
+      <ToastProvider>
+        <AppMachineProvider workspacePath={props.workspacePath} version={props.version}>
+          <KeymapProvider>
+            <AppScreen />
+          </KeymapProvider>
+        </AppMachineProvider>
+      </ToastProvider>
     </ThemeProvider>
   )
 }
