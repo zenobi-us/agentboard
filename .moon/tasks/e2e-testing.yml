@@ -1,0 +1,9 @@
+---
+$schema: "file://../cache/schemas/tasks.json"
+
+inheritedBy:
+  tags: e2e-testing
+
+tasks:
+  e2e:
+    command: "bats e2e/*/case.bats"

@@ -1,0 +1,36 @@
+---
+$schema: "file://../cache/schemas/tasks.json"
+
+inheritedBy:
+  tags: typescript
+
+tasks:
+  ts-typecheck:
+    command: "tsc --noEmit"
+    toolchains: ["javascript", "bun"]
+    inputs: ["package.json", "tsconfig.json", "src/**/*.ts", "src/**/*.tsx"]
+
+  ts-test:
+    command: "bun test ./src"
+    toolchains: ["javascript", "bun"]
+    inputs: ["package.json", "tsconfig.json", "src/**/*.ts", "src/**/*.tsx"]
+
+  check:
+    deps: ["~:ts-typecheck"]
+    command: "noop"
+
+  typecheck:
+    deps: ["~:check"]
+    command: "noop"
+
+  test:
+    deps: ["~:ts-test"]
+    command: "noop"
+
+  build:
+    deps: ["~:check"]
+    command: "noop"
+
+  lint:
+    deps: ["~:check"]
+    command: "noop"

@@ -2,31 +2,6 @@
 $schema: "file://../../../.moon/cache/schemas/project.json"
 language: typescript
 layer: library
-
-tasks:
-  check:
-    command: "bun run typecheck"
-    toolchains: ["javascript", "bun"]
-
-  typecheck:
-    deps:
-      - "~:check"
-    command: "noop"
-
-  test:
-    command: "bun test ./src"
-    toolchains: ["javascript", "bun"]
-
-  e2e:
-    command: "bats e2e/*/case.bats"
-
-
-  build:
-    deps:
-      - "~:check"
-    command: "noop"
-
-  lint:
-    deps:
-      - "~:check"
-    command: "noop"
+tags:
+  - typescript
+  - e2e-testing

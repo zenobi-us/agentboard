@@ -7,10 +7,6 @@
     ".": "./src/config.ts",
     "./config": "./src/config.ts"
   },
-  "scripts": {
-    "test": "bun test ./src",
-    "typecheck": "tsc --noEmit"
-  },
   "dependencies": {
     "typebox": "^1.3.4"
   },
