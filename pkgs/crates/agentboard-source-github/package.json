@@ -6,10 +6,6 @@
   "exports": {
     ".": "./src/config.ts"
   },
-  "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "bun test ./src"
-  },
   "dependencies": {
     "@agentboard/core": "workspace:*",
     "typebox": "^1.3.4"

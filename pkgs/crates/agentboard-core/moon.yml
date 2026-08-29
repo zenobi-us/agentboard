@@ -2,45 +2,4 @@
 $schema: "file://../../../.moon/cache/schemas/project.json"
 language: typescript
 layer: library
-
-tasks:
-  ts-test:
-    command: "bun run test"
-    toolchains: ["javascript", "bun"]
-    inputs:
-      - "package.json"
-      - "tsconfig.json"
-      - "src/**/*.ts"
-
-  ts-typecheck:
-    command: "bun run typecheck"
-    toolchains: ["javascript", "bun"]
-    inputs:
-      - "package.json"
-      - "tsconfig.json"
-      - "src/**/*.ts"
-
-  check:
-    deps:
-      - "~:ts-typecheck"
-    command: "noop"
-
-  typecheck:
-    deps:
-      - "~:check"
-    command: "noop"
-
-  test:
-    deps:
-      - "~:ts-test"
-    command: "noop"
-
-  build:
-    deps:
-      - "~:check"
-    command: "noop"
-
-  lint:
-    deps:
-      - "~:check"
-    command: "noop"
+tags: [typescript]
