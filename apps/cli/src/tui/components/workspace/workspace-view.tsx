@@ -5,6 +5,8 @@ import { KeymapScope, workspaceKeymap } from "../../services/keymaps.tsx"
 import { workspaceMachine } from "../../services/workspace/workspace.machine.ts"
 import { AppMachineContext } from "../../services/app/provider.tsx"
 import type { LoadedWorkspace } from "../../../services/config/workspace.ts"
+import { Breadcrumbs } from "../app/breadcrumbs.tsx"
+import { Badge } from "../app/badge.tsx"
 
 /**
  * Workspace view lists all sources in the current workspace.
@@ -23,6 +25,12 @@ export function WorkspaceView(props: {
 
   return (
     <KeymapScope actor={actor} bindings={workspaceKeymap}>
+      <Breadcrumbs.Row>
+        <Breadcrumbs.Item>
+          <Badge.Type type="Workspace" label={props.workspace.id} />
+        </Breadcrumbs.Item>
+      </Breadcrumbs.Row>
+
       <box flexDirection="column" flexGrow={1}>
         {snapshot.context.sources.map((sourceId, index) => {
           const source = props.workspace.sources.find((item) => item.id === sourceId)

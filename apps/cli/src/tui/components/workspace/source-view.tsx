@@ -8,23 +8,28 @@ import { SourceSummaryCard } from "./source-summary-card.tsx"
 import type { LoadedWorkspaceSource } from "../../../services/config/workspace.ts"
 import type { ActionRunResult, SourceRunResult } from "../../../services/runtime.ts"
 import { Breadcrumbs } from "../app/breadcrumbs.tsx"
+import { useAppMachine } from "../../services/app/provider.tsx"
+import { Badge } from "../app/badge.tsx"
 
 const sourceMachine = createSourceMachine<Item>()
 
 type SourceViewProps = {
-  appActor: AnyActorRef
   source: LoadedWorkspaceSource
   items: readonly Item[]
   runResult?: SourceRunResult
 }
 
 export function SourceView(props: SourceViewProps) {
+  const appActor = useAppMachine()
+
   const input: SourceMachineInput<Item> = {
-    appActor: props.appActor,
+    appActor,
     sourceId: props.source.id,
     items: props.items,
     getItemId: (item) => item.id,
   }
+
+  const workspaceId = useSelector(appActor, (snapshot) => snapshot.context.executableWorkspace?.id ?? "No Workspace")
   const actor = useActorRef(sourceMachine, { input })
   const snapshot = useSelector(actor, (value) => value)
   const theme = useTheme()
@@ -40,9 +45,14 @@ export function SourceView(props: SourceViewProps) {
     <KeymapScope actor={actor} bindings={sourceKeymap}>
       <box flexDirection="column" flexGrow={1}>
         <Breadcrumbs.Row>
-          <Breadcrumbs.Item>workspaceId</Breadcrumbs.Item>
+          <Breadcrumbs.Item onClick={() => appActor.send({ type: "ROUTE_WORKSPACE" })}>
+            <Badge.Type type="Workspace" label={workspaceId} />
+          </Breadcrumbs.Item>
           <Breadcrumbs.Separator />
-          <Breadcrumbs.Item>{props.source.id}</Breadcrumbs.Item>
+          <Breadcrumbs.Item>
+            <Badge.Type type="Source" label={props.source.id} />
+          </Breadcrumbs.Item>
+
         </Breadcrumbs.Row>
 
 
@@ -64,7 +74,7 @@ export function SourceView(props: SourceViewProps) {
           foreground={summaryStyle.fg}
         />
         <ActionStepsCard
-          appActor={props.appActor}
+          appActor={appActor}
           source={props.source}
           items={props.items}
           results={actionResults}

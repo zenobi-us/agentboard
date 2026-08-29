@@ -29,13 +29,10 @@ function BreadcrumbRow(props: { children: React.ReactNode }) {
 
 function BreadcrumbsItem(props: { onClick?: () => void; children?: React.ReactNode; }) {
   return (
-    <box flexDirection="row">
-      <text
-        fg={props.onClick ? "blue" : "white"}
-        onMouseDown={props.onClick}
-      >
-        {props.children}
-      </text>
+    <box flexDirection="row" onMouseDown={props.onClick}>
+      {typeof props.children === "string" ? (
+        <text fg={props.onClick ? "blue" : "white"}>{props.children}</text>
+      ) : props.children}
     </box>
   )
 }

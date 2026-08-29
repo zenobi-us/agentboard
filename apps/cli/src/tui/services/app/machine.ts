@@ -86,7 +86,8 @@ export const tuiMachine = setup({
           actions: assign({
             workspaceConfig: ({ event }) => event.output.config,
             executableWorkspace: ({ event }) => event.output,
-            message: "Ready",
+            message: "Listing...",
+            runRequest: { mode: "list", id: 1, stopping: false },
           }),
         },
         onError: {

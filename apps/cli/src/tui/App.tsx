@@ -194,7 +194,6 @@ function AppScreen() {
             {route.name === "source" ? (
               <SourceView
                 key={`${route.sourceId}:${sourceItems.length}`}
-                appActor={appActor}
                 source={executableWorkspace.sources.find((source) => source.id === route.sourceId)!}
                 items={sourceItems[route.sourceId] ?? []}
                 runResult={sourceRuns[route.sourceId]}
