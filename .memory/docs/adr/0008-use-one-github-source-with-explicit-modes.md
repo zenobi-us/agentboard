@@ -8,7 +8,7 @@ Accepted
 
 AgentBoard models a Source as a configured provider of task-like items plus source-owned query semantics (`pkgs/crates/agentboard-core/CONTEXT.md`). Source adapters preserve raw provider payloads and normalize provider records into small Items (`apps/cli/CONTEXT.md`). Source configuration and runtime behavior are registered explicitly through the static Registry (`.memory/docs/adr/0010-use-explicit-static-source-and-action-registration.md`).
 
-GitHub exposes issue data through REST issue/search APIs, while GitHub Projects v2 uses GraphQL project item, field, and content-union APIs. Project mode adds custom fields/status and different auth requirements, so it is not the same collector as issue mode (`.memory/docs/agents/github-source-implications.md`).
+GitHub exposes issue data through the GraphQL issue search API, while GitHub Projects v2 uses GraphQL project item, field, and content-union APIs. Issue mode uses the `ISSUE_ADVANCED` search type so its query follows GitHub's advanced search syntax, including grouped `OR` expressions. Project mode adds custom fields/status and different auth requirements, so it is not the same collector as issue mode (`.memory/docs/agents/github-source-implications.md`).
 
 ## Decision
 
@@ -28,6 +28,6 @@ Later `project` mode is justified by Project custom fields/status. It must stay 
 
 - Shared GitHub auth/client/error handling lives in one package.
 - Core and CLI get one GitHub source kind instead of separate issue/project source kinds.
-- Issue mode must guard against GitHub Search returning pull requests by requiring or injecting `is:issue`.
+- Issue mode must guard against GitHub Search returning pull requests by requiring or injecting `type:issue` and `state:open` into the GraphQL search query.
 - Label-derived status is source policy, so the mapping must be explicit in workspace config.
 - Project mode remains deferred until custom fields/status are needed.

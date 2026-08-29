@@ -30,13 +30,35 @@ async function helper(command: string, signal: AbortSignal): Promise<string> {
 
 const get = (value: any, path: string): string => { let current = value; for (const part of path.split(".")) current = current?.[part]; if (typeof current !== "string") throw new Error(`github field_map ${path} must resolve to a string`); return current; };
 
+const searchDocument = `
+  query SearchIssues($query: String!, $limit: Int!, $after: String) {
+    search(type: ISSUE_ADVANCED, query: $query, first: $limit, after: $after) {
+      nodes {
+        ... on Issue {
+          number
+          title
+          url
+          state
+          repository { nameWithOwner }
+          labels(first: 100) { nodes { name } }
+        }
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`;
+
 function issueQuery(query: string): string {
-  return query.split(/\s+/).includes("is:issue") ? query : `is:issue ${query}`;
+  return `(${query}) state:open type:issue`;
 }
 
-async function search(config: GithubSource, token: string, signal: AbortSignal, limit: number, page = 1): Promise<Response> {
-  const query = issueQuery(config.query);
-  return fetch(`https://api.github.com/search/issues?q=${encodeURIComponent(query)}&per_page=${limit}&page=${page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "user-agent": "agentboard" }, signal });
+async function search(config: GithubSource, token: string, signal: AbortSignal, limit: number, after?: string): Promise<Response> {
+  return fetch("https://api.github.com/graphql", {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json", "user-agent": "agentboard" },
+    body: JSON.stringify({ query: searchDocument, variables: { query: issueQuery(config.query), limit, after } }),
+    signal,
+  });
 }
 
 export function runtime(config: GithubSource, context: { sourceId: string; cancellation: AbortSignal }): SourceRuntime {
@@ -44,27 +66,34 @@ export function runtime(config: GithubSource, context: { sourceId: string; cance
     const token = await helper(config.credentials.helper, context.cancellation);
     const items: Item[] = [];
     const ids = new Set<string>();
-    for (let page = 1; items.length < (config.limit ?? 50); page += 1) {
+    let after: string | undefined;
+    while (items.length < (config.limit ?? 50)) {
       if (context.cancellation.aborted) throw new Error("github operation cancelled");
       const pageSize = Math.min((config.limit ?? 50) - items.length, 100);
-      const response = await search(config, token, context.cancellation, pageSize, page);
+      const response = await search(config, token, context.cancellation, pageSize, after);
       if (!response.ok) throw new Error(`github issue search failed with ${response.status}: ${await response.text()}`);
       const data = await response.json() as any;
-      if (!Array.isArray(data.items)) throw new Error("github issue search response missing items array");
-      if (data.items.length === 0) break;
-      for (const issue of data.items) {
+      if (Array.isArray(data.errors) && data.errors.length > 0) throw new Error(`github issue search failed: ${data.errors.map((error: any) => error.message).join("; ")}`);
+      const searchResult = data.data?.search;
+      if (!searchResult || !Array.isArray(searchResult.nodes) || !searchResult.pageInfo) throw new Error("github issue search response missing search results");
+      if (searchResult.nodes.length === 0) break;
+      for (const issue of searchResult.nodes) {
         if (issue.pull_request) throw new Error("github issue search returned pull request");
         const map = config.field_map ?? {};
-        const repo = get(issue, "repository_url").replace("https://api.github.com/repos/", "");
+        const repo = get(issue, "repository.nameWithOwner");
+        const mappedIssue = { ...issue, html_url: issue.url, repository_url: `https://api.github.com/repos/${repo}`, labels: issue.labels?.nodes ?? [] };
         const id = `${repo}#${issue.number}`;
         if (ids.has(id)) throw new Error(`duplicate item id ${id} in source ${context.sourceId}`);
         ids.add(id);
-        const state = get(issue, map.status ?? "state");
-        const label = (issue.labels ?? []).find((label: any) => typeof label?.name === "string" && config.status_map[label.name]);
-        items.push({ id, reference_id: map.id ? get(issue, map.id) : String(issue.number), title: get(issue, map.title ?? "title"), status: label ? config.status_map[label.name] ?? state : config.status_map[state] ?? state, url: get(issue, map.url ?? "html_url"), source_id: context.sourceId, source_kind: "github", raw: { github: { issue } } });
+        const state = get(mappedIssue, map.status ?? "state");
+        const label = (mappedIssue.labels ?? []).find((label: any) => typeof label?.name === "string" && config.status_map[label.name]);
+        const fallbackState = state.toLowerCase();
+        items.push({ id, reference_id: map.id ? get(mappedIssue, map.id) : String(issue.number), title: get(mappedIssue, map.title ?? "title"), status: label ? config.status_map[label.name] ?? fallbackState : config.status_map[state] ?? config.status_map[fallbackState] ?? fallbackState, url: get(mappedIssue, map.url ?? "html_url"), source_id: context.sourceId, source_kind: "github", raw: { github: { issue } } });
         if (items.length >= (config.limit ?? 50)) break;
       }
-      if (items.length >= (config.limit ?? 50)) break;
+      if (items.length >= (config.limit ?? 50) || !searchResult.pageInfo.hasNextPage) break;
+      after = searchResult.pageInfo.endCursor;
+      if (!after) break;
     }
     return items;
   }};
@@ -74,4 +103,7 @@ export async function healthCheck(config: GithubSource, context: { sourceId: str
   const token = await helper(config.credentials.helper, context.cancellation);
   const response = await search(config, token, context.cancellation, 1);
   if (!response.ok) throw new Error(`github issue search failed with ${response.status}: ${await response.text()}`);
+  const data = await response.json() as any;
+  if (Array.isArray(data.errors) && data.errors.length > 0) throw new Error(`github issue search failed: ${data.errors.map((error: any) => error.message).join("; ")}`);
+  if (!data.data?.search) throw new Error("github issue search response missing search results");
 }
