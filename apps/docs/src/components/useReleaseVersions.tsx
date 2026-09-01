@@ -53,7 +53,7 @@ const reducer = (state: State, action: Action): State => {
 
 /**
  * A hook that contains a useReducer state machine that goes through:
- * - loading, loaded, error states for fetching AgentBoard release versions.
+ * - loading, loaded, error states for fetching ClankPipe release versions.
  */
 export function useReleaseVersions() {
   const [state, dispatch] = useReducer(reducer, { status: "loading" });

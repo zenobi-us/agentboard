@@ -6,7 +6,7 @@ ClankPipe collects Items from configured Sources, stores local observations, and
 Workspace -> Sources -> Store -> templates -> Actions
 ```
 
-The upstream system remains the source of truth. AgentBoard does not include an agent runtime or a hosted service.
+The upstream system remains the source of truth. ClankPipe does not include an agent runtime or a hosted service.
 
 ## Quick start
 
@@ -60,7 +60,7 @@ clankpipe doctor [workspace]
 clankpipe schema
 ```
 
-Operational commands use `.agentboard.toml` when the Workspace argument is omitted. They do not search parent directories. A Workspace path is one TOML file; AgentBoard does not merge files or apply field overrides.
+Operational commands use `.clankpipe.toml` when the Workspace argument is omitted. They do not search parent directories. A Workspace path is one TOML file; ClankPipe does not merge files or apply field overrides.
 
 ## Docs
 

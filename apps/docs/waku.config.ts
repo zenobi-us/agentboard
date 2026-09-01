@@ -4,7 +4,7 @@ import press from "fumapress/vite";
 import mdx from "fumadocs-mdx/vite";
 
 export default defineConfig({
-  basePath: "/agentboard/",
+  basePath: "/clankpipe/",
   vite: {
     environments: {
       rsc: {

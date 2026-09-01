@@ -94,10 +94,10 @@ export default defineConfig({
   },
   mode: "static",
   site: {
-    baseUrl: "https://zenobi-us.github.io/agentboard/",
-    name: "AgentBoard",
+    baseUrl: "https://zenobi-us.github.io/clankpipe/",
+    name: "ClankPipe",
     git: {
-      repo: "agentboard",
+      repo: "clankpipe",
       user: "zenobi-us",
       branch: "main",
     },

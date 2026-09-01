@@ -34,14 +34,14 @@ teardown() {
     "projects": [
       {"id":"docs","tasks":{"publish":{}}},
       {"id":"private","tasks":{"test":{}}},
-      {"id":"agentboard","tasks":{"publish":{}}},
+      {"id":"clankpipe","tasks":{"publish":{}}},
       {"id":"docs","tasks":{"publish":{}}}
     ]
   }'
 
   run bash "${SCRIPT}" abc123 def456
   [ "$status" -eq 0 ]
-  run jq -e '. == [{"target":"agentboard"},{"target":"docs"}]' <<<"$output"
+  run jq -e '. == [{"target":"clankpipe"},{"target":"docs"}]' <<<"$output"
   [ "$status" -eq 0 ]
   [ "$(cat "${MOON_ARGS_FILE}")" = "query projects --affected" ]
 }

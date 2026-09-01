@@ -8,22 +8,22 @@ A Workspace is one TOML file. It names Sources and the Actions for each Source.
 
 ## File selection
 
-Operational commands use `.agentboard.toml` in the current directory when no Workspace argument is provided:
+Operational commands use `.clankpipe.toml` in the current directory when no Workspace argument is provided:
 
 ```bash
 clankpipe run
 ```
 
-AgentBoard does not search parent directories. A supplied path selects exactly one file. AgentBoard does not merge files, load profiles, or apply field-level CLI overrides.
+ClankPipe does not search parent directories. A supplied path selects exactly one file. ClankPipe does not merge files, load profiles, or apply field-level CLI overrides.
 
 Named Workspaces are not resolved by operational commands. `workspace list` only lists `*.toml` files under the platform config directory. Pass the listed file path to another command:
 
 ```bash
 clankpipe workspace list
-clankpipe run "$HOME/.config/agentboard/work.toml"
+clankpipe run "$HOME/.config/clankpipe/work.toml"
 ```
 
-The config directory follows the platform. On Linux, `XDG_CONFIG_HOME` sets the base directory; otherwise AgentBoard uses `~/.config`. AgentBoard adds the `agentboard` directory below that base.
+The config directory follows the platform. On Linux, `XDG_CONFIG_HOME` sets the base directory; otherwise ClankPipe uses `~/.config`. ClankPipe adds the `clankpipe` directory below that base.
 
 The Workspace id uses the canonical path, so moving a Workspace creates a different Store location.
 

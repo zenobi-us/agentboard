@@ -4,15 +4,15 @@ id = "implement"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-agent" -label:"agentboard:ready-for-review" -label:"agentboard:in-progress"'''
+query = '''repo:__GITHUB_REPOSITORY__ is:open label:"clankpipe:ready-for-agent" -label:"clankpipe:ready-for-review" -label:"clankpipe:in-progress"'''
 limit = 12
 
 [sources.source.credentials]
 helper = "gh auth token"
 
 [sources.source.status_map]
-"agentboard:ready-for-agent" = "ready-for-agent"
-"agentboard:changes-requested" = "changes-requested"
+"clankpipe:ready-for-agent" = "ready-for-agent"
+"clankpipe:changes-requested" = "changes-requested"
 
 [[sources.actions]]
 id = "claim"
@@ -20,7 +20,7 @@ uses = "@clankpipe/action-run-cmd"
 
 [sources.actions.with]
 # ponytail: updated_at rearms this claim after label transitions; production workflows need explicit retry generations.
-cmd = ''': "{{ item.raw.github.issue.updated_at }}"; gh issue edit "{{ item.reference_id }}" --repo "__GITHUB_REPOSITORY__" --remove-label "agentboard:ready-for-agent,agentboard:changes-requested" --add-label "agentboard:in-progress"'''
+cmd = ''': "{{ item.raw.github.issue.updated_at }}"; gh issue edit "{{ item.reference_id }}" --repo "__GITHUB_REPOSITORY__" --remove-label "clankpipe:ready-for-agent,clankpipe:changes-requested" --add-label "clankpipe:in-progress"'''
 cwd = "."
 
 [[sources.actions]]
@@ -30,7 +30,7 @@ uses = "@clankpipe/action-worktree"
 [sources.actions.with]
 repo = "."
 root = "worktrees/issue-{{ item.reference_id }}"
-branch = "agentboard/issue-{{ item.reference_id }}"
+branch = "clankpipe/issue-{{ item.reference_id }}"
 
 [[sources.actions]]
 uses = "@clankpipe/action-run-cmd"
@@ -46,15 +46,15 @@ id = "review"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = '''repo:__GITHUB_REPOSITORY__ is:open label:"agentboard:ready-for-review" -label:"agentboard:review-in-progress"'''
+query = '''repo:__GITHUB_REPOSITORY__ is:open label:"clankpipe:ready-for-review" -label:"clankpipe:review-in-progress"'''
 limit = 12
 
 [sources.source.credentials]
 helper = "gh auth token"
 
 [sources.source.status_map]
-"agentboard:ready-for-review" = "ready-for-review"
-"agentboard:review-complete" = "review-complete"
+"clankpipe:ready-for-review" = "ready-for-review"
+"clankpipe:review-complete" = "review-complete"
 
 [[sources.actions]]
 id = "claim"
@@ -62,7 +62,7 @@ uses = "@clankpipe/action-run-cmd"
 
 [sources.actions.with]
 # ponytail: updated_at rearms this claim after label transitions; production workflows need explicit retry generations.
-cmd = ''': "{{ item.raw.github.issue.updated_at }}"; gh issue edit "{{ item.reference_id }}" --repo "__GITHUB_REPOSITORY__" --remove-label "agentboard:ready-for-review" --add-label "agentboard:review-in-progress"'''
+cmd = ''': "{{ item.raw.github.issue.updated_at }}"; gh issue edit "{{ item.reference_id }}" --repo "__GITHUB_REPOSITORY__" --remove-label "clankpipe:ready-for-review" --add-label "clankpipe:review-in-progress"'''
 cwd = "."
 
 [[sources.actions]]
@@ -72,7 +72,7 @@ uses = "@clankpipe/action-worktree"
 [sources.actions.with]
 repo = "."
 root = "worktrees/issue-{{ item.reference_id }}"
-branch = "agentboard/issue-{{ item.reference_id }}"
+branch = "clankpipe/issue-{{ item.reference_id }}"
 
 [[sources.actions]]
 uses = "@clankpipe/action-run-cmd"
@@ -88,15 +88,15 @@ id = "cleanup"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = '''repo:__GITHUB_REPOSITORY__ is:closed label:"agentboard:review-complete" label:"agentboard:cleanup-approved"'''
+query = '''repo:__GITHUB_REPOSITORY__ is:closed label:"clankpipe:review-complete" label:"clankpipe:cleanup-approved"'''
 limit = 12
 
 [sources.source.credentials]
 helper = "gh auth token"
 
 [sources.source.status_map]
-"agentboard:cleanup-approved" = "cleanup-approved"
-"agentboard:review-complete" = "review-complete"
+"clankpipe:cleanup-approved" = "cleanup-approved"
+"clankpipe:review-complete" = "review-complete"
 
 [[sources.actions]]
 uses = "@clankpipe/action-run-cmd"
