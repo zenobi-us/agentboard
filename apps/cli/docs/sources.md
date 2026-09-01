@@ -35,7 +35,7 @@ They are run concurrently, and when a source has finished retrieving items, its 
 
 ## Normalized Item Shape
 
-After downloading or reading items from a source, agentboard normalizes them into a small model that is stored in the Workspace store.
+After downloading or reading items from a source, clankpipe normalizes them into a small model that is stored in the Workspace store.
 
 They are stored in a common shape, so Actions can be written to work with any Source.
 

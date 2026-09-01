@@ -1,1 +1,1 @@
-{"title":"AB-DEMO-03: Caption the worktree table","body":"Target: `pages/task-03.html`\n\n## Acceptance criteria\n\n- Add the caption `Active AgentBoard worktrees` as the first table child.\n- Preserve the existing columns and row."}
+{"title":"AB-DEMO-03: Caption the worktree table","body":"Target: `pages/task-03.html`\n\n## Acceptance criteria\n\n- Add the caption `Active ClankPipe worktrees` as the first table child.\n- Preserve the existing columns and row."}

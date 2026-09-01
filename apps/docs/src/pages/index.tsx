@@ -13,7 +13,7 @@ export default function HomePage() {
       <Section className="flex grow pt-6 lg:pt-10 items-center">
         <CtaHero
           tagline={<Logo suffix={<span className="text-rp-foam">.</span>} />}
-          title={<>AgentBoard collects work items and runs workspace actions.</>}
+          title={<>ClankPipe collects work items and runs workspace actions.</>}
           subtitle="A Bun CLI for local agent queues: Jira, QMD collections, and GitHub Issues in; a local Store, Git worktrees, and shell commands out."
         >
           <HeroActions>
@@ -22,7 +22,7 @@ export default function HomePage() {
                 Quickstart
               </Link>
             </HeroAction>
-            <HeroAction href="https://github.com/zenobi-us/agentboard">
+            <HeroAction href="https://github.com/zenobi-us/clankpipe">
               GitHub
             </HeroAction>
           </HeroActions>

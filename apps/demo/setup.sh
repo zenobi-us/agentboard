@@ -1,16 +1,16 @@
 #!/bin/sh
 set -eu
 
-readonly SOURCE_ARCHIVE='https://github.com/zenobi-us/agentboard/archive/refs/heads/main.tar.gz'
+readonly SOURCE_ARCHIVE='https://github.com/zenobi-us/clankpipe/archive/refs/heads/main.tar.gz'
 
 readonly LABELS='[
-{ "label": "agentboard:ready-for-agent", "colour": "2f81f7", "description": "Ready for an implementation agent" },
-{ "label": "agentboard:in-progress", "colour": "1d76db", "description": "Implementation agent owns the issue" },
-{ "label": "agentboard:changes-requested", "colour": "d93f0b", "description": "Review requested implementation changes" },
-{ "label": "agentboard:ready-for-review", "colour": "8250df", "description": "Ready for a review agent" },
-{ "label": "agentboard:review-in-progress", "colour": "5319e7", "description": "Review agent owns the issue" },
-{ "label": "agentboard:review-complete", "colour": "1f883d", "description": "Agent review passed" },
-{ "label": "agentboard:cleanup-approved", "colour": "6f42c1", "description": "Worktree cleanup approved" }
+{ "label": "clankpipe:ready-for-agent", "colour": "2f81f7", "description": "Ready for an implementation agent" },
+{ "label": "clankpipe:in-progress", "colour": "1d76db", "description": "Implementation agent owns the issue" },
+{ "label": "clankpipe:changes-requested", "colour": "d93f0b", "description": "Review requested implementation changes" },
+{ "label": "clankpipe:ready-for-review", "colour": "8250df", "description": "Ready for a review agent" },
+{ "label": "clankpipe:review-in-progress", "colour": "5319e7", "description": "Review agent owns the issue" },
+{ "label": "clankpipe:review-complete", "colour": "1f883d", "description": "Agent review passed" },
+{ "label": "clankpipe:cleanup-approved", "colour": "6f42c1", "description": "Worktree cleanup approved" }
 ]'
 
 tmp=''
@@ -19,7 +19,7 @@ usage() {
 	cat <<'EOF'
 Usage:
   REPO=owner/name TARGET_DIR=/path/to/clone ./apps/demo/setup.sh
-  curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | env REPO=owner/name TARGET_DIR=/path/to/clone sh
+  curl https://raw.githubusercontent.com/zenobi-us/clankpipe/refs/heads/main/apps/demo/setup.sh | env REPO=owner/name TARGET_DIR=/path/to/clone sh
 
 Pass REPO and TARGET_DIR to the setup script.
 Set REPO=owner/name to skip the repository prompt.
@@ -29,16 +29,16 @@ EOF
 }
 
 action() {
-	printf 'AGENTBOARD DEMO SETUP: ℹ️ %s\n' "$*" >&2
+	printf 'CLANKPIPE DEMO SETUP: ℹ️ %s\n' "$*" >&2
 }
 
 fail() {
-	printf 'AGENTBOARD DEMO SETUP: ❌ %s\n' "$*" >&2
+	printf 'CLANKPIPE DEMO SETUP: ❌ %s\n' "$*" >&2
 	exit 1
 }
 
 success() {
-	printf 'AGENTBOARD DEMO SETUP: ✅ %s\n' "$*" >&2
+	printf 'CLANKPIPE DEMO SETUP: ✅ %s\n' "$*" >&2
 }
 
 confirm_replacement() {
@@ -76,7 +76,7 @@ case "${1:-}" in
 	;;
 esac
 
-for command in curl git gh jq bun clankpipe pi tar zellij; do
+for command in curl git gh jq bun tar; do
 	require_command "$command"
 done
 
@@ -108,13 +108,13 @@ if gh repo view "$REPO" >/dev/null 2>&1; then
 	replace_repo=true
 fi
 
-action "Setting up AgentBoard demo in $REPO (local clone: $target)"
+action "Setting up ClankPipe demo in $REPO (local clone: $target)"
 tmp=$(mktemp -d)
-archive=$tmp/agentboard.tar.gz
+archive=$tmp/clankpipe.tar.gz
 source_dir=$tmp/source
 mkdir "$source_dir"
 
-action 'Downloading AgentBoard demo...'
+action 'Downloading ClankPipe demo...'
 curl -fsSL "$SOURCE_ARCHIVE" -o "$archive"
 tar -xzf "$archive" -C "$source_dir"
 
@@ -138,13 +138,13 @@ action "Cloning repository $REPO..."
 gh repo clone "$REPO" "$target"
 if [ "$replace_repo" = true ]; then
 	action 'Preparing clean demo commit history...'
-	git -C "$target" checkout --orphan agentboard-demo-replacement
+	git -C "$target" checkout --orphan clankpipe-demo-replacement
 	git -C "$target" rm -rf --ignore-unmatch .
 fi
 cp -R "$source_root/apps/demo/." "$target/"
 
-sed "s|__GITHUB_REPOSITORY__|$REPO|g" "$target/.agentboard.toml" >"$tmp/agentboard.toml"
-mv "$tmp/agentboard.toml" "$target/.agentboard.toml"
+sed "s|__GITHUB_REPOSITORY__|$REPO|g" "$target/.clankpipe.toml" >"$tmp/clankpipe.toml"
+mv "$tmp/clankpipe.toml" "$target/.clankpipe.toml"
 
 action 'Installing dependencies...'
 (
@@ -154,7 +154,7 @@ action 'Installing dependencies...'
 
 action 'Preparing demo commit...'
 git -C "$target" add .
-git -C "$target" commit -m 'chore: initialize AgentBoard demo'
+git -C "$target" commit -m 'chore: initialize ClankPipe demo'
 git -C "$target" branch -M main
 if [ "$replace_repo" = true ]; then
 	git -C "$target" push -u origin HEAD --force-with-lease
@@ -207,19 +207,19 @@ cat <<EOF
 Demo ready: https://github.com/$REPO
 Local clone: $target
 
-Start AgentBoard from the demo repository:
+Start ClankPipe from the demo repository:
   cd $target
-  clankpipe run .agentboard.toml --watch --interval 15s
+  clankpipe run .clankpipe.toml --watch --interval 15s
 
 The launcher auto-detects Herdr, Zellij, and supported desktop terminals.
-Override it with AGENTBOARD_LAUNCHER=gnome-terminal, xterm, or another supported launcher.
-For Zellij, set AGENTBOARD_LAUNCH_MODE=tab to use a new tab instead of the default issue pane.
+Override it with CLANKPIPE_LAUNCHER=gnome-terminal, xterm, or another supported launcher.
+For Zellij, set CLANKPIPE_LAUNCH_MODE=tab to use a new tab instead of the default issue pane.
 
 Queue an issue from another terminal:
-  gh issue edit <number> --repo $REPO --add-label agentboard:ready-for-agent
+  gh issue edit <number> --repo $REPO --add-label clankpipe:ready-for-agent
 
 After review passes, confirm that the PR is merged and the issue is closed, then approve cleanup:
-  gh issue edit <number> --repo $REPO --add-label agentboard:cleanup-approved
+  gh issue edit <number> --repo $REPO --add-label clankpipe:cleanup-approved
 
 If an agent exits before handing off, remove its in-progress label and restore the matching ready label.
 EOF

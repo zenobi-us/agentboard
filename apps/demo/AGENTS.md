@@ -1,4 +1,4 @@
-# AgentBoard demo agent instructions
+# ClankPipe demo agent instructions
 
 - Implement and review each issue against its written acceptance criteria.
 - Do not bypass Git hooks with `--no-verify`.

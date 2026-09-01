@@ -36,7 +36,7 @@ node -e '
 
   const data = {
     generatedAt: new Date().toISOString(),
-    repository: process.env.GITHUB_REPOSITORY || "zenobi-us/agentboard",
+    repository: process.env.GITHUB_REPOSITORY || "zenobi-us/clankpipe",
     ref: process.env.GITHUB_REF || childProcess.execFileSync("git", ["-C", repoRoot, "rev-parse", "--abbrev-ref", "HEAD"], { encoding: "utf8" }).trim(),
     sha: fallbackSha,
     channel: process.env.PUBLISH_CHANNEL || null,

@@ -1,12 +1,12 @@
-![AgentBoard banner: task trackers in, configured actions out, with an AgentBoard watch session](./assets/agentboard-banner.png)
+![ClankPipe banner: task trackers in, configured actions out, with a ClankPipe watch session](./assets/clankpipe-banner.png)
 
-# AgentBoard
+# ClankPipe
 
-AgentBoard is a Bun CLI for collecting work from GitHub Issues, Jira Cloud, or QMD collections, then running Actions for each matching Item.
+ClankPipe is a Bun CLI for collecting work from GitHub Issues, Jira Cloud, or QMD collections, then running Actions for each matching Item.
 
-Define a Workspace that selects only the work you care about—for example, open GitHub Issues assigned to you with a `ready-for-agent` label. AgentBoard stores local copies, then runs the Actions you configured. The built-in Actions create Git worktrees and run shell commands.
+Define a Workspace that selects only the work you care about—for example, open GitHub Issues assigned to you with a `ready-for-agent` label. ClankPipe stores local copies, then runs the Actions you configured. The built-in Actions create Git worktrees and run shell commands.
 
-AgentBoard provides the queue and action pipeline. It does not include an agent runtime.
+ClankPipe provides the queue and action pipeline. It does not include an agent runtime.
 
 ```text
 Sources -> local Store -> configured Actions
@@ -14,16 +14,16 @@ Sources -> local Store -> configured Actions
 
 ## Install
 
-AgentBoard publishes platform archives in component releases named `agentboard-v<VERSION>`.
+ClankPipe publishes platform archives in component releases named `clankpipe-v<VERSION>`.
 
 ### ubi
 
-Install a pinned release and select the `agentboard` executable from its archive:
+Install a pinned release and select the `clankpipe` executable from its archive:
 
 ```bash
-ubi --project zenobi-us/agentboard \
-  --tag agentboard-v0.1.0-next.53.1 \
-  --exe agentboard
+ubi --project zenobi-us/clankpipe \
+  --tag clankpipe-v0.1.0-next.53.1 \
+  --exe clankpipe
 ```
 
 See [ubi installation](https://github.com/houseabsolute/ubi#quick-start) if `ubi` is not installed.
@@ -34,7 +34,7 @@ Add the GitHub backend to `mise.toml`. The version prefix prevents `latest` from
 
 ```toml
 [tools]
-"github:zenobi-us/agentboard" = { version = "latest", version_prefix = "agentboard-v" }
+"github:zenobi-us/clankpipe" = { version = "latest", version_prefix = "clankpipe-v" }
 ```
 
 Then install it:
@@ -45,12 +45,12 @@ mise install
 
 ## GitHub Issues quickstart
 
-Authenticate GitHub CLI first. AgentBoard uses it as a credential helper:
+Authenticate GitHub CLI first. ClankPipe uses it as a credential helper:
 
 ```bash
 gh auth login
-agentboard workspace init ./work.toml
-agentboard workspace edit ./work.toml # opens $EDITOR
+clankpipe workspace init ./work.toml
+clankpipe workspace edit ./work.toml # opens $EDITOR
 ```
 
 Configure the Workspace:
@@ -76,17 +76,17 @@ uses = "@clankpipe/action-run-cmd"
 cmd = "echo 'launch your agent for {{ item.url }}'"
 ```
 
-Replace `OWNER/REPO` with the repository to watch. The example Action is deliberately harmless: replace the `echo` command with your agent launcher when the dry run shows the expected Issues. AgentBoard runs that command through `sh -c` for each matching Item.
+Replace `OWNER/REPO` with the repository to watch. The example Action is deliberately harmless: replace the `echo` command with your agent launcher when the dry run shows the expected Issues. ClankPipe runs that command through `sh -c` for each matching Item.
 
 ```bash
-agentboard doctor ./work.toml
-agentboard run ./work.toml --dry-run
-agentboard run ./work.toml --watch --interval 60s
+clankpipe doctor ./work.toml
+clankpipe run ./work.toml --dry-run
+clankpipe run ./work.toml --watch --interval 60s
 ```
 
 A dry run collects and renders pending Actions without executing them or writing to the Store. `run --watch` repeats the Run until you stop it with Ctrl-C.
 
-## How AgentBoard fits together
+## How ClankPipe fits together
 
 - **Workspace** — TOML file containing Sources and their Actions.
 - **Source** — GitHub Issues, Jira Cloud, or QMD collections selected by a query.
@@ -100,9 +100,9 @@ The upstream tracker remains the source of truth. Successful Actions are recorde
 
 ## Documentation
 
-- [CLI commands](https://zenobi-us.github.io/agentboard/cli/commands)
-- [Workspaces and schema](https://zenobi-us.github.io/agentboard/cli/workspaces)
-- [Sources](https://zenobi-us.github.io/agentboard/cli/sources), including [GitHub Issues](https://zenobi-us.github.io/agentboard/sources/github), [Jira Cloud](https://zenobi-us.github.io/agentboard/sources/jira), and [QMD](https://zenobi-us.github.io/agentboard/sources/qmd)
-- [Actions](https://zenobi-us.github.io/agentboard/cli/actions), including [run command](https://zenobi-us.github.io/agentboard/actions/run-cmd) and [create worktree](https://zenobi-us.github.io/agentboard/actions/worktree)
-- [Store layout and retry state](https://zenobi-us.github.io/agentboard/cli/store)
+- [CLI commands](https://zenobi-us.github.io/clankpipe/cli/commands)
+- [Workspaces and schema](https://zenobi-us.github.io/clankpipe/cli/workspaces)
+- [Sources](https://zenobi-us.github.io/clankpipe/cli/sources), including [GitHub Issues](https://zenobi-us.github.io/clankpipe/sources/github), [Jira Cloud](https://zenobi-us.github.io/clankpipe/sources/jira), and [QMD](https://zenobi-us.github.io/clankpipe/sources/qmd)
+- [Actions](https://zenobi-us.github.io/clankpipe/cli/actions), including [run command](https://zenobi-us.github.io/clankpipe/actions/run-cmd) and [create worktree](https://zenobi-us.github.io/clankpipe/actions/worktree)
+- [Store layout and retry state](https://zenobi-us.github.io/clankpipe/cli/store)
 - [Contributing and development setup](./CONTRIBUTING.md)

@@ -77,7 +77,7 @@ stable identity used by the Store and Action retry checks.
 
 ## Filters
 
-AgentBoard registers `slugify` for conservative path and branch names:
+ClankPipe registers `slugify` for conservative path and branch names:
 
 ```jinja
 {{ item.title | slugify }}
@@ -91,10 +91,10 @@ Example:
 
 ## Rendering and expansion order
 
-AgentBoard processes Action inputs in three stages:
+ClankPipe processes Action inputs in three stages:
 
 1. MiniJinja renders every input.
-2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
+2. ClankPipe expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
    - `@clankpipe/action-run-cmd`: `cwd`
    - `@clankpipe/action-worktree`: `repo`, `root`
 3. `@clankpipe/action-run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
@@ -114,17 +114,17 @@ cwd = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 cmd = '''printf '%s: %s\n' "{{ item.reference_id }}" "$PWD"'''
 ```
 
-Here AgentBoard expands `$WORKTREE_ROOT` in path fields, MiniJinja renders item fields, and the spawned shell resolves `$PWD` from its configured `cwd`.
+Here ClankPipe expands `$WORKTREE_ROOT` in path fields, MiniJinja renders item fields, and the spawned shell resolves `$PWD` from its configured `cwd`.
 
 ## Action hash
 
-AgentBoard hashes the final inputs after MiniJinja and AgentBoard-time path expansion. Those exact strings are passed to the Action, so shell variables in `cmd` remain literal in both the hash and the command given to `sh -c`. The hash is part of retry identity:
+ClankPipe hashes the final inputs after MiniJinja and ClankPipe-time path expansion. Those exact strings are passed to the Action, so shell variables in `cmd` remain literal in both the hash and the command given to `sh -c`. The hash is part of retry identity:
 
 ```text
 (source_id, item.id, source_action_index, rendered_action_hash)
 ```
 
-If a template renders different inputs, AgentBoard treats it as new work.
+If a template renders different inputs, ClankPipe treats it as new work.
 
 ## Examples
 

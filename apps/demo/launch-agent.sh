@@ -8,13 +8,13 @@ Usage:
   ./launch-agent.sh cleanup <issue>
 
 Environment:
-  AGENTBOARD_LAUNCHER=auto|herdr|zellij|gnome-terminal|xterm|konsole|kitty|alacritty|wezterm
-  AGENTBOARD_LAUNCH_MODE=workspace|issue-pane|pane|tab
+  CLANKPIPE_LAUNCHER=auto|herdr|zellij|gnome-terminal|xterm|konsole|kitty|alacritty|wezterm
+  CLANKPIPE_LAUNCH_MODE=workspace|issue-pane|pane|tab
 EOF
 }
 
 fail() {
-	printf 'AGENTBOARD LAUNCHER: ❌ %s\n' "$*" >&2
+	printf 'CLANKPIPE LAUNCHER: ❌ %s\n' "$*" >&2
 	exit 1
 }
 
@@ -29,7 +29,7 @@ validate_issue() {
 }
 
 resolve_launcher() {
-	local requested=${AGENTBOARD_LAUNCHER:-auto}
+	local requested=${CLANKPIPE_LAUNCHER:-auto}
 
 	if [ "$requested" != auto ]; then
 		printf '%s\n' "$requested"
@@ -52,7 +52,7 @@ resolve_launcher() {
 		fi
 	done
 
-	fail 'no supported launcher found; set AGENTBOARD_LAUNCHER or install one'
+	fail 'no supported launcher found; set CLANKPIPE_LAUNCHER or install one'
 }
 
 launch_zellij() {
@@ -60,7 +60,7 @@ launch_zellij() {
 	local issue=$2
 	local name="${role}-${issue}"
 	local tab_name="issue-${issue}"
-	local mode=${AGENTBOARD_LAUNCH_MODE:-issue-pane}
+	local mode=${CLANKPIPE_LAUNCH_MODE:-issue-pane}
 
 	require_command zellij
 	case "$mode" in
@@ -129,7 +129,7 @@ launch_herdr_workspace() {
 			--no-focus)
 		pane_id=$(jq -er '.result.root_pane.pane_id' <<<"$tab_json")
 	elif [ "$role" = implement ]; then
-		# AgentBoard/Worktrunk owns Git worktree creation. Herdr only opens it.
+		# ClankPipe/Worktrunk owns Git worktree creation. Herdr only opens it.
 		worktree_json=$(herdr worktree open \
 			--workspace "$parent_workspace_id" \
 			--path "$cwd" \
@@ -160,7 +160,7 @@ launch_herdr_pane() {
 launch_herdr() {
 	local role=$1
 	local issue=$2
-	local mode=${AGENTBOARD_LAUNCH_MODE:-workspace}
+	local mode=${CLANKPIPE_LAUNCH_MODE:-workspace}
 
 	[ "${HERDR_ENV:-}" = 1 ] || fail 'Herdr launcher requires HERDR_ENV=1'
 	require_command herdr
@@ -220,8 +220,8 @@ close_zellij_tab() {
 	local tab_name="issue-${issue}"
 	local tab_id
 
-	[ "${AGENTBOARD_LAUNCHER:-auto}" = zellij ] ||
-		[ "${AGENTBOARD_LAUNCHER:-auto}" = auto ] && [ -n "${ZELLIJ:-}" ] || return 0
+	[ "${CLANKPIPE_LAUNCHER:-auto}" = zellij ] ||
+		[ "${CLANKPIPE_LAUNCHER:-auto}" = auto ] && [ -n "${ZELLIJ:-}" ] || return 0
 	command -v zellij >/dev/null 2>&1 || return 0
 	require_command jq
 	tab_id=$(zellij action list-tabs --json | jq -r --arg name "$tab_name" 'first(.[] | select(.name == $name) | .tab_id) // empty')

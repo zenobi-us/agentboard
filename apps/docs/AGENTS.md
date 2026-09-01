@@ -10,5 +10,5 @@
 
 ## Content
 
-- Keep docs focused on AgentBoard workspace config, source adapters, local store, and actions.
+- Keep docs focused on ClankPipe workspace config, source adapters, local store, and actions.
 - Do not document unimplemented adapters as complete. Mark planned source kinds clearly.

@@ -1,6 +1,6 @@
-# AgentBoard CLI Context
+# ClankPipe CLI Context
 
-The CLI is the public entrypoint for AgentBoard. It loads Workspace configuration, coordinates Runs, persists Store records, renders Action inputs, and dispatches Source and Action packages.
+The CLI is the public entrypoint for ClankPipe. It loads Workspace configuration, coordinates Runs, persists Store records, renders Action inputs, and dispatches Source and Action packages.
 
 ## Language
 
@@ -33,7 +33,7 @@ Workspace-scoped executable behavior created from one resolved Plugin configurat
 _Avoid_: Prepared Action, runtime factory
 
 **Action Execution**:
-The Item-scoped use of an Action runtime after AgentBoard renders the Action inputs. Each execution receives one Item and its rendered inputs.
+The Item-scoped use of an Action runtime after ClankPipe renders the Action inputs. Each execution receives one Item and its rendered inputs.
 _Avoid_: Action runtime creation, Workspace loading
 
 **Workspace Initialization**:
@@ -41,7 +41,7 @@ Creation of a named, empty Workspace ready for Source configuration.
 _Avoid_: Project initialization, repository initialization
 
 **Run**:
-One execution of the AgentBoard pipeline: load a workspace, read sources, update the store, and execute pending actions.
+One execution of the ClankPipe pipeline: load a workspace, read sources, update the store, and execute pending actions.
 _Avoid_: Collect when referring to the public command
 
 **Watch Mode**:

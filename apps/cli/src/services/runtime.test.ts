@@ -1656,7 +1656,7 @@ describe("Workspace runtime orchestration", () => {
     expect((await runWorkspace(invalidSource, { storeRoot })).sources[0]?.error)
       .toContain("must return normalized Items");
     expect((await runWorkspace(invalidAction, { storeRoot })).sources[0]?.actions[0]?.error)
-      .toContain("must return an AgentBoard Action Result");
+      .toContain("must return a ClankPipe Action Result");
     await rm(storeRoot, { recursive: true, force: true });
   });
 

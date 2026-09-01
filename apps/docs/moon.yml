@@ -88,7 +88,7 @@ tasks:
     script: |
       "${MOON_WORKSPACE_ROOT}/pkgs/tools/deployment/deploy-github-pages" \
         --source "${MOON_PROJECT_ROOT}/dist/public" \
-        --repo zenobi-us/agentboard \
+        --repo zenobi-us/clankpipe \
         --branch gh-pages \
         --pages-path / \
-        --description 'AgentBoard documentation site'
+        --description 'ClankPipe documentation site'

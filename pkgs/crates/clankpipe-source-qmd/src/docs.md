@@ -17,8 +17,8 @@ query = "intent: Find ready work items\nlex: status ready"
 limit = 50
 ```
 
-AgentBoard runs `qmd query --format json --full -n <limit>` and reads each result's raw
-document body. It passes each configured collection with `-c <collection>`. Each matched note must have YAML frontmatter with string values at the paths configured by `map` for `id`, `title`, and `status`. `url` is optional; when absent AgentBoard uses the QMD document reference.
+ClankPipe runs `qmd query --format json --full -n <limit>` and reads each result's raw
+document body. It passes each configured collection with `-c <collection>`. Each matched note must have YAML frontmatter with string values at the paths configured by `map` for `id`, `title`, and `status`. `url` is optional; when absent ClankPipe uses the QMD document reference.
 
 `collections` and `query` are required. `limit` defaults to 50 and must be positive. `map` is optional and defaults to the paths `id`, `title`, `status`, and `url`.
 
@@ -32,7 +32,7 @@ Use `map` when your frontmatter uses different names or nested fields.
 
 ```toml
 [sources.source.map]
-id = "agentboard.id"
+id = "clankpipe.id"
 title = "title"
 status = "workflow.status"
 url = "links.issue"

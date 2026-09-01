@@ -4,7 +4,7 @@ title: Commands
 
 # Commands
 
-Operational commands accept a Workspace path. If omitted, they use `.agentboard.toml` in the current directory. AgentBoard does not search parent directories.
+Operational commands accept a Workspace path. If omitted, they use `.clankpipe.toml` in the current directory. ClankPipe does not search parent directories.
 
 ## `workspace`
 
@@ -14,7 +14,7 @@ Create an empty Workspace. The command creates the path you provide and does not
 clankpipe workspace init ./work.toml
 ```
 
-List TOML files in the platform config directory under `agentboard`. On Linux, this is normally `~/.config/agentboard`. The output is a JSON array of file stems:
+List TOML files in the platform config directory under `clankpipe`. On Linux, this is normally `~/.config/clankpipe`. The output is a JSON array of file stems:
 
 ```bash
 clankpipe workspace list
@@ -26,7 +26,7 @@ Open a Workspace in `$EDITOR`:
 EDITOR=vi clankpipe workspace edit ./work.toml
 ```
 
-`EDITOR` must contain an executable command. AgentBoard passes the absolute Workspace path as its only argument.
+`EDITOR` must contain an executable command. ClankPipe passes the absolute Workspace path as its only argument.
 
 `clankpipe workspaces` remains an alias for `clankpipe workspace list`.
 
@@ -77,7 +77,7 @@ clankpipe show AB-001
 clankpipe show ./work.toml AB-001 --json
 ```
 
-The short form uses `.agentboard.toml`. The command matches either `item.id` or `item.reference_id`. `show --watch` refreshes the human view and cannot use `--json` or redirected stdout.
+The short form uses `.clankpipe.toml`. The command matches either `item.id` or `item.reference_id`. `show --watch` refreshes the human view and cannot use `--json` or redirected stdout.
 
 ## `dashboard`
 
@@ -114,7 +114,7 @@ The command checks Source configuration, Action configuration, and package-speci
 Print the JSON Schema built from the registered Source and Action packages:
 
 ```bash
-clankpipe schema > agentboard.schema.json
+clankpipe schema > clankpipe.schema.json
 ```
 
 The schema describes structure and types. It does not express every semantic rule, such as unique Source ids, non-empty Source maps, or required built-in Action inputs.

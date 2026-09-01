@@ -1,4 +1,4 @@
-# Agentboard TUI
+# ClankPipe TUI
 
 - xstate machines
 - opentui
