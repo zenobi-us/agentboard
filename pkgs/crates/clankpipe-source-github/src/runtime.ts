@@ -55,7 +55,7 @@ function issueQuery(query: string): string {
 async function search(config: GithubSource, token: string, signal: AbortSignal, limit: number, after?: string): Promise<Response> {
   return fetch("https://api.github.com/graphql", {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json", "user-agent": "agentboard" },
+    headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json", "user-agent": "clankpipe" },
     body: JSON.stringify({ query: searchDocument, variables: { query: issueQuery(config.query), limit, after } }),
     signal,
   });

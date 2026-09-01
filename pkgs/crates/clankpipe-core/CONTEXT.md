@@ -1,4 +1,4 @@
-# AgentBoard Core Context
+# ClankPipe Core Context
 
 `clankpipe-core` contains shared data structures and internal registration contracts used by the CLI, source packages, and action packages.
 
@@ -10,7 +10,7 @@ _Avoid_: Tracker, integration
 
 **Item**:
 A normalized local copy of one task-like record from a source.
-_Avoid_: Ticket, issue, task when referring to the normalized AgentBoard record
+_Avoid_: Ticket, issue, task when referring to the normalized ClankPipe record
 
 **Item identity**:
 The adapter-owned, collision-resistant identity for an Item. It is exposed as `item.id`, is not configurable through field mapping, and is used by the Store and Action attempt identity.
@@ -29,7 +29,7 @@ An Action with a Source-scoped identifier whose rendered inputs can be reference
 _Avoid_: Step, named job
 
 **Rendered Action**:
-An Action whose inputs AgentBoard rendered for one Item. It is ready for Action execution.
+An Action whose inputs ClankPipe rendered for one Item. It is ready for Action execution.
 _Avoid_: Configured Action, Action attempt
 
 **Action Runtime**:
@@ -49,7 +49,7 @@ The result classification of an Action attempt: `success`, `failure`, or `cancel
 _Avoid_: Success flag, exit status
 
 **Pipeline state**:
-The AgentBoard-owned state of one Item in one Source and Action plan. It is separate from the external status supplied by a Source.
+The ClankPipe-owned state of one Item in one Source and Action plan. It is separate from the external status supplied by a Source.
 _Avoid_: Item status, Action outcome
 
 ## Boundaries

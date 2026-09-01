@@ -8,13 +8,13 @@ type TuiHost = {
 };
 
 const globalHost = globalThis as typeof globalThis & {
-  __agentboardTui?: TuiHost;
+  __clankpipeTui?: TuiHost;
 };
 
 function disposeExistingTui(): void {
-  const previous = globalHost.__agentboardTui;
+  const previous = globalHost.__clankpipeTui;
   if (!previous) return;
-  delete globalHost.__agentboardTui;
+  delete globalHost.__clankpipeTui;
   previous.root.unmount();
   previous.renderer.destroy();
 }
@@ -27,14 +27,14 @@ export async function startTui(workspacePath: string, version: string): Promise<
   disposeExistingTui();
   const renderer = await createCliRenderer({ exitOnCtrlC: false });
   const root = createRoot(renderer);
-  globalHost.__agentboardTui = { renderer, root };
+  globalHost.__clankpipeTui = { renderer, root };
 
   try {
     root.render(<App workspacePath={workspacePath} version={version} />);
     await new Promise<void>((resolve) => renderer.once("destroy", resolve));
   } finally {
-    if (globalHost.__agentboardTui?.renderer === renderer) {
-      delete globalHost.__agentboardTui;
+    if (globalHost.__clankpipeTui?.renderer === renderer) {
+      delete globalHost.__clankpipeTui;
     }
     root.unmount();
     renderer.destroy();

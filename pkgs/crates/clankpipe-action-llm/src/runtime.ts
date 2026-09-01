@@ -130,7 +130,7 @@ function positionArgs(position: Position | undefined): string[] {
 }
 
 function terminalCommand(terminal: Exclude<NonNullable<LlmConfig["terminal"]>, { kind: "herdr" }>, cwd: string, harnessArgs: string[], env: Record<string, string | undefined>): Command {
-  const name = "name" in terminal ? terminal.name ?? `agentboard-${env["AGENTBOARD_ITEM_ID"] ?? "item"}` : undefined;
+  const name = "name" in terminal ? terminal.name ?? `clankpipe-${env["CLANKPIPE_ITEM_ID"] ?? env["AGENTBOARD_ITEM_ID"] ?? "item"}` : undefined;
   if (terminal.kind === "zellij") {
     if (terminal.container === "session") return { argv: ["zellij", "--session", name!, "--cwd", cwd, "--", ...harnessArgs] };
     const action = terminal.container === "tab" ? "new-tab" : "new-pane";
@@ -146,7 +146,7 @@ function terminalCommand(terminal: Exclude<NonNullable<LlmConfig["terminal"]>, {
 }
 
 function nameFor(env: Record<string, string | undefined>): string {
-  return `agentboard-${env["AGENTBOARD_ITEM_ID"] ?? "item"}`;
+  return `clankpipe-${env["CLANKPIPE_ITEM_ID"] ?? env["AGENTBOARD_ITEM_ID"] ?? "item"}`;
 }
 
 export function resolveHerdrCwd(cwd: string): string {

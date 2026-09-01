@@ -1,6 +1,6 @@
-# AgentBoard Worktree Action Context
+# ClankPipe Worktree Action Context
 
-`clankpipe-action-worktree` executes the built-in `agentboard/worktree` action.
+`clankpipe-action-worktree` executes the built-in `clankpipe/worktree` action.
 
 ## Language
 

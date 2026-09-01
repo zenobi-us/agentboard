@@ -1,6 +1,6 @@
-# AgentBoard QMD Source Context
+# ClankPipe QMD Source Context
 
-`clankpipe-source-qmd` collects items from QMD collections and normalizes them into AgentBoard Items.
+`clankpipe-source-qmd` collects items from QMD collections and normalizes them into ClankPipe Items.
 
 ## Language
 
@@ -19,7 +19,7 @@ _Avoid_: Schema migration, transform pipeline
 ## Boundaries
 
 - QMD owns QMD command invocation, result JSON parsing, document retrieval, and frontmatter parsing.
-- QMD query semantics belong to QMD. AgentBoard must not reinterpret QMD query syntax.
+- QMD query semantics belong to QMD. ClankPipe must not reinterpret QMD query syntax.
 - The QMD document reference is `item.id`; the mapped frontmatter id is `item.reference_id`.
 - The normalized Item must include source id, source kind, minimum display fields, and raw QMD payload/document content.
 - Duplicate normalized item ids in one source are source errors.

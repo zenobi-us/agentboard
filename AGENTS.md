@@ -2,7 +2,7 @@
 
 ## Project
 
-`agentboard` is a Moon + proto monorepo for a Bun CLI that collects task-tracking items from external and local sources, stores normalized local copies, then runs workspace-configured actions.
+`clankpipe` is a Moon + proto monorepo for a Bun CLI that collects task-tracking items from external and local sources, stores normalized local copies, then runs workspace-configured actions.
 
 - `apps/cli`: Bun CLI.
 - `pkgs/crates/clankpipe-core`: shared model/types.
@@ -33,7 +33,7 @@ moon run docs:dev
 
 ## Coding workflow
 
-- Keep AgentBoard workspace config boring and explicit.
+- Keep ClankPipe workspace config boring and explicit.
 - Keep source adapters isolated from action execution.
 - Store raw source payloads so normalized schema can stay small.
 - Prefer item-scoped failures over whole-run failure unless config says fail fast.

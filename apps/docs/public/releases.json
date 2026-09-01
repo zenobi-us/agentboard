@@ -1,21 +1,21 @@
 {
-  "generatedAt": "2026-09-01T09:30:52.883Z",
+  "generatedAt": "2026-09-01T13:26:26.847Z",
   "repository": "zenobi-us/clankpipe",
-  "ref": "agentboard/zenobi-us-agentboard-66",
-  "sha": "bcc1649ef2826908c9629f01192d0d0b2561e64c",
+  "ref": "agentboard/zenobi-us-clankpipe-68",
+  "sha": "dd834ca129cf722d3e0a1fc53b2189ce3497b903",
   "channel": null,
   "packages": [
     {
       "path": "apps/cli",
       "name": "@clankpipe/cli",
       "version": "0.0.1",
-      "sha": "1ad6ce0af9061886300f68a912f6517201ea3180"
+      "sha": "b7cf12e43ff49732bc836790fa21403b00901653"
     },
     {
       "path": "apps/docs",
       "name": "@clankpipe/docs",
       "version": "0.0.1",
-      "sha": "d72595ed105dbbf13cf340c2311bba9a8d6635e3"
+      "sha": "b7cf12e43ff49732bc836790fa21403b00901653"
     }
   ]
 }
