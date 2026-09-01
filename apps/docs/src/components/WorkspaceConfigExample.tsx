@@ -9,7 +9,7 @@ site = "https://example.atlassian.net"
 jql = "project = AB AND statusCategory = Todo"
 
 [[sources.actions]]
-uses = "clankpipe/worktree"
+uses = "@clankpipe/action-worktree"
 
 [sources.actions.with]
 repo = "~/dev/myrepo"
@@ -17,7 +17,7 @@ root = "~/dev/myrepo.trees/{{ item.id }}"
 branch = "feat/{{ item.id }}-{{ item.summary | slugify }}"
 
 [[sources.actions]]
-uses = "clankpipe/run-cmd"
+uses = "@clankpipe/action-run-cmd"
 
 [sources.actions.with]
 cmd = '''
