@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { mkdir, rm, symlink } from "node:fs/promises";
 import { basename, delimiter, extname, relative, resolve, sep } from "node:path";
 import Type, { type TSchema } from "typebox";
 import {
@@ -24,6 +25,7 @@ import {
 import { validateActionInputs } from "../template.ts";
 import {
   discoverPluginPackages,
+  findProjectPackageRoot,
   globalPluginRoot,
   loadAllPlugins,
   loadSelectedPlugins,
@@ -58,12 +60,19 @@ export interface LoadedWorkspace {
   readonly sources: readonly LoadedSourceRuntime[];
 }
 
-export function resolveWorkspaceConfigPath(configPath = ".agentboard.toml"): string {
+export function resolveWorkspaceConfigPath(configPath = ".clankpipe.toml"): string {
   const path = resolve(configPath);
-  if (path.endsWith(".agentboard.toml")) {
-    for (const name of ["agentboard.config.ts", "agentboard.config.js"]) {
+  if (path.endsWith(".clankpipe.toml") || path.endsWith(".agentboard.toml")) {
+    const names = path.endsWith(".clankpipe.toml")
+      ? ["clankpipe.config.ts", "clankpipe.config.js", "agentboard.config.ts", "agentboard.config.js"]
+      : ["agentboard.config.ts", "agentboard.config.js", "clankpipe.config.ts", "clankpipe.config.js"];
+    for (const name of names) {
       const executable = resolve(path, "..", name);
       if (existsSync(executable)) return executable;
+    }
+    if (configPath === ".clankpipe.toml" && !existsSync(path)) {
+      const legacy = resolve(".agentboard.toml");
+      if (existsSync(legacy)) return resolveWorkspaceConfigPath(legacy);
     }
   }
   return path;
@@ -98,10 +107,18 @@ export async function loadExecutableWorkspace(
   const previousNodePath = process.env["NODE_PATH"];
   if (data === undefined) {
     try {
-      const packageRoot = globalRoot ?? globalPluginRoot();
-      process.env["NODE_PATH"] = [packageRoot, previousNodePath].filter(Boolean).join(delimiter);
-      const module = await import(pathToFileURL(path).href);
-      data = module.default ?? module;
+      const packageRoots = globalRoot ? [globalRoot] : [
+        globalPluginRoot(),
+        resolve(globalPluginRoot(), "..", "..", "..", "agentboard", "plugins", "npm"),
+      ];
+      process.env["NODE_PATH"] = [...packageRoots, previousNodePath].filter(Boolean).join(delimiter);
+      const linked = await linkGlobalPackagesForImport(path, packageRoots);
+      try {
+        const module = await import(pathToFileURL(path).href);
+        data = module.default ?? module;
+      } finally {
+        await Promise.all(linked.map((target) => rm(target, { force: true })));
+      }
     } catch (error) {
       throw new Error(`Executable Workspace configuration failed for ${path}: ${String(error)}`);
     } finally {
@@ -451,6 +468,25 @@ function externalPluginPackageName(
     throw new Error(`Plugin Package for ${plugin.meta.url} has no package.json`);
   }
   return undefined;
+}
+
+async function linkGlobalPackagesForImport(configPath: string, roots: readonly string[]): Promise<string[]> {
+  const projectRoot = findProjectPackageRoot(configPath);
+  const nodeModules = resolve(projectRoot, "node_modules");
+  const linked: string[] = [];
+  for (const item of roots.flatMap((root) => discoverPackagePackages(root))) {
+    const target = resolve(nodeModules, ...item.name.split("/"));
+    if (existsSync(target)) continue;
+    await mkdir(resolve(target, ".."), { recursive: true });
+    await symlink(item.root, target, "dir");
+    linked.push(target);
+  }
+  return linked;
+}
+
+function discoverPackagePackages(root: string): { name: string; root: string }[] {
+  if (!existsSync(root)) return [];
+  return discoverPluginPackages(root, root).map((item) => ({ name: item.name, root: item.root }));
 }
 
 function throwIfCancelled(cancellation: AbortSignal): void {

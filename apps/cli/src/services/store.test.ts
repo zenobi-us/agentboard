@@ -1,8 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import { appendFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+const previousDataHome = process.env["XDG_DATA_HOME"];
 import type { Item } from "@clankpipe/core/config";
 import { actionPlanHash, appendActionAttempt, appendPipelineState, appendSourceSnapshot, markStalePipelineExecutions, readPipelineExecutions, readStoreViews, sourceSlug, successfulActionKeys } from "./store.ts";
 
@@ -39,6 +41,11 @@ function source(id: string, config: unknown = {}): TestSource {
   };
 }
 
+afterEach(() => {
+  if (previousDataHome === undefined) delete process.env["XDG_DATA_HOME"];
+  else process.env["XDG_DATA_HOME"] = previousDataHome;
+});
+
 describe("Store bucket paths", () => {
   test("uses the registered Source kind and Item Bucket identity", () => {
     expect(sourceSlug(source("issues") as never)).toBe("github-github-com-1fee6d0f9c10");
@@ -47,6 +54,18 @@ describe("Store bucket paths", () => {
   test("does not truncate long Item Bucket identities", () => {
     const identity = "a".repeat(60);
     expect(sourceSlug({ ...source("issues"), itemBucketIdentity: identity } as never)).toBe(`github-${identity}-2d0d4b1e035f`);
+  });
+});
+
+describe("Store migration compatibility", () => {
+  test("reads records from the old AgentBoard data path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+    process.env["XDG_DATA_HOME"] = root;
+    const configured = source("issues");
+    const legacy = { ...configured, packageName: "@agentboard/source-github" };
+    await appendSourceSnapshot(workspace([legacy]), legacy as never, [item("legacy", "issues")], new AbortController().signal, join(root, "agentboard"));
+
+    expect((await readStoreViews(workspace([configured]), undefined))[0]?.items[0]?.item.id).toBe("legacy");
   });
 });
 

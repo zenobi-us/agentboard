@@ -19,9 +19,11 @@ item and source fields.
 
 The command receives these environment variables:
 
-- `AGENTBOARD_WORKSPACE_ID`
-- `AGENTBOARD_SOURCE_ID`
-- `AGENTBOARD_ITEM_ID`
+- `CLANKPIPE_WORKSPACE_ID`
+- `CLANKPIPE_SOURCE_ID`
+- `CLANKPIPE_ITEM_ID`
+
+The old `AGENTBOARD_*` names remain available as aliases.
 
 Set `cwd` when the command should run from a specific directory.
 

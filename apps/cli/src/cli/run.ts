@@ -56,7 +56,7 @@ export async function reportRun(result: WorkspaceRunResult, flags: RunFlags): Pr
 
 export const runCmd = app
   .sub("run")
-  .args([{ name: "workspace", type: "string", default: ".agentboard.toml" }])
+  .args([{ name: "workspace", type: "string", default: ".clankpipe.toml" }])
   .flags({
     "dry-run": { type: "boolean", description: "Collect and render without Store writes or Action execution" },
     watch: { type: "boolean", description: "Repeat Runs until cancellation" },

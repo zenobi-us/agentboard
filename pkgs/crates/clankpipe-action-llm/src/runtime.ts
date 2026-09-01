@@ -173,6 +173,9 @@ export function runtime(_config: LlmConfig): ActionRuntime<LlmConfig> {
       const inputs = context.inputs;
       const env = {
         ...process.env,
+        CLANKPIPE_WORKSPACE_ID: context.workspaceId,
+        CLANKPIPE_SOURCE_ID: context.sourceId,
+        CLANKPIPE_ITEM_ID: context.item.id,
         AGENTBOARD_WORKSPACE_ID: context.workspaceId,
         AGENTBOARD_SOURCE_ID: context.sourceId,
         AGENTBOARD_ITEM_ID: context.item.id,

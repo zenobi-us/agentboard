@@ -13,16 +13,20 @@ export async function initializeWorkspace(path: string): Promise<void> {
 const workspace = app.sub("workspace");
 const init = workspace
   .sub("init")
-  .args([{ name: "path", type: "string", default: ".agentboard.toml" }])
+  .args([{ name: "path", type: "string", default: ".clankpipe.toml" }])
   .meta({ description: "Create an empty Workspace" })
   .run(({ args }) => initializeWorkspace(args.path));
 
 async function listWorkspaces(): Promise<void> {
-  const root = resolve(process.env["XDG_CONFIG_HOME"] ?? `${process.env["HOME"] ?? "."}/.config`, "agentboard");
-  const names = (await Array.fromAsync(new Bun.Glob("*.toml").scan({ cwd: root })))
-    .sort()
-    .map((path) => basename(path, ".toml"));
-  console.log(JSON.stringify(names));
+  const configHome = process.env["XDG_CONFIG_HOME"] ?? `${process.env["HOME"] ?? "."}/.config`;
+  const roots = [resolve(configHome, "clankpipe"), resolve(configHome, "agentboard")];
+  const names = new Set<string>();
+  for (const root of roots) {
+    for (const path of await Array.fromAsync(new Bun.Glob("*.toml").scan({ cwd: root }))) {
+      names.add(basename(path, ".toml"));
+    }
+  }
+  console.log(JSON.stringify([...names].sort()));
 }
 
 const list = workspace
@@ -32,7 +36,7 @@ const list = workspace
 
 const edit = workspace
   .sub("edit")
-  .args([{ name: "path", type: "string", default: ".agentboard.toml" }])
+  .args([{ name: "path", type: "string", default: ".clankpipe.toml" }])
   .meta({ description: "Edit a Workspace" })
   .run(({ args }) => {
     const editor = process.env["EDITOR"];

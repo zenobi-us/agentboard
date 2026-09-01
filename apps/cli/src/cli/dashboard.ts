@@ -51,6 +51,6 @@ async function openDashboard(workspacePath: string): Promise<void> {
 
 export const dashboardCmd = app
   .sub("dashboard")
-  .args([{ name: "workspace", type: "string", default: ".agentboard.toml" }])
+  .args([{ name: "workspace", type: "string", default: ".clankpipe.toml" }])
   .meta({ description: "Open the read-only Store dashboard" })
   .run(async ({ args }) => openDashboard(args.workspace));

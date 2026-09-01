@@ -5,7 +5,7 @@ import { loadWorkspace } from "../services/workspace.ts";
 
 export const doctorCmd = app
   .sub("doctor")
-  .args([{ name: "workspace", type: "string", default: ".agentboard.toml" }])
+  .args([{ name: "workspace", type: "string", default: ".clankpipe.toml" }])
   .meta({ description: "Validate the workspace and local environment" })
   .run(async ({ args }) => {
     const controller = new AbortController();

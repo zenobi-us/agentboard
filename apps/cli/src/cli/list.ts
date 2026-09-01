@@ -53,7 +53,7 @@ export function renderListHuman(snapshots: Awaited<ReturnType<typeof readStoreVi
 
 export const listCmd = app
   .sub("list")
-  .args([{ name: "workspace", type: "string", default: ".agentboard.toml" }])
+  .args([{ name: "workspace", type: "string", default: ".clankpipe.toml" }])
   .flags({
     json: { type: "boolean", description: "Print JSON" },
     watch: { type: "boolean", description: "Refresh until cancellation" },

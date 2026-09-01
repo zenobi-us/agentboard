@@ -17,6 +17,7 @@ import {
   loadDataWorkspace,
   loadExecutableWorkspace,
   loadWorkspacePlugins,
+  resolveWorkspaceConfigPath,
   type LoadedWorkspace,
 } from "./config/workspace.ts";
 import { loadWorkspace } from "./workspace.ts";
@@ -119,6 +120,31 @@ function comparableWorkspace(workspace: LoadedWorkspace) {
 
 afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
+});
+
+describe("Workspace migration compatibility", () => {
+  test("prefers ClankPipe defaults and keeps old executable names", () => {
+    const root = fixture();
+    writeFileSync(join(root, "agentboard.config.ts"), "export default { sources: [] };\n");
+
+    expect(resolveWorkspaceConfigPath(join(root, ".clankpipe.toml"))).toBe(join(root, "agentboard.config.ts"));
+  });
+
+  test("loads executable Plugins from the legacy global namespace", async () => {
+    const root = fixture();
+    const globalRoot = join(root, "global");
+    const configPath = join(root, ".clankpipe.toml");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(globalRoot, "@agentboard/source-memory", "@agentboard/source-memory", pluginSource("source"));
+    writeFileSync(join(root, "agentboard.config.ts"), `
+      import { defineConfig, source } from ${JSON.stringify(new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href)};
+      import plugin from "@agentboard/source-memory";
+      export default defineConfig({ sources: [{ id: "one", source: source(plugin, { query: "ready" }, import.meta.url) }] });
+    `);
+
+    const loaded = await loadWorkspace(configPath, globalRoot, undefined, false);
+    expect(loaded).toBeDefined();
+  });
 });
 
 describe("Plugin Package discovery", () => {

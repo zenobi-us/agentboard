@@ -7,10 +7,10 @@ test("executes rendered command inputs with action identity environment", async 
     workspaceId: "workspace",
     sourceId: "source",
     item: { id: "item" } as never,
-    inputs: { cmd: "printf '%s|%s|%s' \"$AGENTBOARD_WORKSPACE_ID\" \"$AGENTBOARD_SOURCE_ID\" \"$AGENTBOARD_ITEM_ID\"", cwd: null, healthcheck: null, healthcheck_interval: "1s", healthcheck_timeout: "1s" },
+    inputs: { cmd: "printf '%s|%s|%s|%s|%s|%s' \"$CLANKPIPE_WORKSPACE_ID\" \"$CLANKPIPE_SOURCE_ID\" \"$CLANKPIPE_ITEM_ID\" \"$AGENTBOARD_WORKSPACE_ID\" \"$AGENTBOARD_SOURCE_ID\" \"$AGENTBOARD_ITEM_ID\"", cwd: null, healthcheck: null, healthcheck_interval: "1s", healthcheck_timeout: "1s" },
     cancellation: new AbortController().signal,
   });
-  expect(result).toMatchObject({ outcome: "success", stdout: "workspace|source|item" });
+  expect(result).toMatchObject({ outcome: "success", stdout: "workspace|source|item|workspace|source|item" });
 });
 
 test("caps launch and healthcheck output at 64 KiB", async () => {

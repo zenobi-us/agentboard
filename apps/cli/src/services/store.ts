@@ -44,7 +44,45 @@ export interface PipelineExecution {
 export function workspaceStoreRoot(workspace: LoadedWorkspace, root?: string): string {
   if (root) return join(root, workspace.id);
   const dataHome = process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share");
-  return join(dataHome, "agentboard", workspace.id);
+  return join(dataHome, "clankpipe", workspace.id);
+}
+
+function workspaceStoreRoots(workspace: LoadedWorkspace, root?: string): string[] {
+  if (root) return [join(root, workspace.id)];
+  const dataHome = process.env["XDG_DATA_HOME"] ?? join(homedir(), ".local", "share");
+  return [join(dataHome, "agentboard", workspace.id), workspaceStoreRoot(workspace)];
+}
+
+async function readStoreLines<T>(
+  workspace: LoadedWorkspace,
+  path: (root: string) => string,
+  root?: string,
+): Promise<T[]> {
+  return (await Promise.all(workspaceStoreRoots(workspace, root).map((value) => readJsonLines<T>(path(value))))).flat();
+}
+
+function storeSourceVariants(source: LoadedWorkspaceSource): LoadedWorkspaceSource[] {
+  if (!source.packageName.startsWith("@clankpipe/") && !source.packageName.startsWith("clankpipe-source-")) return [source];
+  const packageName = source.packageName
+    .replace(/^@clankpipe\//, "@agentboard/")
+    .replace(/^clankpipe-source-/, "agentboard-source-");
+  const actions = source.actions.map((action) => ({
+    ...action,
+    packageName: action.packageName
+      .replace(/^@clankpipe\//, "@agentboard/")
+      .replace(/^clankpipe-action-/, "agentboard-action-"),
+  }));
+  return [{ ...source, packageName, actions }, source];
+}
+
+async function readSourceStoreLines<T>(
+  workspace: LoadedWorkspace,
+  source: LoadedWorkspaceSource,
+  path: (storeRoot: string, source: LoadedWorkspaceSource) => string,
+  root?: string,
+): Promise<T[]> {
+  const variants = storeSourceVariants(source).reverse();
+  return (await Promise.all(variants.map((variant) => readStoreLines<T>(workspace, (storeRoot) => path(storeRoot, variant), root)))).flat();
 }
 
 export async function acquireWorkspaceLock(
@@ -124,8 +162,7 @@ export async function successfulActionKeys(
   source: LoadedWorkspaceSource,
   root?: string,
 ): Promise<Set<string>> {
-  const path = actionPath(workspace, source, root);
-  const attempts = await readJsonLines<ActionAttempt>(path);
+  const attempts = await readSourceStoreLines<ActionAttempt>(workspace, source, (storeRoot, variant) => join(storeRoot, `actions-${sourceSlug(variant)}-${actionPlanHash(variant)}.jsonl`), root);
   const latest = new Map<string, ActionAttempt["outcome"]>();
   for (const attempt of attempts) {
     latest.set(actionKey(
@@ -166,7 +203,7 @@ export async function readPipelineExecutions(
   source: LoadedWorkspaceSource,
   root?: string,
 ): Promise<PipelineExecution[]> {
-  const records = await readJsonLines<PipelineExecution>(pipelinePath(workspace, source, root));
+  const records = await readSourceStoreLines<PipelineExecution>(workspace, source, (storeRoot, variant) => join(storeRoot, `pipelines-${sourceSlug(variant)}-${actionPlanHash(variant)}.jsonl`), root);
   const latest = new Map<string, PipelineExecution>();
   for (const record of records) {
     latest.set(`${record.source_id}\0${record.item_id}\0${record.action_plan_hash}`, record);
@@ -230,20 +267,28 @@ export async function readStoreViews(workspace: LoadedWorkspace, root?: string):
   const attempts = await readStoredActions(workspace, root);
   const snapshots: StoredSourceSnapshot[] = [];
   for (const source of workspace.sources) {
-    const slug = sourceSlug(source);
-    const itemPath = join(workspaceStoreRoot(workspace, root), `items-${slug}.jsonl`);
-    const boundaryPath = itemPath.replace(/\.jsonl$/, ".snapshots");
-    const boundaries = await readJsonLines<{ snapshot_key: string; snapshot_id: string }>(boundaryPath);
-    const records = await readJsonLines<Record<string, unknown>>(itemPath);
-    const snapshotKey = sourceSnapshotKey(source);
-    const boundary = [...boundaries].reverse().find((value) => value.snapshot_key === snapshotKey);
+    let selected: LoadedWorkspaceSource = source;
+    let boundary: { snapshot_key: string; snapshot_id: string } | undefined;
+    let records: Record<string, unknown>[] = [];
+    for (const variant of storeSourceVariants(source).reverse()) {
+      const slug = sourceSlug(variant);
+      const boundaries = await readStoreLines<{ snapshot_key: string; snapshot_id: string }>(workspace, (storeRoot) => join(storeRoot, `items-${slug}.snapshots`), root);
+      const candidate = [...boundaries].reverse().find((value) => value.snapshot_key === sourceSnapshotKey(variant));
+      if (!candidate) continue;
+      selected = variant;
+      boundary = candidate;
+      records = await readStoreLines<Record<string, unknown>>(workspace, (storeRoot) => join(storeRoot, `items-${slug}.jsonl`), root);
+      break;
+    }
+    const slug = sourceSlug(selected);
     const current = boundary
       ? records.filter((value) => value["_agentboard_snapshot_key"] === boundary.snapshot_key && value["_agentboard_snapshot_id"] === boundary.snapshot_id)
       : [];
-    const pipeline = await readPipelineExecutions(workspace, source, root);
-    const items = current.map((value) => {
+    const uniqueItems = [...new Map(current.map((value) => [String(value["id"]), value])).values()];
+    const pipeline = await readPipelineExecutions(workspace, selected, root);
+    const items = uniqueItems.map((value) => {
       const item = stripSnapshotFields(value) as unknown as Item;
-      return { item, sourceSlug: slug, actionState: actionPlanState(workspace, source, item, attempts) };
+      return { item, sourceSlug: slug, actionState: actionPlanState(workspace, selected, item, attempts) };
     }).sort((a, b) => a.item.reference_id.localeCompare(b.item.reference_id) || a.item.id.localeCompare(b.item.id));
     snapshots.push({
       sourceId: source.id,
@@ -272,8 +317,7 @@ export async function readStoredItems(workspace: LoadedWorkspace, root?: string)
 async function readStoredActions(workspace: LoadedWorkspace, root?: string): Promise<ActionAttempt[]> {
   const attempts: ActionAttempt[] = [];
   for (const source of workspace.sources) {
-    const path = actionPath(workspace, source, root);
-    for (const record of await readJsonLines<Record<string, unknown>>(path)) {
+    for (const record of await readSourceStoreLines<Record<string, unknown>>(workspace, source, (storeRoot, variant) => join(storeRoot, `actions-${sourceSlug(variant)}-${actionPlanHash(variant)}.jsonl`), root)) {
       const normalized: Record<string, unknown> = { ...record };
       if (normalized["outcome"] === undefined && normalized["success"] !== undefined) {
         normalized["outcome"] = normalized["success"] ? "success" : "failure";
@@ -436,14 +480,16 @@ async function readSourceCollectionStatus(
   sourceId: string,
   root?: string,
 ): Promise<SourceCollectionStatus | undefined> {
-  const path = join(workspaceStoreRoot(workspace, root), "sources", sourceIdSlug(sourceId), "collection-status.json");
-  let status: SourceCollectionStatus;
-  try {
-    status = JSON.parse(await readFile(path, "utf8")) as SourceCollectionStatus;
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-    throw error;
+  let status: SourceCollectionStatus | undefined;
+  for (const storeRoot of workspaceStoreRoots(workspace, root).reverse()) {
+    try {
+      status = JSON.parse(await readFile(join(storeRoot, "sources", sourceIdSlug(sourceId), "collection-status.json"), "utf8")) as SourceCollectionStatus;
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
+  if (!status) return undefined;
   if (status.state !== "collecting" || await workspaceLockIsHeld(workspace, root)) return status;
   return { ...status, state: "cancelled" };
 }

@@ -14,7 +14,7 @@ async function renderShow(workspace: Awaited<ReturnType<typeof loadWorkspace>>, 
 export const showCmd = app
   .sub("show")
   .args([
-    { name: "workspace", type: "string", default: ".agentboard.toml" },
+    { name: "workspace", type: "string", default: ".clankpipe.toml" },
     { name: "item", type: "string" },
   ])
   .flags({
@@ -24,7 +24,7 @@ export const showCmd = app
   })
   .meta({ description: "Show one stored item" })
   .run(async ({ args, flags }) => {
-    const workspacePath = args.item ? args.workspace : ".agentboard.toml";
+    const workspacePath = args.item ? args.workspace : ".clankpipe.toml";
     const itemRef = args.item ?? args.workspace;
     const controller = new AbortController();
     const removeHandlers = installCancellationHandlers(controller);

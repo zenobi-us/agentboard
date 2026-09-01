@@ -12,7 +12,7 @@ export function loadWorkspace(
   createRuntimes = true,
 ): Promise<LoadedWorkspace> {
   const path = resolveWorkspaceConfigPath(configPath);
-  return /agentboard\.config\.(ts|js)$/.test(path)
+  return /(agentboard|clankpipe)\.config\.(ts|js)$/.test(path)
     ? loadExecutableWorkspace(path, undefined, cancellation, createRuntimes, globalRoot)
     : loadDataWorkspace(path, globalRoot, cancellation, createRuntimes);
 }
