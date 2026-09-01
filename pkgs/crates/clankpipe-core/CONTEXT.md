@@ -48,13 +48,17 @@ _Avoid_: Build result, task result
 The result classification of an Action attempt: `success`, `failure`, or `cancelled`. A cancelled outcome records interrupted execution and does not satisfy the Action's previous-success rule.
 _Avoid_: Success flag, exit status
 
+**Pipeline state**:
+The AgentBoard-owned state of one Item in one Source and Action plan. It is separate from the external status supplied by a Source.
+_Avoid_: Item status, Action outcome
+
 ## Boundaries
 
 - Core owns shared types, Source and Action registration contracts, the internal Registry, and tiny cross-crate helpers.
 - Core must not depend on CLI orchestration, source packages, or action packages.
 - The Bun runtime resolves discovered Plugin Descriptors into Core configuration nodes.
 - Keep normalized `Item` small and store source-specific payloads in `raw`.
-- Keep Workspace config envelopes boring and explicit while registered Source and Action packages own their typed configuration.
+- Keep Workspace config envelopes boring and explicit while registered Source and Action packages own their typed configuration. Pipeline policy belongs in the Workspace Source envelope, not in Source plugin schemas.
 
 ## ADRs
 

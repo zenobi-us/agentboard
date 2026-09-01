@@ -48,6 +48,21 @@ export interface Item {
   readonly raw: unknown;
 }
 
+/** State of one Item in a configured pipeline. */
+export type PipelineState =
+  | "claimed"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled"
+  | "stale";
+
+/** AgentBoard orchestration policy for one Source. */
+export interface PipelineConfig {
+  /** Maximum number of new Item claims in one Run. */
+  readonly claim_limit?: number;
+}
+
 /** Result returned after an action attempts to process an item. */
 export interface ActionResult {
   /** Final action outcome. */
@@ -268,6 +283,8 @@ export interface WorkspaceConfig {
 export interface WorkspaceSourceConfig {
   /** Workspace-local identifier for the source. */
   readonly id: string;
+  /** AgentBoard orchestration policy for the Source. */
+  readonly pipeline?: PipelineConfig;
   /** Resolved source plugin configuration. */
   readonly source: ResolvedSource<TSchema>;
   /** Resolved action plugin configurations attached to the source. */
