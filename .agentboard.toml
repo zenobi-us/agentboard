@@ -4,15 +4,15 @@ id = "implement"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = '''repo:zenobi-us/clankpipe is:open (label:"ready-for-agent" OR label:"agentboard:changes-requested") -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
+query = '''repo:zenobi-us/clankpipe is:open (label:"clankpipe:ready-for-agent" OR label:"clankpipe:changes-requested") -label:"clankpipe:implementing" -label:"clankpipe:ready-for-review" -label:"clankpipe:reviewing" sort:created-asc'''
 limit = 1
 
 [sources.source.credentials]
 helper = "gh auth token"
 
 [sources.source.status_map]
-"ready-for-agent" = "ready"
-"agentboard:changes-requested" = "changes-requested"
+"clankpipe:ready-for-agent" = "ready"
+"clankpipe:changes-requested" = "changes-requested"
 
 [[sources.actions]]
 id = "worktree"
@@ -21,7 +21,7 @@ uses = "@clankpipe/action-worktree"
 [sources.actions.with]
 repo = "."
 root = "$PWD/../AgentBoard.worktrees/issue-{{ item.id | slugify }}"
-branch = "agentboard/{{ item.id | slugify }}"
+branch = "clankpipe/{{ item.id | slugify }}"
 
 [[sources.actions]]
 id = "run_llm"
@@ -43,15 +43,15 @@ id = "review"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = '''repo:zenobi-us/clankpipe is:open label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:updated-asc'''
+query = '''repo:zenobi-us/clankpipe is:open label:"clankpipe:ready-for-review" -label:"clankpipe:reviewing" sort:updated-asc'''
 limit = 1
 
 [sources.source.credentials]
 helper = "gh auth token"
 
 [sources.source.status_map]
-"agentboard:ready-for-review" = "ready-for-review"
-"agentboard:review-complete" = "review-complete"
+"clankpipe:ready-for-review" = "ready-for-review"
+"clankpipe:review-complete" = "review-complete"
 
 [[sources.actions]]
 id = "worktree"
@@ -60,7 +60,7 @@ uses = "@clankpipe/action-worktree"
 [sources.actions.with]
 repo = "."
 root = "$PWD/../AgentBoard.worktrees/issue-{{ item.id | slugify }}"
-branch = "agentboard/{{ item.id | slugify }}"
+branch = "clankpipe/{{ item.id | slugify }}"
 
 [[sources.actions]]
 id = "run_llm"

@@ -42,7 +42,7 @@ moon run docs:dev
 
 ### Issue tracker
 
-Issues are tracked in GitHub Issues for `zenobi-us/agentboard`. See `.memory/docs/agents/issue-tracker.md`.
+Issues are tracked in GitHub Issues for `zenobi-us/clankpipe`. See `.memory/docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
