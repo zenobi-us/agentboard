@@ -2,9 +2,20 @@ import { describe, expect, test } from "bun:test";
 import pkg from "../../package.json";
 
 const entry = new URL("./index.ts", import.meta.url).pathname;
+const builtCli = new URL("../../dist/cli", import.meta.url).pathname;
+const builtLegacyCli = new URL("../../dist/agentboard", import.meta.url).pathname;
 
 async function run(...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
   const child = Bun.spawn([process.execPath, entry, ...args], { stdout: "pipe", stderr: "pipe" });
+  return {
+    code: await child.exited,
+    stdout: await new Response(child.stdout).text(),
+    stderr: await new Response(child.stderr).text(),
+  };
+}
+
+async function runBuilt(path: string, ...args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+  const child = Bun.spawn([process.execPath, path, ...args], { stdout: "pipe", stderr: "pipe" });
   return {
     code: await child.exited,
     stdout: await new Response(child.stdout).text(),
@@ -24,6 +35,18 @@ describe("Bun CLI command surface", () => {
     expect(result.stdout).toContain("workspace");
     expect(result.stdout).toContain("show");
     expect(result.stdout).toContain("run");
+  });
+
+  test("runs both built executable names and deprecates only AgentBoard", async () => {
+    const clankpipe = await runBuilt(builtCli, "--help");
+    expect(clankpipe.code).toBe(0);
+    expect(clankpipe.stdout).toContain("clankpipe");
+    expect(clankpipe.stderr).toBe("");
+
+    const agentboard = await runBuilt(builtLegacyCli, "--help");
+    expect(agentboard.code).toBe(0);
+    expect(agentboard.stdout).toContain("clankpipe");
+    expect(agentboard.stderr).toContain("agentboard is deprecated; use clankpipe instead.");
   });
 
   test("uses the package path for an external Workspace", async () => {
