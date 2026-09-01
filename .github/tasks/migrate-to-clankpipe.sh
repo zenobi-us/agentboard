@@ -31,7 +31,7 @@ for label in "${labels[@]}"; do
 
 done
 
-issues=$(gh issue list --repo "$old_repo" --state all --limit 100000 --json number,labels)
+issues=$(gh issue list --repo "$new_repo" --state all --limit 1000 --json number,labels)
 while IFS=$'\t' read -r number old_label; do
   [[ -n $number ]] || continue
   new_label="clankpipe:${old_label#agentboard:}"
