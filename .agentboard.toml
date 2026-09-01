@@ -37,6 +37,8 @@ Source updated at: {{ item.raw.github.issue.updated_at }}
 kind = "herdr"
 container = "worktree"
 cwd = "{{ actions.worktree.inputs.root }}"
+harness = "pi"
+harness_args = ["--print", "--approve", "--prompt-template", ".pi/prompts"]
 
 [[sources]]
 id = "review"
@@ -77,3 +79,5 @@ Source updated at: {{ item.raw.github.issue.updated_at }}
 kind = "herdr"
 container = "worktree"
 cwd = "{{ actions.worktree.inputs.root }}"
+harness = "pi"
+harness_args = ["--print", "--approve", "--prompt-template", ".pi/prompts"]
