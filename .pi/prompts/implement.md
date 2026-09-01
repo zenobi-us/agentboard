@@ -2,7 +2,7 @@
 description: Implement a GitHub issue with the Matt Pocock workflow
 argument-hint: "<issue-number>"
 ---
-Implement GitHub issue #$1 in `zenobi-us/agentboard` and create or update its pull request.
+Implement GitHub issue #$1 in `zenobi-us/clankpipe` and create or update its pull request.
 
 Load and follow the Matt Pocock `implement` skill as the governing workflow.
 
@@ -22,7 +22,7 @@ Load and follow the Matt Pocock `implement` skill as the governing workflow.
 
 - Use `gh` to read the issue, comments, and any existing pull request for the branch.
 - If you're removing 'changes-requested', then you MUST read the latest issue comments to understand what changes are requested and why.
-- Before changing files, claim the issue: remove `ready-for-agent` and `agentboard:changes-requested`, add `agentboard:implementing`, then comment that implementation started.
+- Before changing files, claim the issue: remove `ready-for-agent` and `clankpipe:changes-requested`, add `clankpipe:implementing`, then comment that implementation started.
 - Work only in the current Herdr worktree space.
 - Implement the written acceptance criteria.
 - Follow the repos `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` guidelines.
@@ -30,13 +30,13 @@ Load and follow the Matt Pocock `implement` skill as the governing workflow.
 When ready:
 
 - Push and create or update a PR containing `Closes #$1` and validation evidence.
-- Remove `agentboard:implementing`
-- Add `agentboard:ready-for-review` last.
+- Remove `clankpipe:implementing`
+- Add `clankpipe:ready-for-review` last.
 
 If blocked:
 
 - Comment with the blocker.
-- Remove `agentboard:implementing`.
-- Restore `ready-for-agent` so AgentBoard can retry.
+- Remove `clankpipe:implementing`.
+- Restore `ready-for-agent` so ClankPipe can retry.
 
 Do not merge. Stop after reporting the PR URL and validation results.
