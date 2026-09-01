@@ -35,7 +35,7 @@ kind = "herdr"
 container = "worktree"
 cwd = "{{ actions.worktree.inputs.root }}"
 harness = "pi"
-harness_args = ["--print", "--approve", "@.pi/prompts/implement.md"]
+harness_args = ["--approve", "@.pi/prompts/implement.md"]
 
 [[sources]]
 id = "review"
@@ -74,4 +74,4 @@ kind = "herdr"
 container = "worktree"
 cwd = "{{ actions.worktree.inputs.root }}"
 harness = "pi"
-harness_args = ["--print", "--approve", "@.pi/prompts/review.md"]
+harness_args = [ "--approve", "@.pi/prompts/review.md"]
