@@ -8,14 +8,6 @@ apply=false
 
 labels=(ready-for-agent implementing changes-requested ready-for-review reviewing review-complete cleanup-approved)
 
-run() {
-  if $apply; then
-    "$@"
-  else
-    printf '+%q' "$1"; shift; printf ' %q' "$@"; printf '\n'
-  fi
-}
-
 printf 'Repository: %s -> %s\n' "$old_repo" "$new_repo"
 printf 'Mode: %s\n' "$($apply && echo apply || echo dry-run)"
 

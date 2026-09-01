@@ -37,24 +37,44 @@ Existing `agentboard/*` branches remain valid. New workflow-created branches use
 
 ## Rollback
 
-Before deleting any old labels, restore the repository name and labels:
+Run these steps if the repository rename must be reversed.
 
-```sh
-gh repo rename agentboard --repo zenobi-us/clankpipe --confirm
-```
+1. Pause ClankPipe automation.
 
-For each issue, add its old label before removing the matching `clankpipe:*` label:
+2. Restore the repository name:
 
-```sh
-gh issue edit ISSUE --repo zenobi-us/agentboard \
-  --add-label agentboard:ready-for-agent \
-  --remove-label clankpipe:ready-for-agent
-```
+   ```sh
+   gh repo rename agentboard --repo zenobi-us/clankpipe --confirm
+   ```
 
-Repeat for `implementing`, `changes-requested`, `ready-for-review`, `reviewing`, `review-complete`, and `cleanup-approved`. Then restore each local remote:
+3. Restore `.agentboard.toml` to the pre-migration configuration. Set these values:
 
-```sh
-git remote set-url origin git@github.com:zenobi-us/agentboard.git
-```
+   ```toml
+   query = '''repo:zenobi-us/agentboard is:open (label:"ready-for-agent" OR label:"agentboard:changes-requested") -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
+   branch = "agentboard/{{ item.id | slugify }}"
+   ```
 
-Do not delete the new labels until issue state has been checked after rollback.
+   Set the review query to `repo:zenobi-us/agentboard` with `agentboard:ready-for-review` and `agentboard:reviewing`. Restore the old status map keys.
+
+4. Restore each local remote:
+
+   ```sh
+   git remote set-url origin git@github.com:zenobi-us/agentboard.git
+   ```
+
+5. Restore labels on open issues. Add the old label before you remove the new label:
+
+   ```sh
+   gh issue edit ISSUE --repo zenobi-us/agentboard \
+     --add-label ready-for-agent \
+     --remove-label clankpipe:ready-for-agent
+   gh issue edit ISSUE --repo zenobi-us/agentboard \
+     --add-label agentboard:changes-requested \
+     --remove-label clankpipe:changes-requested
+   ```
+
+   Repeat the second command for `implementing`, `ready-for-review`, `reviewing`, `review-complete`, and `cleanup-approved`.
+
+6. Restart automation with the restored `.agentboard.toml`.
+
+Do not delete the new labels until open issue state has been checked after rollback.
