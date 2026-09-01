@@ -22,7 +22,7 @@ Load and follow the Matt Pocock `implement` skill as the governing workflow.
 
 - Use `gh` to read the issue, comments, and any existing pull request for the branch.
 - If you're removing 'changes-requested', then you MUST read the latest issue comments to understand what changes are requested and why.
-- Before changing files, claim the issue: remove `ready-for-agent` and `clankpipe:changes-requested`, add `clankpipe:implementing`, then comment that implementation started.
+- Before changing files, claim the issue: remove `clankpipe:ready-for-agent` and `clankpipe:changes-requested`, add `clankpipe:implementing`, then comment that implementation started.
 - Work only in the current Herdr worktree space.
 - Implement the written acceptance criteria.
 - Follow the repos `CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` guidelines.
@@ -37,6 +37,6 @@ If blocked:
 
 - Comment with the blocker.
 - Remove `clankpipe:implementing`.
-- Restore `ready-for-agent` so ClankPipe can retry.
+- Restore `clankpipe:ready-for-agent` so ClankPipe can retry.
 
 Do not merge. Stop after reporting the PR URL and validation results.

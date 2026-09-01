@@ -27,7 +27,7 @@ If blocking findings exist:
 
 - Remove `clankpipe:reviewing`.
 - Add `clankpipe:changes-requested`.
-- Add `ready-for-agent` last so the implementation pipeline can retry.
+- Add `clankpipe:ready-for-agent` last so the implementation pipeline can retry.
 
 If review passes:
 
