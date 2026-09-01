@@ -1,11 +1,11 @@
-# AgentBoard Run Command Action Context
+# ClankPipe Run Command Action Context
 
-`clankpipe-action-run-cmd` executes the built-in `agentboard/run-cmd` action.
+`clankpipe-action-run-cmd` executes the built-in `clankpipe/run-cmd` action.
 
 ## Language
 
 **Run command action**:
-A built-in Action that runs a shell command with AgentBoard environment variables.
+A built-in Action that runs a shell command with ClankPipe environment variables.
 _Avoid_: Script runner plugin
 
 **Rendered inputs**:

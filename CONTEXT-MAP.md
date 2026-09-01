@@ -12,7 +12,7 @@ This repo uses a multi-context domain-doc layout. Read this file first, then rea
 | `pkgs/crates/clankpipe-source-jira` | `pkgs/crates/clankpipe-source-jira/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-source-jira/` | Jira JQL/API source adapter. |
 | `pkgs/crates/clankpipe-action-run-cmd` | `pkgs/crates/clankpipe-action-run-cmd/CONTEXT.md` | _none yet_ | Shell command action executor. |
 | `pkgs/crates/clankpipe-action-worktree` | `pkgs/crates/clankpipe-action-worktree/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-action-worktree/` | Git worktree action executor. |
-| `apps/docs` | _none yet_ | _none yet_ | Docs app. Uses AgentBoard terms from the CLI/core contexts when documenting product behavior. |
+| `apps/docs` | _none yet_ | _none yet_ | Docs app. Uses ClankPipe terms from the CLI/core contexts when documenting product behavior. |
 | `pkgs/tools/deployment` | _none yet_ | _none yet_ | Release/deployment helper scripts. No separate domain language resolved yet. |
 | `.github` | _none yet_ | `.memory/docs/adr/` | Release coordination, publish dispatch, and CI helper scripts. |
 

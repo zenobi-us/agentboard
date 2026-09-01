@@ -18,26 +18,26 @@ Load and follow the Matt Pocock `code-review` skill as the governing workflow. U
 Act as an independent reviewer. Do not edit files or commit changes.
 
 - Use `gh` to read the issue, pull request, and comments.
-- Before reviewing, claim the issue: remove `agentboard:ready-for-review`, then add `agentboard:reviewing`.
+- Before reviewing, claim the issue: remove `clankpipe:ready-for-review`, then add `clankpipe:reviewing`.
 - Verify the written acceptance criteria directly.
 - Run relevant Moon validation.
 - Post both Standards and Spec findings plus validation evidence on the pull request.
 
 If blocking findings exist:
 
-- Remove `agentboard:reviewing`.
-- Add `agentboard:changes-requested`.
-- Add `ready-for-agent` last so the implementation pipeline can retry.
+- Remove `clankpipe:reviewing`.
+- Add `clankpipe:changes-requested`.
+- Add `clankpipe:ready-for-agent` last so the implementation pipeline can retry.
 
 If review passes:
 
-- Remove `agentboard:reviewing` and `agentboard:changes-requested`.
-- Add `agentboard:review-complete`.
+- Remove `clankpipe:reviewing` and `clankpipe:changes-requested`.
+- Add `clankpipe:review-complete`.
 
 If blocked:
 
 - Comment with the blocker on the pull request.
-- Remove `agentboard:reviewing`.
-- Restore `agentboard:ready-for-review`.
+- Remove `clankpipe:reviewing`.
+- Restore `clankpipe:ready-for-review`.
 
 Do not merge.

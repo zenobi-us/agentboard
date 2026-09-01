@@ -1,6 +1,6 @@
-# AgentBoard GitHub Source Context
+# ClankPipe GitHub Source Context
 
-`clankpipe-source-github` collects GitHub records and normalizes them into AgentBoard Items.
+`clankpipe-source-github` collects GitHub records and normalizes them into ClankPipe Items.
 
 ## Language
 
@@ -19,7 +19,7 @@ _Avoid_: Login flow
 ## Boundaries
 
 - GitHub owns request construction, credential lookup, GitHub response normalization, and mode-specific query semantics.
-- Issue mode query semantics belong to GitHub issue search. AgentBoard must not reinterpret the query beyond guarding against pull requests.
+- Issue mode query semantics belong to GitHub issue search. ClankPipe must not reinterpret the query beyond guarding against pull requests.
 - Issue mode item ids default to `owner/repo#number`.
 - Issue mode uses `field_map` for normalized Item field overrides.
 - Issue mode requires `status_map`; matching issue labels are mapped first, otherwise the GitHub issue state is mapped or used as-is.

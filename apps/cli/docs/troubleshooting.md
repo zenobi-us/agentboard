@@ -107,7 +107,7 @@ If the Snapshot is missing, run the Workspace successfully. If an Item remains u
 
 ClankPipe replaces AgentBoard. The old `agentboard` executable remains available as a compatibility alias.
 
-ClankPipe accepts old `agentboard` configuration and data paths. Rename them when you migrate a workspace:
+ClankPipe accepts old `agentboard` configuration and data paths. The compatibility alias remains through the 0.x release line. The project will remove it in the first stable major release. Rename these paths when you migrate a workspace:
 
 - `.agentboard.toml` to `.clankpipe.toml`
 - `agentboard.config.ts` or `agentboard.config.js` to `clankpipe.config.ts` or `clankpipe.config.js`
