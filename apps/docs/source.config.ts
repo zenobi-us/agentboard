@@ -34,7 +34,10 @@ export const sourceDocs = defineDocs({
     files: ["clankpipe-source-*/src/docs.md"],
     ...docsOptions,
   },
-  meta: metaOptions,
+  meta: {
+    files: ["clankpipe-source-*/src/meta.json"],
+    ...metaOptions,
+  },
 });
 
 export const actionDocs = defineDocs({
@@ -43,5 +46,8 @@ export const actionDocs = defineDocs({
     files: ["clankpipe-action-*/src/docs.md"],
     ...docsOptions,
   },
-  meta: metaOptions,
+  meta: {
+    files: ["clankpipe-action-*/src/meta.json"],
+    ...metaOptions,
+  },
 });
