@@ -63,6 +63,7 @@ export interface LoadedWorkspace {
 export function resolveWorkspaceConfigPath(configPath = ".clankpipe.toml"): string {
   const path = resolve(configPath);
   if (path.endsWith(".clankpipe.toml") || path.endsWith(".agentboard.toml")) {
+    if (path.endsWith(".clankpipe.toml") && existsSync(path)) return path;
     const names = path.endsWith(".clankpipe.toml")
       ? ["clankpipe.config.ts", "clankpipe.config.js", "agentboard.config.ts", "agentboard.config.js"]
       : ["agentboard.config.ts", "agentboard.config.js", "clankpipe.config.ts", "clankpipe.config.js"];

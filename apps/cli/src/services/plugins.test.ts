@@ -123,11 +123,45 @@ afterEach(() => {
 });
 
 describe("Workspace migration compatibility", () => {
-  test("prefers ClankPipe defaults and keeps old executable names", () => {
+  test("prefers an existing ClankPipe data Workspace over old executable names", () => {
+    const root = fixture();
+    const configPath = join(root, ".clankpipe.toml");
+    writeFileSync(configPath, "sources = []\n");
+    writeFileSync(join(root, "agentboard.config.ts"), "export default { sources: [{ id: \"old\" }] };\n");
+
+    expect(resolveWorkspaceConfigPath(configPath)).toBe(configPath);
+  });
+
+  test("keeps old executable names when the ClankPipe data Workspace is absent", () => {
     const root = fixture();
     writeFileSync(join(root, "agentboard.config.ts"), "export default { sources: [] };\n");
 
     expect(resolveWorkspaceConfigPath(join(root, ".clankpipe.toml"))).toBe(join(root, "agentboard.config.ts"));
+  });
+
+  test("loads a real ClankPipe data Workspace", async () => {
+    const root = fixture();
+    const configPath = join(root, ".clankpipe.toml");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/source-package", "source-package", configurablePluginSource("source"));
+    writeFileSync(configPath, `[[sources]]\nid = "one"\n[sources.source]\nuses = "source-package"\nquery = "ready"\n`);
+
+    const loaded = await loadDataWorkspace(configPath, join(root, "global"), undefined, false);
+
+    expect(loaded.sources[0]?.packageName).toBe("source-package");
+  });
+
+  test("loads ClankPipe executable Workspace names", async () => {
+    const root = fixture();
+    for (const name of ["clankpipe.config.ts", "clankpipe.config.js"]) {
+      const configPath = join(root, name);
+      writeFileSync(configPath, "export default { sources: [] };\n");
+      const defaultPath = resolveWorkspaceConfigPath(join(root, ".clankpipe.toml"));
+
+      expect(defaultPath).toBe(configPath);
+      await expect(loadExecutableWorkspace(defaultPath, undefined, undefined, false)).resolves.toBeDefined();
+      rmSync(configPath);
+    }
   });
 
   test("loads executable Plugins from the legacy global namespace", async () => {
