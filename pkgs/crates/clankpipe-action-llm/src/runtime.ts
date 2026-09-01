@@ -1,7 +1,7 @@
 import { existsSync, realpathSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import type { ActionResult, ActionRuntime, HealthCheckContext } from "@clankpipe/core/config";
+import type { ActionExecutionResult, ActionResult, ActionRuntime, ActionInProgress, HealthCheckContext } from "@clankpipe/core/config";
 import type { LlmConfig } from "./config.ts";
 
 const OUTPUT_LIMIT = 64 * 1024;
@@ -13,8 +13,18 @@ function cap(value: string): string {
   return new TextDecoder().decode(new TextEncoder().encode(value).slice(0, OUTPUT_LIMIT));
 }
 
-function start(command: Command, env: Record<string, string | undefined>): void {
-  Bun.spawn(command.argv, { cwd: command.cwd, env, stdout: "ignore", stderr: "ignore" });
+function start(command: Command, env: Record<string, string | undefined>): Promise<ActionResult> {
+  const child = Bun.spawn(command.argv, {
+    cwd: command.cwd,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+    detached: process.platform !== "win32",
+  });
+  return Promise.all([child.exited, output(child.stdout), output(child.stderr)]).then(([code, stdout, stderr]) =>
+    code === 0
+      ? { outcome: "success", stdout, stderr }
+      : { outcome: "failure", stdout, stderr, message: `command exited with ${code}` });
 }
 
 async function output(stream: ReadableStream<Uint8Array>): Promise<string> {
@@ -105,8 +115,7 @@ async function ensureWorktree(config: LlmConfig, signal: AbortSignal, env: Recor
 }
 
 export function buildHarnessArgs(terminal: LlmConfig["terminal"], prompt: string): string[] {
-  if (!terminal) return ["pi", prompt];
-  return [terminal.harness ?? "pi", ...(terminal.harness_args ?? []), prompt];
+  return [terminal?.harness ?? "pi", ...(terminal?.harness_args ?? []), prompt];
 }
 
 function shellQuote(value: string): string {
@@ -154,22 +163,36 @@ async function launchHerdr(
   const absoluteCwd = resolveHerdrCwd(cwd);
   const workspace = env["HERDR_WORKSPACE_ID"];
   if (!workspace) throw new Error("HERDR_WORKSPACE_ID is required for the Herdr terminal");
-  const opened = terminal.container === "worktree"
-    ? await run({ argv: ["herdr", "worktree", "open", "--workspace", workspace, "--path", absoluteCwd, "--no-focus"] }, signal, env)
-    : terminal.container === "tab"
+  let paneId: string | undefined;
+  if (terminal.container === "worktree") {
+    const opened = await run({ argv: ["herdr", "worktree", "open", "--workspace", workspace, "--path", absoluteCwd, "--no-focus"] }, signal, env);
+    if (opened.code !== 0) return opened;
+    const openedData = JSON.parse(opened.stdout) as { result?: { workspace?: { workspace_id?: string } } };
+    const worktreeWorkspace = openedData.result?.workspace?.workspace_id;
+    if (!worktreeWorkspace) throw new Error("Herdr did not return a worktree workspace id");
+    const tab = await run({ argv: ["herdr", "tab", "create", "--workspace", worktreeWorkspace, "--cwd", absoluteCwd, "--label", nameFor(env), "--no-focus"] }, signal, env);
+    if (tab.code !== 0) return tab;
+    paneId = paneIdFrom(tab.stdout);
+  } else {
+    const opened = terminal.container === "tab"
       ? await run({ argv: ["herdr", "tab", "create", "--workspace", workspace, "--cwd", absoluteCwd, "--label", nameFor(env), "--no-focus"] }, signal, env)
       : await run({ argv: ["herdr", "pane", "split", "--current", "--cwd", absoluteCwd, "--no-focus", ...positionArgs(terminal.position)] }, signal, env);
-  if (opened.code !== 0) return opened;
-  const parsed = JSON.parse(opened.stdout) as { result?: { root_pane?: { pane_id?: string }; pane?: { pane_id?: string } } };
-  const paneId = parsed.result?.root_pane?.pane_id ?? parsed.result?.pane?.pane_id;
+    if (opened.code !== 0) return opened;
+    paneId = paneIdFrom(opened.stdout);
+  }
   if (!paneId) throw new Error("Herdr did not return a pane id");
   const command = harnessArgs.map(shellQuote).join(" ");
   return run({ argv: ["herdr", "pane", "run", paneId, command] }, signal, env);
 }
 
+function paneIdFrom(stdout: string): string | undefined {
+  const parsed = JSON.parse(stdout) as { result?: { root_pane?: { pane_id?: string }; pane?: { pane_id?: string } } };
+  return parsed.result?.root_pane?.pane_id ?? parsed.result?.pane?.pane_id;
+}
+
 export function runtime(_config: LlmConfig): ActionRuntime<LlmConfig> {
   return {
-    execute: async (context): Promise<ActionResult> => {
+    execute: async (context): Promise<ActionExecutionResult> => {
       const inputs = context.inputs;
       const env = {
         ...process.env,
@@ -191,8 +214,15 @@ export function runtime(_config: LlmConfig): ActionRuntime<LlmConfig> {
           ? terminalCommand(inputs.terminal, cwd ?? process.cwd(), harnessArgs, env)
           : { argv: harnessArgs, cwd };
         if (!inputs.terminal && inputs.mode === "background") {
-          start(command, env);
-          return { outcome: "success", stdout: "started\n", stderr: "" };
+          const completion = start(command, env);
+          const result: ActionInProgress = {
+            outcome: "running",
+            stdout: "started\n",
+            stderr: "",
+            message: "launch accepted; completion pending",
+            completion,
+          };
+          return result;
         }
         const result = inputs.terminal?.kind === "herdr"
           ? await launchHerdr(inputs.terminal, cwd ?? process.cwd(), harnessArgs, env, context.cancellation)
@@ -200,6 +230,9 @@ export function runtime(_config: LlmConfig): ActionRuntime<LlmConfig> {
         stdout = result.stdout;
         if (result.cancelled) return { outcome: "cancelled", stdout, stderr: result.stderr, message: "action cancelled" };
         if (result.code !== 0) return { outcome: "failure", stdout, stderr: result.stderr, message: `command exited with ${result.code}` };
+        if (inputs.terminal && inputs.terminal.kind !== "generic") {
+          return { outcome: "running", stdout, stderr: result.stderr, message: "launch accepted; terminal completion is not observable" };
+        }
         return { outcome: "success", stdout, stderr: result.stderr };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

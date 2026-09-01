@@ -16,7 +16,7 @@ mode = "foreground"
 kind = "herdr"
 container = "tab"
 harness = "pi"
-harness_args = ["--no-session"]
+harness_args = ["--approve"]
 cwd = "/home/me/dev/project"
 ```
 
@@ -35,6 +35,13 @@ branch = "agentboard/{{ item.id }}"
 
 Set `terminal` to `zellij`, `herdr`, `tmux`, or `generic`. Set `harness` to the
 agent harness executable and `harness_args` to its arguments. The rendered
-prompt is the final harness argument. Terminal launches return after the
-terminal command starts. Direct launches wait for Pi in `foreground` mode and
-return after launch in `background` mode.
+prompt is the final harness argument. Pi starts a new saved session by default.
+Configure `--session-id` or `--no-session` explicitly when you need different behavior. Direct launches wait for Pi in
+`foreground` mode. Direct `background` launches return `running` immediately
+and AgentBoard records the final result when the child exits.
+
+Terminal launchers return `running` after they accept the command. Herdr
+worktree launches create a new tab in the worktree workspace. Herdr, Zellij,
+and tmux do not expose agent completion to this Action. AgentBoard
+marks such executions `stale (disconnected)` during recovery unless a later
+Action execution records completion.
