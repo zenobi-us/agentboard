@@ -4,7 +4,7 @@ id = "implement"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = '''repo:zenobi-us/agentboard is:open (label:"ready-for-agent" OR label:"agentboard:changes-requested") -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
+query = '''repo:zenobi-us/clankpipe is:open (label:"ready-for-agent" OR label:"agentboard:changes-requested") -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
 limit = 1
 
 [sources.source.credentials]
@@ -43,7 +43,7 @@ id = "review"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = '''repo:zenobi-us/agentboard is:open label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:updated-asc'''
+query = '''repo:zenobi-us/clankpipe is:open label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:updated-asc'''
 limit = 1
 
 [sources.source.credentials]
