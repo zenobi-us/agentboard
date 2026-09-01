@@ -140,6 +140,10 @@ function nameFor(env: Record<string, string | undefined>): string {
   return `agentboard-${env["AGENTBOARD_ITEM_ID"] ?? "item"}`;
 }
 
+export function resolveHerdrCwd(cwd: string): string {
+  return resolve(cwd);
+}
+
 async function launchHerdr(
   terminal: Extract<NonNullable<LlmConfig["terminal"]>, { kind: "herdr" }>,
   cwd: string,
@@ -147,13 +151,14 @@ async function launchHerdr(
   env: Record<string, string | undefined>,
   signal: AbortSignal,
 ): Promise<Result> {
+  const absoluteCwd = resolveHerdrCwd(cwd);
   const workspace = env["HERDR_WORKSPACE_ID"];
   if (!workspace) throw new Error("HERDR_WORKSPACE_ID is required for the Herdr terminal");
   const opened = terminal.container === "worktree"
-    ? await run({ argv: ["herdr", "worktree", "open", "--workspace", workspace, "--path", cwd, "--no-focus"] }, signal, env)
+    ? await run({ argv: ["herdr", "worktree", "open", "--workspace", workspace, "--path", absoluteCwd, "--no-focus"] }, signal, env)
     : terminal.container === "tab"
-      ? await run({ argv: ["herdr", "tab", "create", "--workspace", workspace, "--cwd", cwd, "--label", nameFor(env), "--no-focus"] }, signal, env)
-      : await run({ argv: ["herdr", "pane", "split", "--current", "--cwd", cwd, "--no-focus", ...positionArgs(terminal.position)] }, signal, env);
+      ? await run({ argv: ["herdr", "tab", "create", "--workspace", workspace, "--cwd", absoluteCwd, "--label", nameFor(env), "--no-focus"] }, signal, env)
+      : await run({ argv: ["herdr", "pane", "split", "--current", "--cwd", absoluteCwd, "--no-focus", ...positionArgs(terminal.position)] }, signal, env);
   if (opened.code !== 0) return opened;
   const parsed = JSON.parse(opened.stdout) as { result?: { root_pane?: { pane_id?: string }; pane?: { pane_id?: string } } };
   const paneId = parsed.result?.root_pane?.pane_id ?? parsed.result?.pane?.pane_id;

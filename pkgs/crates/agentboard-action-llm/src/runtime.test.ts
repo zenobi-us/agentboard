@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import { resolve } from "node:path";
 import plugin from "./config.ts";
-import { buildHarnessArgs } from "./runtime.ts";
+import { buildHarnessArgs, resolveHerdrCwd } from "./runtime.ts";
 
 test("requires exactly one prompt input", () => {
   expect(() => plugin.validate!({})).toThrow("exactly one of prompt or prompt_file is required");
@@ -16,6 +17,12 @@ test("builds harness arguments with configured options", () => {
 test("defaults to Pi for direct launches", () => {
   expect(buildHarnessArgs(undefined, "fix 'quoted'"))
     .toEqual(["pi", "fix 'quoted'"]);
+});
+
+test("resolves relative Herdr working directories", () => {
+  expect(resolveHerdrCwd("../AgentBoard.worktrees/issue-63")).toBe(
+    resolve("../AgentBoard.worktrees/issue-63"),
+  );
 });
 
 test("rejects a cwd that differs from the worktree root", () => {

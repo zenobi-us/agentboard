@@ -20,7 +20,7 @@ uses = "@agentboard/action-worktree"
 
 [sources.actions.with]
 repo = "."
-root = "worktrees/issue-{{ item.id | slugify }}"
+root = "$PWD/../AgentBoard.worktrees/issue-{{ item.id | slugify }}"
 branch = "agentboard/{{ item.id | slugify }}"
 
 [[sources.actions]]
@@ -35,7 +35,7 @@ Source updated at: {{ item.raw.github.issue.updated_at }}
 
 [sources.actions.with.terminal]
 kind = "herdr"
-container = "tab"
+container = "worktree"
 cwd = "{{ actions.worktree.inputs.root }}"
 
 [[sources]]
@@ -60,7 +60,7 @@ uses = "@agentboard/action-worktree"
 
 [sources.actions.with]
 repo = "."
-root = "worktrees/issue-{{ item.id | slugify }}"
+root = "$PWD/../AgentBoard.worktrees/issue-{{ item.id | slugify }}"
 branch = "agentboard/{{ item.id | slugify }}"
 
 [[sources.actions]]
@@ -75,5 +75,5 @@ Source updated at: {{ item.raw.github.issue.updated_at }}
 
 [sources.actions.with.terminal]
 kind = "herdr"
-container = "tab"
+container = "worktree"
 cwd = "{{ actions.worktree.inputs.root }}"
