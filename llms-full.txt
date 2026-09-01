@@ -173,7 +173,8 @@ This CLI doc only covers orchestration: ordering, retry identity, and trust mode
 
 ```toml
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
+open = "gh issue view {{ item.reference_id }} --web"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }}"
@@ -186,6 +187,8 @@ Sources run concurrently. Item Actions inside one Source are serial.
 For each Item returned by a Source, AgentBoard executes Actions in the order defined in the `sources.actions` array.
 
 Actions are blocking per item. If action `0` fails for an item, action `1` for that item does not run during that Run.
+
+An Action can define an optional `open` command. The TUI runs this command when you press `O` in the Action Item view. The command uses the same MiniJinja context as Action inputs.
 
 ## Retry Identity [#retry-identity]
 
@@ -201,8 +204,8 @@ Failed Actions retry on the next `run`, including `run --watch`, until they succ
 
 ## Action Docs [#action-docs]
 
-* [`@agentboard/action-worktree`](/actions/worktree)
-* [`@agentboard/action-run-cmd`](/actions/run-cmd)
+* [`@clankpipe/action-worktree`](/actions/worktree)
+* [`@clankpipe/action-run-cmd`](/actions/run-cmd)
 
 ## Trust Model [#trust-model]
 
@@ -350,11 +353,11 @@ For Source-specific config and behavior, see the specific source docs.
 id = "local"
 
 [sources.source]
-uses = "@agentboard/source-qmd"
+uses = "@clankpipe/source-qmd"
 # source-specific fields live here
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.reference_id }}"
@@ -600,14 +603,14 @@ absent, and missing or forward references fail rendering for that Item.
 ```toml
 [[sources.actions]]
 id = "issue_worktree"
-uses = "@agentboard/action-worktree"
+uses = "@clankpipe/action-worktree"
 [sources.actions.with]
 repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 branch = "{{ item.id | slugify }}"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
 [sources.actions.with]
 cwd = "{{ actions.issue_worktree.inputs.root }}"
 cmd = "pwd"
@@ -646,20 +649,20 @@ AgentBoard processes Action inputs in three stages:
 
 1. MiniJinja renders every input.
 2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
-   * `@agentboard/action-run-cmd`: `cwd`
-   * `@agentboard/action-worktree`: `repo`, `root`
-3. `@agentboard/action-run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
+   * `@clankpipe/action-run-cmd`: `cwd`
+   * `@clankpipe/action-worktree`: `repo`, `root`
+3. `@clankpipe/action-run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
 
 ```toml
 [[sources.actions]]
-uses = "@agentboard/action-worktree"
+uses = "@clankpipe/action-worktree"
 [sources.actions.with]
 repo = "~/Projects/MyProject"
 root = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 branch = "{{ item.id | slugify }}"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
 [sources.actions.with]
 cwd = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 cmd = '''printf '%s: %s\n' "{{ item.reference_id }}" "$PWD"'''
@@ -731,7 +734,7 @@ Fix: install QMD or remove the QMD Source from the Workspace.
 
 ## `required command git not found` [#required-command-git-not-found]
 
-The Workspace uses `@agentboard/action-worktree`, but `git` is not on `PATH`.
+The Workspace uses `@clankpipe/action-worktree`, but `git` is not on `PATH`.
 
 Fix: install Git or remove that Action.
 
@@ -747,7 +750,7 @@ Fix the command, credentials, paths, or Source item data. Then run again.
 
 ## Worktree Action refused an existing root [#worktree-action-refused-an-existing-root]
 
-`@agentboard/action-worktree` only manages an exact worktree root from the configured `repo`. It reuses the requested branch, but refuses to switch dirty worktrees or a branch checked out in another worktree.
+`@clankpipe/action-worktree` only manages an exact worktree root from the configured `repo`. It reuses the requested branch, but refuses to switch dirty worktrees or a branch checked out in another worktree.
 
 Fix the `repo` or `root`, commit or remove tracked and untracked changes, or release the requested branch from its other worktree. The Action never forces, resets, or cleans a worktree.
 
@@ -757,13 +760,13 @@ First identify where expansion belongs.
 
 AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
 
-* `@agentboard/action-run-cmd.cwd`
-* `@agentboard/action-worktree.repo`
-* `@agentboard/action-worktree.root`
+* `@clankpipe/action-run-cmd.cwd`
+* `@clankpipe/action-worktree.repo`
+* `@clankpipe/action-worktree.root`
 
 For these fields, check that the variable exists in the environment of the `agentboard` process, not only an interactive shell startup file.
 
-Variables in `@agentboard/action-run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
+Variables in `@clankpipe/action-run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
 
 MiniJinja expressions such as `{{ item.reference_id }}` always render before either kind of environment expansion.
 
@@ -839,12 +842,12 @@ The Workspace id uses the canonical path, so moving a Workspace creates a differ
 id = "local"
 
 [sources.source]
-uses = "@agentboard/source-qmd"
+uses = "@clankpipe/source-qmd"
 collections = ["tasks"]
 query = "intent: ready work"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.reference_id }}"
@@ -870,8 +873,8 @@ Action ids are optional. When present, an Action id must match `[A-Za-z_][A-Za-z
 * [QMD source](/sources/qmd)
 * [Jira source](/sources/jira)
 * [GitHub source](/sources/github)
-* [`@agentboard/action-worktree`](/actions/worktree)
-* [`@agentboard/action-run-cmd`](/actions/run-cmd)
+* [`@clankpipe/action-worktree`](/actions/worktree)
+* [`@clankpipe/action-run-cmd`](/actions/run-cmd)
 
 
 # GitHub source (/sources/github)
@@ -880,14 +883,14 @@ Action ids are optional. When present, an Action id must match `[A-Za-z_][A-Za-z
 
 # GitHub source [#github-source]
 
-Use `uses = "@agentboard/source-github"` with `mode = "issue"` to collect GitHub issues through GitHub issue search.
+Use `uses = "@clankpipe/source-github"` with `mode = "issue"` to collect GitHub issues through GitHub issue search.
 
 ```toml
 [[sources]]
 id = "github-ready"
 
 [sources.source]
-uses = "@agentboard/source-github"
+uses = "@clankpipe/source-github"
 mode = "issue"
 query = "repo:zenobi-us/agentboard is:open label:ready"
 limit = 50
@@ -899,7 +902,7 @@ helper = "gh auth token"
 ready = "ready"
 ```
 
-`mode`, `query`, `credentials`, and a non-empty `status_map` are required. Issue mode injects `is:issue` when it is missing, so GitHub pull requests do not become AgentBoard Items.
+`mode`, `query`, `credentials`, and a non-empty `status_map` are required. Issue mode sends `query` to GitHub GraphQL `ISSUE_ADVANCED` search and adds `state:open type:issue`. This supports GitHub advanced search syntax, including grouped `OR` expressions, while excluding pull requests.
 
 `limit` defaults to 50. `field_map` is optional. Each `status_map` key matches an issue label or the GitHub state, and its value becomes the normalized Item status.
 
@@ -920,7 +923,7 @@ title = "title"
 url = "html_url"
 ```
 
-`field_map.id` changes `item.reference_id`; it does not change `item.id`.
+`field_map.id` changes `item.reference_id`; it does not change `item.id`. Issue mode keeps the REST field names `html_url` and `repository_url` available for field maps while it uses GraphQL internally.
 
 Use `status_map` to normalize GitHub issue labels to workspace status values.
 
@@ -942,14 +945,14 @@ The credential helper is any command that writes a token to stdout. `gh auth tok
 
 # Jira source [#jira-source]
 
-Use `uses = "@agentboard/source-jira"` to collect Jira issues with JQL.
+Use `uses = "@clankpipe/source-jira"` to collect Jira issues with JQL.
 
 ```toml
 [[sources]]
 id = "jira-ready"
 
 [sources.source]
-uses = "@agentboard/source-jira"
+uses = "@clankpipe/source-jira"
 site = "https://example.atlassian.net"
 jql = "project = AB AND statusCategory = Todo"
 limit = 50
@@ -960,7 +963,7 @@ and `JIRA_API_TOKEN`.
 
 ```toml
 [sources.source]
-uses = "@agentboard/source-jira"
+uses = "@clankpipe/source-jira"
 site = "https://example.atlassian.net"
 email_env = "JIRA_EMAIL"
 token_env = "JIRA_API_TOKEN"
@@ -973,7 +976,7 @@ stdin (`protocol`, `host`) and reads either `username`/`password` or
 
 ```toml
 [sources.source]
-uses = "@agentboard/source-jira"
+uses = "@clankpipe/source-jira"
 site = "https://example.atlassian.net"
 jql = "project = AB ORDER BY updated DESC"
 
@@ -1024,14 +1027,14 @@ fields = ["assignee"]
 
 # QMD source [#qmd-source]
 
-Use `uses = "@agentboard/source-qmd"` to collect items from [QMD](https://github.com/tobi/qmd) collections.
+Use `uses = "@clankpipe/source-qmd"` to collect items from [QMD](https://github.com/tobi/qmd) collections.
 
 ```toml
 [[sources]]
 id = "local-ready"
 
 [sources.source]
-uses = "@agentboard/source-qmd"
+uses = "@clankpipe/source-qmd"
 collections = ["tasks"]
 query = "intent: Find ready work items\nlex: status ready"
 limit = 50
@@ -1061,17 +1064,59 @@ url = "links.issue"
 `map.id` changes `item.reference_id`; it does not change `item.id`.
 
 
+# LLM action (/actions/llm)
+
+
+
+Use `@clankpipe/action-llm` to run a Pi prompt directly or in a terminal.
+
+```toml
+[[sources.actions]]
+uses = "@clankpipe/action-llm"
+
+[sources.actions.with]
+prompt = "Implement {{ item.reference_id }}: {{ item.title }}"
+mode = "foreground"
+
+[sources.actions.with.terminal]
+kind = "herdr"
+container = "tab"
+harness = "pi"
+harness_args = ["--no-session"]
+cwd = "/home/me/dev/project"
+```
+
+Set exactly one of `prompt` or `prompt_file`. The prompt file path is read after
+AgentBoard renders action inputs.
+
+Use `worktree` to create or reuse a clean Git worktree before the agent starts.
+The action does not switch an existing worktree to another branch.
+
+```toml
+[sources.actions.with.worktree]
+repo = "/home/me/dev/project"
+root = "/home/me/dev/project.trees/{{ item.id }}"
+branch = "agentboard/{{ item.id }}"
+```
+
+Set `terminal` to `zellij`, `herdr`, `tmux`, or `generic`. Set `harness` to the
+agent harness executable and `harness_args` to its arguments. The rendered
+prompt is the final harness argument. Terminal launches return after the
+terminal command starts. Direct launches wait for Pi in `foreground` mode and
+return after launch in `background` mode.
+
+
 # Run command action (/actions/run-cmd)
 
 
 
 # Run Command Action [#run-command-action]
 
-Use `@agentboard/action-run-cmd` to run a shell command for each collected item.
+Use `@clankpipe/action-run-cmd` to run a shell command for each collected item.
 
 ```toml
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.id }} {{ item.title }}"
@@ -1119,13 +1164,13 @@ skips the healthcheck. A timeout fails the action, so a later run retries it.
 
 # Worktree action [#worktree-action]
 
-Use `@agentboard/action-worktree` to ensure each item has a Git worktree on its
+Use `@clankpipe/action-worktree` to ensure each item has a Git worktree on its
 requested branch. The Action creates an absent worktree, reuses a matching
 worktree, or safely switches a clean managed worktree.
 
 ```toml
 [[sources.actions]]
-uses = "@agentboard/action-worktree"
+uses = "@clankpipe/action-worktree"
 
 [sources.actions.with]
 repo = "/home/me/dev/myrepo"
@@ -1138,5 +1183,5 @@ is a local branch name to create or switch to for the item. Existing roots must
 be exact worktree roots from `repo`; switching refuses tracked or untracked
 changes and branches already checked out elsewhere.
 
-Pair it with `@agentboard/action-run-cmd` when you want to open the new worktree in a
+Pair it with `@clankpipe/action-run-cmd` when you want to open the new worktree in a
 terminal or agent session.

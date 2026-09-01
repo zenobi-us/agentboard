@@ -18,5 +18,6 @@
 - [QMD source](/sources/qmd)
 
 - **Actions**
+- [LLM action](/actions/llm)
 - [Run command action](/actions/run-cmd)
 - [Worktree action](/actions/worktree)

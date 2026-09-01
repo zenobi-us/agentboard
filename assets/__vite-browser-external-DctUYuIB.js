@@ -1,0 +1,1 @@
+import{t as e}from"./flexsearch-static-CrazyXg4.js";export default e();
