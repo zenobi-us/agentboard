@@ -2,7 +2,7 @@ import {
   pluginFor,
   type ActionResult,
   type Item,
-} from "@agentboard/core/config";
+} from "@clankpipe/core/config";
 
 import type { LoadedWorkspace } from "./config/workspace.ts";
 import {

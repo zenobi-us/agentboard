@@ -1,5 +1,5 @@
 {
-  "name": "@agentboard/cli",
+  "name": "@clankpipe/cli",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -10,12 +10,12 @@
     "agentboard": "dist/cli"
   },
   "dependencies": {
-    "@agentboard/action-run-cmd": "workspace:*",
-    "@agentboard/action-worktree": "workspace:*",
-    "@agentboard/core": "workspace:*",
-    "@agentboard/source-github": "workspace:*",
-    "@agentboard/source-jira": "workspace:*",
-    "@agentboard/source-qmd": "workspace:*",
+    "@clankpipe/action-run-cmd": "workspace:*",
+    "@clankpipe/action-worktree": "workspace:*",
+    "@clankpipe/core": "workspace:*",
+    "@clankpipe/source-github": "workspace:*",
+    "@clankpipe/source-jira": "workspace:*",
+    "@clankpipe/source-qmd": "workspace:*",
     "@opentui/core": "^0.5.6",
     "@opentui/react": "^0.5.6",
     "@xstate/react": "^6.1.0",

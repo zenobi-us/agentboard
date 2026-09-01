@@ -1,20 +1,20 @@
 {
-  "name": "agentboard",
+  "name": "clankpipe",
   "version": "0.0.1",
   "private": true,
   "dependencies": {
-    "@agentboard/action-run-cmd": "workspace:*",
-    "@agentboard/action-worktree": "workspace:*",
-    "@agentboard/source-github": "workspace:*",
-    "@agentboard/source-jira": "workspace:*",
-    "@agentboard/source-qmd": "workspace:*",
+    "@clankpipe/action-run-cmd": "workspace:*",
+    "@clankpipe/action-worktree": "workspace:*",
+    "@clankpipe/source-github": "workspace:*",
+    "@clankpipe/source-jira": "workspace:*",
+    "@clankpipe/source-qmd": "workspace:*",
     "@moonrepo/cli": "*",
     "@playwright/cli": "^0.1.14",
     "@types/bun": "^1.3.14",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "vite": "^8.0.16",
-    "@agentboard/action-llm": "workspace:*"
+    "@clankpipe/action-llm": "workspace:*"
   },
   "overrides": {
     "vite": "8.0.16"

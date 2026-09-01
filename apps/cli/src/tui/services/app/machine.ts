@@ -1,5 +1,5 @@
 import { assign, fromPromise, sendTo, setup } from "xstate"
-import type { Item } from "@agentboard/core/config"
+import type { Item } from "@clankpipe/core/config"
 import type { LoadedWorkspace } from "../../../services/config/workspace.ts"
 import { runWorkspace, watchWorkspace, type SourceRunResult, type WorkspaceRunResult } from "../../../services/runtime.ts"
 import { loadWorkspace } from "../../../services/workspace.ts"

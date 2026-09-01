@@ -16,7 +16,7 @@ This CLI doc only covers orchestration: ordering, retry identity, and trust mode
 
 ```toml
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
 open = "gh issue view {{ item.reference_id }} --web"
 
 [sources.actions.with]
@@ -48,8 +48,8 @@ Failed Actions retry on the next `run`, including `run --watch`, until they succ
 
 ## Action Docs
 
-- [`@agentboard/action-worktree`](/actions/worktree)
-- [`@agentboard/action-run-cmd`](/actions/run-cmd)
+- [`@clankpipe/action-worktree`](/actions/worktree)
+- [`@clankpipe/action-run-cmd`](/actions/run-cmd)
 
 ## Trust Model
 

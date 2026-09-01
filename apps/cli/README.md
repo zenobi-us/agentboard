@@ -23,12 +23,12 @@ Add a Source and an Action:
 id = "local"
 
 [sources.source]
-uses = "@agentboard/source-qmd"
+uses = "@clankpipe/source-qmd"
 collections = ["tasks"]
 query = "intent: ready work items"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.reference_id }}"

@@ -33,7 +33,7 @@ function fixture(): string {
 function pluginSource(kind: "source" | "action"): string {
   return `
     import { definePlugin } from ${JSON.stringify(
-      new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+      new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
@@ -58,7 +58,7 @@ function configurablePluginSource(
 ): string {
   return `
     import { definePlugin } from ${JSON.stringify(
-      new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+      new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
@@ -85,7 +85,7 @@ function packageFixture(
   packagePath: string,
   name: string,
   source: string,
-  keywords: string[] = ["agentboard-package"],
+  keywords: string[] = ["clankpipe-package"],
 ): void {
   const directory = join(root, packagePath);
   const entry = join(directory, "index.ts");
@@ -322,7 +322,7 @@ describe("Plugin Package discovery", () => {
       "multiple",
       `
         import { definePlugin } from ${JSON.stringify(
-          new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+          new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
         )};
         const definition = {
           itemBucketIdentity: () => "memory",
@@ -368,7 +368,7 @@ describe("Plugin Package discovery", () => {
     const descriptor = (marker: string) => `
       import { writeFileSync } from "node:fs";
       import { definePlugin } from ${JSON.stringify(
-        new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+        new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
       )};
       writeFileSync(${JSON.stringify(marker)}, "imported");
       export default definePlugin(import.meta, {
@@ -398,15 +398,15 @@ describe("Plugin Package discovery", () => {
     const root = fixture();
     const configPath = join(root, ".agentboard.toml");
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
-    packageFixture(root, "node_modules/@agentboard/source-github", "@agentboard/source-github", configurablePluginSource("source"));
-    packageFixture(root, "node_modules/@agentboard/action-run-cmd", "@agentboard/action-run-cmd", configurablePluginSource("action"));
-    writeFileSync(configPath, `[[sources]]\nid = "one"\n[sources.source]\nuses = "@agentboard/source-github"\nquery = "runtime"\n[[sources.actions]]\nuses = "@agentboard/action-run-cmd"\n[sources.actions.with]\nquery = "echo ready"\n`);
+    packageFixture(root, "node_modules/@clankpipe/source-github", "@clankpipe/source-github", configurablePluginSource("source"));
+    packageFixture(root, "node_modules/@clankpipe/action-run-cmd", "@clankpipe/action-run-cmd", configurablePluginSource("action"));
+    writeFileSync(configPath, `[[sources]]\nid = "one"\n[sources.source]\nuses = "@clankpipe/source-github"\nquery = "runtime"\n[[sources.actions]]\nuses = "@clankpipe/action-run-cmd"\n[sources.actions.with]\nquery = "echo ready"\n`);
 
     const loaded = await loadDataWorkspace(configPath, join(root, "global"));
 
-    expect(loaded.sources[0]?.packageName).toBe("@agentboard/source-github");
+    expect(loaded.sources[0]?.packageName).toBe("@clankpipe/source-github");
     expect(loaded.sources[0]?.source.config).toEqual({ query: "runtime" });
-    expect(loaded.sources[0]?.actions[0]?.packageName).toBe("@agentboard/action-run-cmd");
+    expect(loaded.sources[0]?.actions[0]?.packageName).toBe("@clankpipe/action-run-cmd");
   });
 
   test("preserves explicit Source additional property rules in generated schemas", async () => {
@@ -464,13 +464,13 @@ describe("Plugin Package discovery", () => {
     packageFixture(root, "node_modules/action-package", "action-package", configurablePluginSource("action"));
     workspacePackage(
       root,
-      "@agentboard/core",
-      new URL("../../../../pkgs/crates/agentboard-core", import.meta.url).pathname,
+      "@clankpipe/core",
+      new URL("../../../../pkgs/crates/clankpipe-core", import.meta.url).pathname,
     );
     writeFileSync(
       executablePath,
       `
-        import { action, defineConfig, source } from "@agentboard/core/config";
+        import { action, defineConfig, source } from "@clankpipe/core/config";
         import sourcePlugin from "source-package";
         import actionPlugin from "action-package";
         export default defineConfig({
@@ -568,7 +568,7 @@ describe("Plugin Package discovery", () => {
       "action-package",
       `
         import { definePlugin } from ${JSON.stringify(
-          new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+          new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
         )};
         export default definePlugin(import.meta, {
           kind: "action",
@@ -606,7 +606,7 @@ describe("Plugin Package discovery", () => {
       "action-package",
       `
         import { definePlugin } from ${JSON.stringify(
-          new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+          new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
         )};
         export default definePlugin(import.meta, {
           kind: "action",
@@ -637,13 +637,13 @@ describe("Plugin Package discovery", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
     workspacePackage(
       root,
-      "@agentboard/core",
-      new URL("../../../../pkgs/crates/agentboard-core", import.meta.url).pathname,
+      "@clankpipe/core",
+      new URL("../../../../pkgs/crates/clankpipe-core", import.meta.url).pathname,
     );
     writeFileSync(
       configPath,
       `
-        import { action, defineConfig, definePlugin, source } from "@agentboard/core/config";
+        import { action, defineConfig, definePlugin, source } from "@clankpipe/core/config";
         const sourcePlugin = definePlugin(import.meta, {
           kind: "source",
           itemBucketIdentity: () => "memory",
@@ -680,11 +680,11 @@ describe("Plugin Package discovery", () => {
     const configPath = join(import.meta.dir, "../..", "package.json");
     const packages = discoverPluginPackages(configPath, join(fixture(), "global"));
     const builtIns = [
-      "@agentboard/source-qmd",
-      "@agentboard/source-jira",
-      "@agentboard/source-github",
-      "@agentboard/action-run-cmd",
-      "@agentboard/action-worktree",
+      "@clankpipe/source-qmd",
+      "@clankpipe/source-jira",
+      "@clankpipe/source-github",
+      "@clankpipe/action-run-cmd",
+      "@clankpipe/action-worktree",
     ];
 
     for (const name of builtIns) {
@@ -701,7 +701,7 @@ describe("Plugin Package discovery", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
     packageFixture(root, "node_modules/unmarked", "unmarked", pluginSource("source"), []);
     const coreConfig = new URL(
-      "../../../../pkgs/crates/agentboard-core/src/config.ts",
+      "../../../../pkgs/crates/clankpipe-core/src/config.ts",
       import.meta.url,
     ).href;
     writeFileSync(configPath, `
@@ -713,7 +713,7 @@ describe("Plugin Package discovery", () => {
     `);
 
     await expect(loadExecutableWorkspace(configPath)).rejects.toThrow(
-      'Plugin Package "unmarked" must include the "agentboard-package" keyword',
+      'Plugin Package "unmarked" must include the "clankpipe-package" keyword',
     );
   });
 
@@ -723,7 +723,7 @@ describe("Plugin Package discovery", () => {
     const globalRoot = join(root, "global");
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
     packageFixture(globalRoot, "selected", "selected", pluginSource("source"));
-    const { defineConfig, source } = await import("@agentboard/core/config");
+    const { defineConfig, source } = await import("@clankpipe/core/config");
     const plugin = (await import(pathToFileURL(join(globalRoot, "selected/index.ts")).href)).default;
 
     await expect(loadExecutableWorkspace(configPath, defineConfig({
@@ -738,7 +738,7 @@ describe("Plugin Package discovery", () => {
     const packagePath = join(root, "node_modules", "unmarked");
     packageFixture(root, "node_modules/unmarked", "unmarked", pluginSource("source"), []);
     const module = await import(pathToFileURL(join(packagePath, "index.ts")).href);
-    const { defineConfig, source } = await import("@agentboard/core/config");
+    const { defineConfig, source } = await import("@clankpipe/core/config");
     const plugin = {
       ...module.default,
       meta: { ...module.default.meta, packageName: "unmarked" },
@@ -747,14 +747,14 @@ describe("Plugin Package discovery", () => {
     await expect(loadExecutableWorkspace(configPath, defineConfig({
       sources: [{ id: "one", source: source(plugin as never, { query: "ready" } as never, configPath) }],
     }))).rejects.toThrow(
-      'Plugin Package "unmarked" must include the "agentboard-package" keyword',
+      'Plugin Package "unmarked" must include the "clankpipe-package" keyword',
     );
   });
 
   test("executable Workspace reports built-in Plugin Package identities", async () => {
-    const sourcePlugin = (await import("@agentboard/source-qmd")).default;
-    const actionPlugin = (await import("@agentboard/action-run-cmd")).default;
-    const { action, defineConfig, source } = await import("@agentboard/core/config");
+    const sourcePlugin = (await import("@clankpipe/source-qmd")).default;
+    const actionPlugin = (await import("@clankpipe/action-run-cmd")).default;
+    const { action, defineConfig, source } = await import("@clankpipe/core/config");
     const path = new URL("./built-in-identities.test.ts", import.meta.url).pathname;
     const workspace = await loadExecutableWorkspace(path, defineConfig({
       sources: [{
@@ -764,12 +764,12 @@ describe("Plugin Package discovery", () => {
       }],
     }));
 
-    expect(workspace.sources[0]?.packageName).toBe("@agentboard/source-qmd");
-    expect(workspace.sources[0]?.actions[0]?.packageName).toBe("@agentboard/action-run-cmd");
+    expect(workspace.sources[0]?.packageName).toBe("@clankpipe/source-qmd");
+    expect(workspace.sources[0]?.actions[0]?.packageName).toBe("@clankpipe/action-run-cmd");
   });
 
   test("Jira Item Bucket identity preserves normalized site paths", async () => {
-    const jira = (await import("@agentboard/source-jira")).default;
+    const jira = (await import("@clankpipe/source-jira")).default;
 
     expect(jira.itemBucketIdentity!({
       site: "https://EXAMPLE.test/jira/team/",
@@ -802,7 +802,7 @@ describe("Plugin Package discovery", () => {
       configPath,
       `
         import { definePlugin, source } from ${JSON.stringify(
-          new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+          new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
         )};
         const plugin = definePlugin(import.meta, {
           kind: "source",
@@ -933,7 +933,7 @@ describe("Plugin Package discovery", () => {
     const descriptor = (marker: string) => `
       import { writeFileSync } from "node:fs";
       import { definePlugin } from ${JSON.stringify(
-        new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href,
+        new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
       )};
       writeFileSync(${JSON.stringify(marker)}, "imported");
       export default definePlugin(import.meta, {

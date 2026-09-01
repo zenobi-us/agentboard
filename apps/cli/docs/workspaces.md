@@ -34,12 +34,12 @@ The Workspace id uses the canonical path, so moving a Workspace creates a differ
 id = "local"
 
 [sources.source]
-uses = "@agentboard/source-qmd"
+uses = "@clankpipe/source-qmd"
 collections = ["tasks"]
 query = "intent: ready work"
 
 [[sources.actions]]
-uses = "@agentboard/action-run-cmd"
+uses = "@clankpipe/action-run-cmd"
 
 [sources.actions.with]
 cmd = "echo {{ item.reference_id }}"
@@ -65,5 +65,5 @@ Action ids are optional. When present, an Action id must match `[A-Za-z_][A-Za-z
 - [QMD source](/sources/qmd)
 - [Jira source](/sources/jira)
 - [GitHub source](/sources/github)
-- [`@agentboard/action-worktree`](/actions/worktree)
-- [`@agentboard/action-run-cmd`](/actions/run-cmd)
+- [`@clankpipe/action-worktree`](/actions/worktree)
+- [`@clankpipe/action-run-cmd`](/actions/run-cmd)

@@ -1,6 +1,6 @@
 ---
 $schema: "file://../../.moon/cache/schemas/project.json"
-id: agentboard
+id: clankpipe
 language: typescript
 layer: application
 

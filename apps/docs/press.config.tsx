@@ -75,14 +75,14 @@ const sourceDocsSource = packageDocsSource(
   update(sourceDocs.toFumadocsSource()),
   /^([^/]+)\/src\/docs\.md$/,
   "sources",
-  "agentboard-source-",
+  "clankpipe-source-",
 );
 
 const actionDocsSource = packageDocsSource(
   update(actionDocs.toFumadocsSource()),
   /^([^/]+)\/src\/docs\.md$/,
   "actions",
-  "agentboard-action-",
+  "clankpipe-action-",
 );
 
 export default defineConfig({

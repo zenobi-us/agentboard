@@ -1,5 +1,5 @@
 import { useActorRef, useSelector } from "@xstate/react"
-import type { Item } from "@agentboard/core/config"
+import type { Item } from "@clankpipe/core/config"
 import { SourceSummaryCard } from "./source-summary-card.tsx"
 import { KeymapScope, workspaceKeymap } from "../../services/keymaps.tsx"
 import { workspaceMachine } from "../../services/workspace/workspace.machine.ts"

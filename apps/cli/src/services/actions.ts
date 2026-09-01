@@ -6,7 +6,7 @@ import {
   type HealthCheckContext,
   type Item,
   type ResolvedAction,
-} from "@agentboard/core/config";
+} from "@clankpipe/core/config";
 import type { TSchema } from "typebox";
 
 export async function executeAction(

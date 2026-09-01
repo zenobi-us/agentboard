@@ -1,0 +1,30 @@
+[[sources]]
+id = "local"
+
+[sources.source]
+uses = "@clankpipe/source-qmd"
+collections = ["tasks"]
+query = "status: ready"
+limit = 10
+
+[[sources.actions]]
+id = "worktree"
+uses = "@clankpipe/action-worktree"
+
+[sources.actions.with]
+repo = "$E2E_REPO"
+root = "$E2E_REPO/worktree"
+branch = "agentboard/test"
+
+[[sources.actions]]
+id = "run_llm"
+uses = "@clankpipe/action-llm"
+
+[sources.actions.with]
+prompt = "/review {{ item.reference_id }}"
+
+[sources.actions.with.terminal]
+kind = "generic"
+command = "/usr/bin/env"
+harness = "fake-llm"
+cwd = "{{ actions.worktree.inputs.root }}"
