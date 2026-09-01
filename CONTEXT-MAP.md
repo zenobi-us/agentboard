@@ -10,7 +10,7 @@ This repo uses a multi-context domain-doc layout. Read this file first, then rea
 | `pkgs/crates/clankpipe-core` | `pkgs/crates/clankpipe-core/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-core/` | Shared model, config envelopes, registration contracts, action/result structs, and cross-package helpers. |
 | `pkgs/crates/clankpipe-source-qmd` | `pkgs/crates/clankpipe-source-qmd/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-source-qmd/` | QMD collection/query source adapter. |
 | `pkgs/crates/clankpipe-source-jira` | `pkgs/crates/clankpipe-source-jira/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-source-jira/` | Jira JQL/API source adapter. |
-| `pkgs/crates/clankpipe-action-run-cmd` | `pkgs/crates/clankpipe-action-run-cmd/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-action-run-cmd/` | Shell command action executor. |
+| `pkgs/crates/clankpipe-action-run-cmd` | `pkgs/crates/clankpipe-action-run-cmd/CONTEXT.md` | _none yet_ | Shell command action executor. |
 | `pkgs/crates/clankpipe-action-worktree` | `pkgs/crates/clankpipe-action-worktree/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-action-worktree/` | Git worktree action executor. |
 | `apps/docs` | _none yet_ | _none yet_ | Docs app. Uses AgentBoard terms from the CLI/core contexts when documenting product behavior. |
 | `pkgs/tools/deployment` | _none yet_ | _none yet_ | Release/deployment helper scripts. No separate domain language resolved yet. |
@@ -28,13 +28,13 @@ apps/cli config loader
 source package -> normalized item -> apps/cli store -> rendered action -> action package
       |              |                  |                 |             |
       v              v                  v                 v             v
- QMD/Jira/etc   agentboard-core     item/action JSONL  MiniJinja    cmd/worktree
+ QMD/Jira/etc   clankpipe-core      item/action JSONL  MiniJinja    cmd/worktree
 ```
 
 ## Boundaries
 
 - `apps/cli` owns user commands, workspace loading, built-in registration, validation orchestration, store paths, locking, runtime orchestration, and template rendering.
-- `agentboard-core` owns shared model/config/result types, Source and Action contracts, resolved Plugin configuration nodes, and tiny helpers.
+- `clankpipe-core` owns shared model/config/result types, Source and Action contracts, resolved Plugin configuration nodes, and tiny helpers.
 - `clankpipe-source-*` packages own source-specific query semantics, collection, raw payload capture, and normalization into Items.
 - `clankpipe-action-*` packages own one side effect each and consume already-rendered inputs.
 - Docs describe config and supported behavior; they must not document planned adapters/actions as complete.

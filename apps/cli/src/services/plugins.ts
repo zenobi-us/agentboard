@@ -37,7 +37,7 @@ export interface PluginRegistry {
 }
 
 export function globalPluginRoot(): string {
-  return join(homedir(), ".local", "share", "agentboard", "plugins", "npm");
+  return join(homedir(), ".local", "share", "clankpipe", "plugins", "npm");
 }
 
 export function findProjectPackageRoot(configPath: string): string {

@@ -1,6 +1,6 @@
 # AgentBoard Core Context
 
-`agentboard-core` contains shared data structures and internal registration contracts used by the CLI, source packages, and action packages.
+`clankpipe-core` contains shared data structures and internal registration contracts used by the CLI, source packages, and action packages.
 
 ## Language
 

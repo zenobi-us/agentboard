@@ -6,7 +6,7 @@ AgentBoard will use Bun to load `agentboard.config.ts` and `agentboard.config.js
 
 The core `source()` and `action()` functions will create resolved configuration nodes from Plugin Descriptors. TypeScript configuration will keep a private Plugin reference and will not require `uses`. JSON, YAML, and TOML configuration will require `uses` with the exact package name, resolve the package, validate its data, and create the same resolved node. AgentBoard will derive the package name for Store records and diagnostics. Inline Plugins will use the config path, role, and position as their identity.
 
-The CLI will load local packages before global packages from `~/.local/share/agentboard/plugins/npm/`. Normal configuration loading will import only selected packages. `agentboard schema` will import all available packages. Packages outside project code must include the `agentboard-package` keyword. Missing packages will fail with an install command. Package renames are breaking changes.
+The CLI will load local packages before global packages from `~/.local/share/clankpipe/plugins/npm/`. Normal configuration loading will import only selected packages. `agentboard schema` will import all available packages. Packages outside project code must include the `clankpipe-package` keyword. Missing packages will fail with an install command. Package renames are breaking changes.
 
 ## Consequences
 

@@ -12,10 +12,10 @@ setup_case() {
   export FAKE_LLM_RECORD="$TEST_TMPDIR/fake-llm.json"
   export PATH="$TEST_TMPDIR/bin:$PACKAGE_DIR/e2e/helpers:$PATH"
 
-  mkdir -p "$HOME/.local/share/agentboard/plugins/npm/@agentboard" "$TEST_TMPDIR/bin" "$E2E_REPO"
+  mkdir -p "$HOME/.local/share/clankpipe/plugins/npm/@clankpipe" "$TEST_TMPDIR/bin" "$E2E_REPO"
   ln -s "$PACKAGE_DIR/e2e/helpers/fake-qmd" "$TEST_TMPDIR/bin/qmd"
   ln -s "$PACKAGE_DIR/e2e/helpers/fake-llm" "$TEST_TMPDIR/bin/fake-llm"
-  ln -s "$PACKAGE_DIR" "$HOME/.local/share/agentboard/plugins/npm/@clankpipe/action-llm"
+  ln -s "$PACKAGE_DIR" "$HOME/.local/share/clankpipe/plugins/npm/@clankpipe/action-llm"
 
   git -C "$E2E_REPO" init -q -b main
   printf 'initial\n' > "$E2E_REPO/README.md"

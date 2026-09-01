@@ -108,10 +108,10 @@ describe("Workspace runtime orchestration", () => {
     await writeFile(bin, "#!/bin/sh\nprintf '%s' '[{\"path\":\"/notes/AB-1.md\",\"body\":\"---\\nid: AB-1\\ntitle: Do it\\nstatus: ready\\n---\\nBody\"}]'\n");
     await chmod(bin, 0o755);
     await writeFile(join(root, "package.json"), "{\"name\":\"qmd-cli-test\"}\n");
-    await mkdir(join(root, "node_modules", "@agentboard"), { recursive: true });
+    await mkdir(join(root, "node_modules", "@clankpipe"), { recursive: true });
     await symlink(
       new URL("../../../../pkgs/crates/clankpipe-source-qmd", import.meta.url).pathname,
-      join(root, "node_modules", "@agentboard", "source-qmd"),
+      join(root, "node_modules", "@clankpipe", "source-qmd"),
       "dir",
     );
     await writeFile(configPath, `import { defineConfig, source } from ${JSON.stringify(coreConfig)};\nimport qmd from ${JSON.stringify(qmdConfig)};\nexport default defineConfig({ sources: [{ id: "tasks", source: source(qmd, { collections: ["tasks"], query: "status:ready" }, import.meta.url) }] });\n`);

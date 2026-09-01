@@ -26,8 +26,8 @@ Also read nested `AGENTS.md` files in apps/pkgs.
 ```bash
 bun install
 moon query projects
-moon run agentboard:build
-moon run agentboard:test
+moon run clankpipe:build
+moon run clankpipe:test
 moon run docs:dev
 ```
 
