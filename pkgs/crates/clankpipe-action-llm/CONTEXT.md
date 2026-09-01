@@ -1,10 +1,10 @@
-# AgentBoard LLM Action Context
+# ClankPipe LLM Action Context
 
 `clankpipe-action-llm` runs a rendered prompt with Pi.
 
 ## Boundaries
 
-- AgentBoard owns prompt rendering, action identity, retries, and persistence.
+- ClankPipe owns prompt rendering, action identity, retries, and persistence.
 - The action owns prompt-file reading, optional Git worktree creation, harness argv construction, and terminal launch.
 - Terminal configuration owns the harness executable, harness arguments, and working directory.
 - Terminal adapters use native command argv. They do not use `sh -c`.

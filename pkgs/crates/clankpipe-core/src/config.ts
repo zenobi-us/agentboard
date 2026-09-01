@@ -17,7 +17,7 @@ export const FieldMapSchema = Type.Object({
 /** Field mapping derived from {@link FieldMapSchema}. */
 export type FieldMap = Static<typeof FieldMapSchema>;
 
-/** Role that a plugin performs in an AgentBoard run. */
+/** Role that a plugin performs in a ClankPipe run. */
 export type PluginRole = "source" | "action";
 
 /** Metadata that identifies the module which defined a plugin. */
@@ -57,7 +57,7 @@ export type PipelineState =
   | "cancelled"
   | "stale";
 
-/** AgentBoard orchestration policy for one Source. */
+/** ClankPipe orchestration policy for one Source. */
 export interface PipelineConfig {
   /** Maximum number of new Item claims in one Run. */
   readonly claim_limit?: number;
@@ -75,7 +75,7 @@ export interface ActionResult {
   readonly message?: string;
 }
 
-/** Values supplied when AgentBoard creates a source runtime. */
+/** Values supplied when ClankPipe creates a source runtime. */
 export interface SourceRuntimeContext {
   /** Workspace identifier for the configured source. */
   readonly sourceId: string;
@@ -83,7 +83,7 @@ export interface SourceRuntimeContext {
   readonly cancellation: AbortSignal;
 }
 
-/** Values supplied when AgentBoard creates an Action runtime. */
+/** Values supplied when ClankPipe creates an Action runtime. */
 export interface ActionRuntimeCreationContext {
   /** Workspace that owns the configured Action. */
   readonly workspaceId: string;
@@ -108,7 +108,7 @@ export interface ActionExecutionContext<Inputs = unknown> {
 }
 
 
-/** Values supplied when AgentBoard checks plugin health. */
+/** Values supplied when ClankPipe checks plugin health. */
 export interface HealthCheckContext {
   /** Configured source associated with the health check. */
   readonly sourceId: string;
@@ -170,7 +170,7 @@ interface PluginBase<
     config: Static<Schema>,
     context: HealthCheckContext,
   ) => unknown;
-  /** Configuration paths that AgentBoard resolves as filesystem inputs. */
+  /** Configuration paths that ClankPipe resolves as filesystem inputs. */
   readonly pathInputs?: readonly string[];
   /** Module metadata added by {@link definePlugin}. */
   readonly meta: PluginMeta;
@@ -203,7 +203,7 @@ export type Plugin<
     readonly validate?: (config: Static<Schema>) => unknown;
   };
 
-/** Author-supplied Plugin fields before AgentBoard adds module metadata. */
+/** Author-supplied Plugin fields before ClankPipe adds module metadata. */
 type PluginDefinition<
   Role extends PluginRole,
   Schema extends TSchema,
@@ -290,7 +290,7 @@ export type ResolvedAction<Schema extends TSchema> = ResolvedConfiguration<
   readonly open?: string;
 };
 
-/** Executable configuration for one AgentBoard workspace. */
+/** Executable configuration for one ClankPipe workspace. */
 export interface WorkspaceConfig {
   /** Source configurations and their attached actions. */
   readonly sources: readonly WorkspaceSourceConfig[];
@@ -300,7 +300,7 @@ export interface WorkspaceConfig {
 export interface WorkspaceSourceConfig {
   /** Workspace-local identifier for the source. */
   readonly id: string;
-  /** AgentBoard orchestration policy for the Source. */
+  /** ClankPipe orchestration policy for the Source. */
   readonly pipeline?: PipelineConfig;
   /** Resolved source plugin configuration. */
   readonly source: ResolvedSource<TSchema>;
