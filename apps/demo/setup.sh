@@ -76,7 +76,7 @@ case "${1:-}" in
 	;;
 esac
 
-for command in curl git gh jq bun agentboard pi tar zellij; do
+for command in curl git gh jq bun clankpipe pi tar zellij; do
 	require_command "$command"
 done
 
@@ -209,7 +209,7 @@ Local clone: $target
 
 Start AgentBoard from the demo repository:
   cd $target
-  agentboard run .agentboard.toml --watch --interval 15s
+  clankpipe run .agentboard.toml --watch --interval 15s
 
 The launcher auto-detects Herdr, Zellij, and supported desktop terminals.
 Override it with AGENTBOARD_LAUNCHER=gnome-terminal, xterm, or another supported launcher.

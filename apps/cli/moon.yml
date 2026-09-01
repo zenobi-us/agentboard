@@ -21,7 +21,7 @@ tasks:
       - "src/**/*.tsx"
 
   ts-build:
-    command: "bun build src/cli/index.ts --target bun --format esm --external minijinja-js --external @opentui/core --external @opentui/react --external @opentui/core-darwin-x64 --external @opentui/core-darwin-arm64 --external @opentui/core-linux-x64 --external @opentui/core-linux-arm64 --external @opentui/core-win32-x64 --external @opentui/core-win32-arm64 --external @opentui/core-linux-x64-musl --external @opentui/core-linux-arm64-musl --outfile dist/cli"
+    script: "bun build src/cli/index.ts --target bun --format esm --external minijinja-js --external @opentui/core --external @opentui/react --external @opentui/core-darwin-x64 --external @opentui/core-darwin-arm64 --external @opentui/core-linux-x64 --external @opentui/core-linux-arm64 --external @opentui/core-win32-x64 --external @opentui/core-win32-arm64 --external @opentui/core-linux-x64-musl --external @opentui/core-linux-arm64-musl --outfile dist/cli && bun build src/cli/agentboard.ts --target bun --format esm --external minijinja-js --external @opentui/core --external @opentui/react --external @opentui/core-darwin-x64 --external @opentui/core-darwin-arm64 --external @opentui/core-linux-x64 --external @opentui/core-linux-arm64 --external @opentui/core-win32-x64 --external @opentui/core-win32-arm64 --external @opentui/core-linux-x64-musl --external @opentui/core-linux-arm64-musl --outfile dist/agentboard"
     toolchains: ["javascript", "bun"]
     inputs:
       - "package.json"
@@ -30,6 +30,7 @@ tasks:
       - "src/**/*.tsx"
     outputs:
       - "dist/cli"
+      - "dist/agentboard"
 
   build:
     deps:

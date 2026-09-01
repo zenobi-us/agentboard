@@ -3,7 +3,7 @@ import { loadWorkspace } from "../services/workspace.ts";
 import { readStoreViews } from "../services/store.ts";
 
 function renderDashboard(snapshots: Awaited<ReturnType<typeof readStoreViews>>): string {
-  const lines = ["AgentBoard Dashboard", "", "Sources:"];
+  const lines = ["ClankPipe Dashboard", "", "Sources:"];
   for (const snapshot of snapshots) {
     const status = snapshot.collectionStatus;
     const statusText = status ? `  collection=${status.state}` : "";

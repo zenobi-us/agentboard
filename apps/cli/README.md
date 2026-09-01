@@ -1,6 +1,6 @@
-# AgentBoard CLI
+# ClankPipe CLI
 
-AgentBoard collects Items from configured Sources, stores local observations, and runs Actions for matching Items.
+ClankPipe collects Items from configured Sources, stores local observations, and runs Actions for matching Items.
 
 ```text
 Workspace -> Sources -> Store -> templates -> Actions
@@ -13,7 +13,7 @@ The upstream system remains the source of truth. AgentBoard does not include an 
 Create a TOML Workspace at an explicit path:
 
 ```bash
-agentboard workspace init ./work.toml
+clankpipe workspace init ./work.toml
 ```
 
 Add a Source and an Action:
@@ -37,27 +37,27 @@ cmd = "echo {{ item.reference_id }}"
 Run the Workspace:
 
 ```bash
-agentboard doctor ./work.toml
-agentboard run ./work.toml --dry-run
-agentboard run ./work.toml
-agentboard list ./work.toml
+clankpipe doctor ./work.toml
+clankpipe run ./work.toml --dry-run
+clankpipe run ./work.toml
+clankpipe list ./work.toml
 ```
 
 ## Commands
 
 ```text
-agentboard init <path>
-agentboard workspace init <path>
-agentboard workspace list
-agentboard workspace edit <path>
-agentboard workspaces
-agentboard run [workspace] [--dry-run] [--watch] [--interval 60s]
-agentboard list [workspace] [--json] [--watch] [--interval 60s]
-agentboard show [workspace] <item> [--json] [--watch] [--interval 60s]
-agentboard dashboard [workspace]
-agentboard tui
-agentboard doctor [workspace]
-agentboard schema
+clankpipe init <path>
+clankpipe workspace init <path>
+clankpipe workspace list
+clankpipe workspace edit <path>
+clankpipe workspaces
+clankpipe run [workspace] [--dry-run] [--watch] [--interval 60s]
+clankpipe list [workspace] [--json] [--watch] [--interval 60s]
+clankpipe show [workspace] <item> [--json] [--watch] [--interval 60s]
+clankpipe dashboard [workspace]
+clankpipe tui
+clankpipe doctor [workspace]
+clankpipe schema
 ```
 
 Operational commands use `.agentboard.toml` when the Workspace argument is omitted. They do not search parent directories. A Workspace path is one TOML file; AgentBoard does not merge files or apply field overrides.

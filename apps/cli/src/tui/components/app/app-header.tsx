@@ -19,7 +19,7 @@ export function AppHeader(props: {
     >
       <box flexDirection="row" border={false} marginBottom={1}>
         <box flexDirection="row" flexGrow={1}>
-          <text>AgentBoard</text>
+          <text>ClankPipe</text>
         </box>
         <box flexDirection="row" border={false} marginLeft={1}>
           <text>v{version}</text>

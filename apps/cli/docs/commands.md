@@ -11,43 +11,43 @@ Operational commands accept a Workspace path. If omitted, they use `.agentboard.
 Create an empty Workspace. The command creates the path you provide and does not overwrite an existing file:
 
 ```bash
-agentboard workspace init ./work.toml
+clankpipe workspace init ./work.toml
 ```
 
 List TOML files in the platform config directory under `agentboard`. On Linux, this is normally `~/.config/agentboard`. The output is a JSON array of file stems:
 
 ```bash
-agentboard workspace list
+clankpipe workspace list
 ```
 
 Open a Workspace in `$EDITOR`:
 
 ```bash
-EDITOR=vi agentboard workspace edit ./work.toml
+EDITOR=vi clankpipe workspace edit ./work.toml
 ```
 
 `EDITOR` must contain an executable command. AgentBoard passes the absolute Workspace path as its only argument.
 
-`agentboard workspaces` remains an alias for `agentboard workspace list`.
+`clankpipe workspaces` remains an alias for `clankpipe workspace list`.
 
 ## `run`
 
 Collect Items, commit a Source Snapshot, render Actions, and execute pending Actions:
 
 ```bash
-agentboard run ./work.toml
+clankpipe run ./work.toml
 ```
 
 Dry run collects Items and renders Actions. It does not acquire the Workspace lock, write Store files, or execute Actions:
 
 ```bash
-agentboard run ./work.toml --dry-run
+clankpipe run ./work.toml --dry-run
 ```
 
 Watch Mode repeats normal Runs until Ctrl-C. The default interval is 60 seconds. A watched dry run performs one dry Run and then exits.
 
 ```bash
-agentboard run ./work.toml --watch --interval 30s
+clankpipe run ./work.toml --watch --interval 30s
 ```
 
 `--interval` accepts seconds with an optional `s`, such as `30` or `30s`.
@@ -59,8 +59,8 @@ Use `--json` or `--output-format json` for structured Run output. Use global `--
 List Items from the latest committed Snapshot for each configured Source:
 
 ```bash
-agentboard list ./work.toml
-agentboard list ./work.toml --json
+clankpipe list ./work.toml
+clankpipe list ./work.toml --json
 ```
 
 JSON output contains `source_id`, `snapshot`, `collection_status`, and `items`. Each Item result is `success`, `error`, or `pending`. A missing Snapshot is different from a committed empty Snapshot.
@@ -72,9 +72,9 @@ JSON output contains `source_id`, `snapshot`, `collection_status`, and `items`. 
 Show one stored Item and its Action attempts:
 
 ```bash
-agentboard show ./work.toml AB-001
-agentboard show AB-001
-agentboard show ./work.toml AB-001 --json
+clankpipe show ./work.toml AB-001
+clankpipe show AB-001
+clankpipe show ./work.toml AB-001 --json
 ```
 
 The short form uses `.agentboard.toml`. The command matches either `item.id` or `item.reference_id`. `show --watch` refreshes the human view and cannot use `--json` or redirected stdout.
@@ -84,7 +84,7 @@ The short form uses `.agentboard.toml`. The command matches either `item.id` or 
 Open the read-only Store dashboard:
 
 ```bash
-agentboard dashboard ./work.toml
+clankpipe dashboard ./work.toml
 ```
 
 The Dashboard requires interactive stdin and stdout. It reads committed Snapshots and collection status. It does not collect Sources, execute Actions, acquire the Workspace lock, or write Store files. It refreshes every 60 seconds. Press `r` to refresh or `q` or Esc to exit.
@@ -94,7 +94,7 @@ The Dashboard requires interactive stdin and stdout. It reads committed Snapshot
 Open the experimental OpenTUI shell:
 
 ```bash
-agentboard tui
+clankpipe tui
 ```
 
 This shell requires a terminal. It is not a supported Store-backed view.
@@ -104,7 +104,7 @@ This shell requires a terminal. It is not a supported Store-backed view.
 Validate a Workspace and its local environment:
 
 ```bash
-agentboard doctor ./work.toml
+clankpipe doctor ./work.toml
 ```
 
 The command checks Source configuration, Action configuration, and package-specific health requirements. It prints JSON and exits with status `1` when a check reports an error.
@@ -114,7 +114,7 @@ The command checks Source configuration, Action configuration, and package-speci
 Print the JSON Schema built from the registered Source and Action packages:
 
 ```bash
-agentboard schema > agentboard.schema.json
+clankpipe schema > agentboard.schema.json
 ```
 
 The schema describes structure and types. It does not express every semantic rule, such as unique Source ids, non-empty Source maps, or required built-in Action inputs.

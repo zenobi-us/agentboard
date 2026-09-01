@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import pkg from "../../package.json";
 
 const entry = new URL("./index.ts", import.meta.url).pathname;
 
@@ -12,9 +13,14 @@ async function run(...args: string[]): Promise<{ code: number; stdout: string; s
 }
 
 describe("Bun CLI command surface", () => {
+  test("publishes ClankPipe and AgentBoard executable names", () => {
+    expect(pkg.bin).toEqual({ clankpipe: "dist/cli", agentboard: "dist/agentboard" });
+  });
+
   test("exposes the public command tree", async () => {
     const result = await run("--help");
     expect(result.code).toBe(0);
+    expect(result.stdout).toContain("clankpipe");
     expect(result.stdout).toContain("workspace");
     expect(result.stdout).toContain("show");
     expect(result.stdout).toContain("run");
