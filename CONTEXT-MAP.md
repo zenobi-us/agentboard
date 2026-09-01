@@ -47,11 +47,14 @@ source package -> normalized item -> apps/cli store -> rendered action -> action
 - If a new decision applies to one crate, write its ADR under that crate's scoped ADR directory.
 - If a new decision applies across multiple contexts, write it under `.memory/docs/adr/` and name the affected contexts in the ADR.
 
-## Review rules
+## Agent artifact rules
 
 - Read relevant ADRs before review.
 - Store every worktree review at `.memory/docs/agents/reviews/{ticket-id}.md`.
+- Store required workflow records at `.memory/docs/agents/workflows/{ticket-id}.md`.
+- Use `{ticket-id}.md` for ticket artifacts.
+- Use `manual-<slug>.md` for artifacts without a ticket.
 - Overwrite the current review for the same ticket.
 - Keep historical review revisions in Git history.
-- Do not write review artifacts to `docs/reviews/` or `.scratch/reviews/`.
+- Do not write artifacts to `docs/agents/reviews/`, `docs/reviews/`, or `.scratch/reviews/`.
 

@@ -52,13 +52,21 @@ Triage labels use the default canonical vocabulary. See `.memory/docs/agents/tri
 
 Domain docs use a multi-context layout. See `.memory/docs/agents/domain.md`.
 
-### ADRs and reviews
+### ADRs and agent artifacts
 
 Architecture decisions live under `.memory/docs/adr/`.
 
-Review artifacts live under `.memory/docs/agents/reviews/`.
+Review and workflow artifacts live under `.memory/docs/agents/`.
+
+For this repository, `.memory/docs/agents/` is the canonical location for these artifacts. Generic skill references to `docs/agents/` or `.scratch/` do not apply.
 
 Agents MUST read relevant ADRs before changing code.
 
-Agents MUST write worktree review artifacts to `.memory/docs/agents/reviews/{ticket-id}.md`.
+Agents MUST write the current worktree review to `.memory/docs/agents/reviews/{ticket-id}.md`.
+
+Agents MUST write the workflow record to `.memory/docs/agents/workflows/{ticket-id}.md` when a workflow record is required.
+
+Ticket artifacts MUST use the ticket ID as the filename. Non-ticket artifacts MUST use the `manual-<slug>.md` filename form.
+
+Agents MUST overwrite the current review for the same ticket. Git history preserves prior review versions.
 

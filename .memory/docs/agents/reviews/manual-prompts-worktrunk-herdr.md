@@ -72,7 +72,7 @@ Add these requirements:
 - Review only the Worktrunk worktree named in the handoff.
 - Do not change source files, commit, merge, push, or remove the worktree.
 - Read the relevant ADRs before reviewing.
-- Write `.memory/docs/agents/reviews/{ticket-id}.md` before reporting a verdict.
+- Write `.memory/docs/agents/reviews/{ticket-id}.md` before reporting a verdict. Use `.memory/docs/agents/reviews/manual-<slug>.md` when no ticket exists.
 - The artifact MUST contain the scope, source branch, base branch, commit, findings, validation command, validation result, and `SUCCESS` or `FAILURE`.
 - Use `FAILURE` for every blocking finding. Include the ADR, file, and line for each finding.
 - Use `SUCCESS` only when no blocking findings remain.

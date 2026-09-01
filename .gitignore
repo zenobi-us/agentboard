@@ -36,4 +36,10 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .moon/cache
 .proto
 !.memory/
+
+# obsolete agent artifact locations
+/docs/agents/reviews/
+/docs/reviews/
+/.scratch/reviews/
+
 /worktrees
