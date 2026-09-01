@@ -23,7 +23,8 @@
       "name": "@clankpipe/cli",
       "version": "0.0.1",
       "bin": {
-        "agentboard": "dist/cli",
+        "agentboard": "dist/agentboard",
+        "clankpipe": "dist/cli",
       },
       "dependencies": {
         "@clankpipe/action-run-cmd": "workspace:*",

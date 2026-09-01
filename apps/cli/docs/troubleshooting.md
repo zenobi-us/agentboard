@@ -94,7 +94,7 @@ Workspace config denies unknown fields, including inputs under `[sources.actions
 Use the schema:
 
 ```bash
-agentboard schema > agentboard.schema.json
+clankpipe schema > agentboard.schema.json
 ```
 
 ## `list` shows unexpected Items

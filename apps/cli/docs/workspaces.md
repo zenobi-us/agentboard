@@ -11,7 +11,7 @@ A Workspace is one TOML file. It names Sources and the Actions for each Source.
 Operational commands use `.agentboard.toml` in the current directory when no Workspace argument is provided:
 
 ```bash
-agentboard run
+clankpipe run
 ```
 
 AgentBoard does not search parent directories. A supplied path selects exactly one file. AgentBoard does not merge files, load profiles, or apply field-level CLI overrides.
@@ -19,8 +19,8 @@ AgentBoard does not search parent directories. A supplied path selects exactly o
 Named Workspaces are not resolved by operational commands. `workspace list` only lists `*.toml` files under the platform config directory. Pass the listed file path to another command:
 
 ```bash
-agentboard workspace list
-agentboard run "$HOME/.config/agentboard/work.toml"
+clankpipe workspace list
+clankpipe run "$HOME/.config/agentboard/work.toml"
 ```
 
 The config directory follows the platform. On Linux, `XDG_CONFIG_HOME` sets the base directory; otherwise AgentBoard uses `~/.config`. AgentBoard adds the `agentboard` directory below that base.
@@ -58,7 +58,7 @@ Validation has two layers:
 
 Action ids are optional. When present, an Action id must match `[A-Za-z_][A-Za-z0-9_]*` and be unique within its Source. Later named Actions can use the id in templates.
 
-`agentboard schema` describes structural fields and types. It does not express every runtime rule. Use `doctor` to test the configured environment.
+`clankpipe schema` describes structural fields and types. It does not express every runtime rule. Use `doctor` to test the configured environment.
 
 ## Source and Action docs
 
