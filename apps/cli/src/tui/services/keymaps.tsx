@@ -134,6 +134,11 @@ export const itemKeymap: Keymap = {
   "item.run": ["r"],
 }
 
+export const actionItemKeymap: Keymap = {
+  ...itemKeymap,
+  "item.open": ["o"],
+}
+
 export const modalKeymap: Keymap = {
   "modal.close": ["escape"],
 }

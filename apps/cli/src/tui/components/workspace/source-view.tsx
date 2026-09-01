@@ -10,6 +10,7 @@ import type { ActionRunResult } from "../../../services/runtime.ts"
 import { Breadcrumbs } from "../app/breadcrumbs.tsx"
 import { useAppMachine } from "../../services/app/provider.tsx"
 import { Badge } from "../app/badge.tsx"
+import { DefinitionGrid, DefinitionGridItem } from "../app/definition-grid.tsx"
 
 const sourceMachine = createSourceMachine<Item>()
 
@@ -193,10 +194,12 @@ function SourceDetailsCard(props: {
       flexDirection="column"
     >
       <text fg={props.foreground}>SOURCE DETAILS</text>
-      <text>Plugin: {props.source.packageName}</text>
-      {Object.entries(props.config).map(([key, value]) => (
-        <text key={key}>{key}: {formatDetail(value)}</text>
-      ))}
+      <DefinitionGrid>
+        <DefinitionGridItem label="Plugin">{props.source.packageName}</DefinitionGridItem>
+        {Object.entries(props.config).map(([key, value]) => (
+          <DefinitionGridItem key={key} label={key}>{formatDetail(value)}</DefinitionGridItem>
+        ))}
+      </DefinitionGrid>
     </box>
   )
 }

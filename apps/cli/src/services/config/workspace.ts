@@ -201,7 +201,7 @@ export async function loadDataWorkspace(
       if (!("with" in configured)) {
         throw new Error(`action in source ${item.id} must define "with"`);
       }
-      const { uses: _actionUses, with: inputs, ...metadata } = configured;
+      const { uses: _actionUses, with: inputs, open, ...metadata } = configured;
       rejectReservedPluginId(inputs);
       const { id, ...unexpectedFields } = metadata;
       if (Object.keys(unexpectedFields).length > 0) {
@@ -210,11 +210,16 @@ export async function loadDataWorkspace(
       if (id !== undefined && typeof id !== "string") {
         throw new TypeError("configuration id must be a string");
       }
+      if (open !== undefined && typeof open !== "string") {
+        throw new TypeError(`action in source ${item.id} "open" must be a string`);
+      }
       validateActionInputs(inputs);
+      if (open !== undefined) validateActionInputs(open);
       const resolved = action(
         actionPackage.plugin as never,
         inputs as never,
         path,
+        { open },
       ) as ResolvedAction<TSchema>;
       actionPackage.plugin.validate?.(resolved.config);
       const runtime = createRuntimes
@@ -519,6 +524,7 @@ export function createWorkspaceSchemas(registry: PluginRegistry): WorkspaceSchem
       Type.Object(
         {
           id: Type.Optional(Type.String()),
+          open: Type.Optional(Type.String()),
           uses: Type.Literal(item.name),
           with: reservePluginId(strictPluginSchema(plugin.schema)),
         },

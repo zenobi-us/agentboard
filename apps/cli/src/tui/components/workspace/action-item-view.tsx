@@ -1,10 +1,13 @@
 import { useActorRef, useSelector } from "@xstate/react"
 
 import type { SourceRunResult } from "../../../services/runtime.ts"
-import { KeymapScope, itemKeymap } from "../../services/keymaps.tsx"
+import { KeymapScope, actionItemKeymap } from "../../services/keymaps.tsx"
 import { itemViewMachine } from "../../services/item/item.view.machine.ts"
 import { useTheme } from "../../services/theme/theme.tsx"
 import { useAppMachine } from "../../services/app/provider.tsx"
+import { Breadcrumbs } from "../app/breadcrumbs.tsx"
+import { Badge } from "../app/badge.tsx"
+import { DefinitionGrid, DefinitionGridItem } from "../app/definition-grid.tsx"
 
 /** Render one Action result using data selected from the root machine. */
 export function ActionItemView() {
@@ -26,6 +29,9 @@ export function ActionItemView() {
   if (!source || !item) return null
   /** Resolve the latest Source run result. */
   const runResult = sourceRuns[source.id]
+  /** Resolve the selected Action. */
+  const action = source.actions[route.actionIndex]
+  if (!action) return null
   /** Create the Item navigation actor. */
   const actor = useActorRef(itemViewMachine, {
     input: {
@@ -33,23 +39,56 @@ export function ActionItemView() {
       sourceId: source.id,
       itemId: item.id,
       item,
+      openCommand: action.open,
+      templateContext: {
+        workspace: { id: workspace.id, path: workspace.path },
+        source: {
+          id: source.id,
+          source: {
+            uses: source.packageName,
+            ...(source.source.config !== null && typeof source.source.config === "object"
+              ? source.source.config
+              : { value: source.source.config }),
+          },
+          actions: source.actions.map((configured) => ({
+            id: configured.id,
+            uses: configured.packageName,
+            with: configured.config,
+          })),
+        },
+        item,
+        action: { index: route.actionIndex, uses: action.packageName },
+        actions: {},
+      },
     },
   })
+  const snapshot = useSelector(actor, (value) => value)
   const theme = useTheme()
-  const headingStyle = theme.component("item.heading")
   const panelStyle = theme.component("source.summary")
-  /** Resolve the selected Action. */
-  const action = source.actions[route.actionIndex]
   const result = runResult?.actions.find(
     (candidate) => candidate.itemId === item.id && candidate.actionIndex === route.actionIndex,
   )
 
-  if (!action) return null
-
   return (
-    <KeymapScope actor={actor} bindings={itemKeymap}>
+    <KeymapScope actor={actor} bindings={actionItemKeymap}>
       <box flexDirection="column" flexGrow={1}>
-        <text fg={headingStyle.fg}>ACTION / {source.id} / {item.reference_id} / STEP {route.actionIndex + 1}</text>
+        <Breadcrumbs.Row>
+          <Breadcrumbs.Item onClick={() => appActor.send({ type: "ROUTE_WORKSPACE" })}>
+            <Badge.Type type="Workspace" label={workspace.id} />
+          </Breadcrumbs.Item>
+          <Breadcrumbs.Separator />
+          <Breadcrumbs.Item onClick={() => appActor.send({ type: "ROUTE_SOURCE", sourceId: source.id })}>
+            <Badge.Type type="Source" label={source.id} />
+          </Breadcrumbs.Item>
+          <Breadcrumbs.Separator />
+          <Breadcrumbs.Item onClick={() => appActor.send({ type: "ROUTE_ITEM", sourceId: source.id, itemId: item.id })}>
+            <Badge.Type type="Item" label={item.reference_id} />
+          </Breadcrumbs.Item>
+          <Breadcrumbs.Separator />
+          <Breadcrumbs.Item>
+            <Badge.Type type="Action" label={`STEP ${route.actionIndex + 1}`} />
+          </Breadcrumbs.Item>
+        </Breadcrumbs.Row>
 
         <box
           border={true}
@@ -61,15 +100,13 @@ export function ActionItemView() {
           flexDirection="column"
         >
           <text fg={panelStyle.fg}>{item.title}</text>
-          <box flexDirection="row" marginTop={1}>
-            <box flexDirection="column" marginRight={3}>
-              <text>Source  {source.id}</text>
-              <text>Status  {item.status}</text>
-            </box>
-            <box flexDirection="column">
-              <text>Reference  {item.reference_id}</text>
-              <text>Action     {action.id ?? action.packageName}</text>
-            </box>
+          <box marginTop={1}>
+            <DefinitionGrid>
+              <DefinitionGridItem label="Source">{source.id}</DefinitionGridItem>
+              <DefinitionGridItem label="Status">{item.status}</DefinitionGridItem>
+              <DefinitionGridItem label="Reference">{item.reference_id}</DefinitionGridItem>
+              <DefinitionGridItem label="Action">{action.id ?? action.packageName}</DefinitionGridItem>
+            </DefinitionGrid>
           </box>
         </box>
 
@@ -82,9 +119,13 @@ export function ActionItemView() {
           flexDirection="column"
         >
           <text fg={panelStyle.fg}>EXECUTION</text>
-          <text marginTop={1}>Step     {route.actionIndex + 1}</text>
-          <text>Uses     {action.packageName}</text>
-          <text>Outcome  {actionOutcome(result)}</text>
+          <box marginTop={1}>
+            <DefinitionGrid>
+              <DefinitionGridItem label="Step">{route.actionIndex + 1}</DefinitionGridItem>
+              <DefinitionGridItem label="Uses">{action.packageName}</DefinitionGridItem>
+              <DefinitionGridItem label="Outcome">{actionOutcome(result)}</DefinitionGridItem>
+            </DefinitionGrid>
+          </box>
         </box>
 
         <box
@@ -120,7 +161,8 @@ export function ActionItemView() {
           <text marginTop={1}>{JSON.stringify(action.config, null, 2)}</text>
         </box>
 
-        <text>Press Escape to return to the source.</text>
+        {snapshot.context.openError ? <text>{snapshot.context.openError}</text> : null}
+        <text>Press O to open the item. Press Escape to return to the source.</text>
       </box>
     </KeymapScope>
   )

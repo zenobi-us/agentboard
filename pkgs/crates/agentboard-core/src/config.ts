@@ -253,7 +253,10 @@ export type ResolvedSource<Schema extends TSchema> = ResolvedConfiguration<
 export type ResolvedAction<Schema extends TSchema> = ResolvedConfiguration<
   "action",
   Schema
->;
+> & {
+  /** Optional command used to open the Item associated with this Action. */
+  readonly open?: string;
+};
 
 /** Executable configuration for one AgentBoard workspace. */
 export interface WorkspaceConfig {
@@ -283,6 +286,11 @@ type ConfigWithId<Schema extends TSchema> = Static<Schema> & {
   /** Optional user-defined identifier removed before schema validation. */
   id?: string;
 };
+
+/** Optional metadata for one resolved Action configuration. */
+export interface ActionOptions {
+  readonly open?: string;
+}
 
 /** Plugin descriptor with role and schema details erased for shared storage. */
 type AnyPlugin = Plugin<PluginRole, TSchema>;
@@ -407,7 +415,11 @@ export function source<const Schema extends TSchema, Runtime extends SourceRunti
 export function action<const Schema extends TSchema, Runtime extends ActionRuntime<Static<Schema>>>(
   plugin: Plugin<"action", Schema, Runtime>,
   config: ConfigWithId<Schema>,
-  path?: string,
+  pathOrOptions?: string | ActionOptions,
+  options?: ActionOptions,
 ): ResolvedAction<Schema> {
-  return resolve("action", plugin, config, path);
+  const path = typeof pathOrOptions === "string" ? pathOrOptions : undefined;
+  const metadata = options ?? (typeof pathOrOptions === "object" ? pathOrOptions : undefined);
+  const resolved = resolve("action", plugin, config, path);
+  return metadata?.open === undefined ? resolved : { ...resolved, open: metadata.open };
 }

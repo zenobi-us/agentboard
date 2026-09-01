@@ -61,6 +61,7 @@ const defaultTheme: ThemeDocument = {
     "source.summary.id": style("text.accent", "surface.app", "border.default"),
     "source.summary.action": style("text.muted", "surface.app", "border.default"),
     "item.heading": style("text.accent", "surface.app", "border.default"),
+    "definition.label": style("text.muted", "surface.app", "border.default"),
     "settings.modal": style("text.primary", "surface.panel", "border.default"),
     "settings.heading": style("text.accent", "surface.panel", "border.default"),
     "settings.help": style("text.muted", "surface.panel", "border.default"),

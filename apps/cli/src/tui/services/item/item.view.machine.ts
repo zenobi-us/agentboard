@@ -2,6 +2,7 @@ import type { Item } from "@agentboard/core/config"
 import { fromPromise, assign, sendParent, setup } from "xstate"
 import type { AnyActorRef } from "xstate"
 import type { LoadedWorkspace } from "../../../services/config/workspace.ts"
+import { openItem } from "../../../services/open-item.ts"
 import { runItem, type SourceRunResult } from "../../../services/runtime.ts"
 
 type ItemViewContext = {
@@ -9,15 +10,31 @@ type ItemViewContext = {
   sourceId: string
   itemId: string
   item: Item
+  openCommand?: string
+  templateContext?: Record<string, unknown>
+  openError?: string
 }
 
 type ItemViewEvent = { type: "COMMAND"; code: string }
 
 export const itemViewMachine = setup({
   types: {
-    input: {} as { appActor: AnyActorRef; sourceId: string; itemId: string; item: Item },
+    input: {} as {
+      appActor: AnyActorRef
+      sourceId: string
+      itemId: string
+      item: Item
+      openCommand?: string
+      templateContext?: Record<string, unknown>
+    },
     context: {} as ItemViewContext,
     events: {} as ItemViewEvent,
+  },
+  actors: {
+    openItem: fromPromise(async ({ input, signal }: {
+      input: { command: string; context: Record<string, unknown> }
+      signal: AbortSignal
+    }) => openItem(input.command, input.context, signal)),
   },
 }).createMachine({
   id: "itemView",
@@ -40,7 +57,30 @@ export const itemViewMachine = setup({
               item: context.item,
             }),
           },
+          {
+            guard: ({ event, context }) => event.code === "item.open" && context.openCommand !== undefined,
+            target: "opening",
+            actions: assign({ openError: undefined }),
+          },
+          {
+            guard: ({ event }) => event.code === "item.open",
+            actions: assign({ openError: "No open command configured." }),
+          },
         ],
+      },
+    },
+    opening: {
+      invoke: {
+        src: "openItem",
+        input: ({ context }) => ({
+          command: context.openCommand!,
+          context: context.templateContext ?? {},
+        }),
+        onDone: "ready",
+        onError: {
+          target: "ready",
+          actions: assign({ openError: ({ event }) => String(event.error) }),
+        },
       },
     },
   },

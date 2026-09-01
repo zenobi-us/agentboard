@@ -4,6 +4,9 @@ import { KeymapScope, itemKeymap } from "../../services/keymaps.tsx"
 import { itemViewMachine } from "../../services/item/item.view.machine.ts"
 import { useTheme } from "../../services/theme/theme.tsx"
 import { useAppMachine } from "../../services/app/provider.tsx"
+import { Breadcrumbs } from "../app/breadcrumbs.tsx"
+import { Badge } from "../app/badge.tsx"
+import { DefinitionGrid, DefinitionGridItem } from "../app/definition-grid.tsx"
 
 /** Render one Item using data selected from the root machine. */
 export function ItemView() {
@@ -38,10 +41,9 @@ export function ItemView() {
       item,
     },
   })
-  const snapshot = useSelector(actor, (value) => value)
   const theme = useTheme()
-  const headingStyle = theme.component("item.heading")
   const panelStyle = theme.component("source.summary")
+  const workspaceId = workspace.id
   const results = source.actions.map((action, actionIndex) => ({
     action,
     actionIndex,
@@ -55,7 +57,19 @@ export function ItemView() {
   return (
     <KeymapScope actor={actor} bindings={itemKeymap}>
       <box flexDirection="column" flexGrow={1}>
-        <text fg={headingStyle.fg}>ITEM / {snapshot.context.sourceId} / {item.reference_id}</text>
+        <Breadcrumbs.Row>
+          <Breadcrumbs.Item onClick={() => appActor.send({ type: "ROUTE_WORKSPACE" })}>
+            <Badge.Type type="Workspace" label={workspaceId} />
+          </Breadcrumbs.Item>
+          <Breadcrumbs.Separator />
+          <Breadcrumbs.Item onClick={() => appActor.send({ type: "ROUTE_SOURCE", sourceId: source.id })}>
+            <Badge.Type type="Source" label={source.id} />
+          </Breadcrumbs.Item>
+          <Breadcrumbs.Separator />
+          <Breadcrumbs.Item>
+            <Badge.Type type="Item" label={item.reference_id} />
+          </Breadcrumbs.Item>
+        </Breadcrumbs.Row>
 
         <box
           border={true}
@@ -67,15 +81,13 @@ export function ItemView() {
           flexDirection="column"
         >
           <text fg={panelStyle.fg}>{item.title}</text>
-          <box flexDirection="row" marginTop={1}>
-            <box flexDirection="column" marginRight={3}>
-              <text>Source  {source.id}</text>
-              <text>Status  {item.status}</text>
-            </box>
-            <box flexDirection="column">
-              <text>Reference  {item.reference_id}</text>
-              <text>URL        {item.url || "(none)"}</text>
-            </box>
+          <box marginTop={1}>
+            <DefinitionGrid>
+              <DefinitionGridItem label="Source">{source.id}</DefinitionGridItem>
+              <DefinitionGridItem label="Status">{item.status}</DefinitionGridItem>
+              <DefinitionGridItem label="Reference">{item.reference_id}</DefinitionGridItem>
+              <DefinitionGridItem label="URL">{item.url || "(none)"}</DefinitionGridItem>
+            </DefinitionGrid>
           </box>
         </box>
 
