@@ -49,6 +49,8 @@ tasks:
 
   ts-test:
     command: "bun test ./src"
+    deps:
+      - "~:build"
     toolchains: ["javascript", "bun"]
     inputs:
       - "package.json"
