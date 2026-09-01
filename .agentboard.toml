@@ -28,17 +28,14 @@ id = "run_llm"
 uses = "@agentboard/action-llm"
 
 [sources.actions.with]
-prompt = '''
-/implement {{ item.reference_id }}
-Source updated at: {{ item.raw.github.issue.updated_at }}
-'''
+prompt = 'implement {{ item.reference_id }} (Source updated at: {{ item.raw.github.issue.updated_at }})'
 
 [sources.actions.with.terminal]
 kind = "herdr"
 container = "worktree"
 cwd = "{{ actions.worktree.inputs.root }}"
 harness = "pi"
-harness_args = ["--print", "--approve", "--prompt-template", ".pi/prompts"]
+harness_args = ["--print", "--approve", "@.pi/prompts/implement.md"]
 
 [[sources]]
 id = "review"
@@ -70,14 +67,11 @@ id = "run_llm"
 uses = "@agentboard/action-llm"
 
 [sources.actions.with]
-prompt = '''
-/review {{ item.reference_id }}
-Source updated at: {{ item.raw.github.issue.updated_at }}
-'''
+prompt = 'review {{ item.reference_id }} (Source updated at: {{ item.raw.github.issue.updated_at }})'
 
 [sources.actions.with.terminal]
 kind = "herdr"
 container = "worktree"
 cwd = "{{ actions.worktree.inputs.root }}"
 harness = "pi"
-harness_args = ["--print", "--approve", "--prompt-template", ".pi/prompts"]
+harness_args = ["--print", "--approve", "@.pi/prompts/review.md"]
