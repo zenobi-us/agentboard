@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Item } from "@clankpipe/core/config";
-import { appendActionAttempt, appendSourceSnapshot, readStoreViews, sourceSlug, successfulActionKeys } from "./store.ts";
+import { actionPlanHash, appendActionAttempt, appendPipelineState, appendSourceSnapshot, markStalePipelineExecutions, readPipelineExecutions, readStoreViews, sourceSlug, successfulActionKeys } from "./store.ts";
 
 type TestSource = {
   id: string;
@@ -102,6 +102,31 @@ describe("Source Snapshot selection", () => {
 
     await appendSourceSnapshot(workspace([configured]), configured as never, [], cancellation, root);
     expect((await readFile(boundaryPath, "utf8")).trim().split("\n")).toHaveLength(2);
+  });
+});
+
+describe("Pipeline execution state", () => {
+  test("marks unfinished executions as stale for recovery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+    const configured = source("issues");
+    const ws = workspace([configured]);
+    const value = item("item-1", "issues");
+    await appendPipelineState(ws, configured as never, {
+      workspace_id: "test",
+      source_id: "issues",
+      item_id: value.id,
+      action_plan_hash: actionPlanHash(configured as never),
+      state: "running",
+      item: value,
+      ts: new Date().toISOString(),
+    }, root);
+
+    await markStalePipelineExecutions(ws, configured as never, root);
+
+    expect((await readPipelineExecutions(ws, configured as never, root))[0]).toMatchObject({
+      item_id: "item-1",
+      state: "stale",
+    });
   });
 });
 

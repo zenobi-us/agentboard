@@ -79,6 +79,7 @@ export function SourceView() {
         <SourceSummaryCard
           sourceId={source.id}
           items={[...items]}
+          pipeline={runResult?.pipeline}
           actions={source.actions.map((action, index) => ({
             actionId: action.id ?? action.packageName,
             step: index + 1,
@@ -112,7 +113,7 @@ export function SourceView() {
               backgroundColor={(index === snapshot.context.itemIndex ? selectedStyle : itemStyle).bg}
             >
               <text fg={(index === snapshot.context.itemIndex ? selectedStyle : itemStyle).fg}>
-                {index === snapshot.context.itemIndex ? "> " : "  "}{item.title} · {item.status}
+                {index === snapshot.context.itemIndex ? "> " : "  "}{item.title} · {item.status} · {pipelineState(runResult?.pipeline, item.id)}
               </text>
             </box>
           ))}
@@ -168,6 +169,10 @@ function ActionStepsCard(props: {
       })}
     </box>
   )
+}
+
+function pipelineState(executions: readonly { item_id: string; state: string }[] | undefined, itemId: string): string {
+  return executions?.find((execution) => execution.item_id === itemId)?.state ?? "ready"
 }
 
 function actionOutput(result: ActionRunResult): string {

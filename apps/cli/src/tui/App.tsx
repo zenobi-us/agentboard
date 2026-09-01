@@ -39,6 +39,7 @@ function AppScreen() {
   const executableWorkspace = useSelector(appActor, (snapshot) => snapshot.context.executableWorkspace)
   /** Read Source items stored by the root machine. */
   const sourceItems = useSelector(appActor, (snapshot) => snapshot.context.sourceItems)
+  const pipelineExecutions = useSelector(appActor, (snapshot) => snapshot.context.pipelineExecutions)
   /** Read the current Workspace operation error. */
   const runError = useSelector(appActor, (snapshot) => snapshot.context.runError)
   const { toast } = useToast()
@@ -85,8 +86,8 @@ function AppScreen() {
       >
         <box flexDirection="column" border={false} marginBottom={1} flexGrow={1}>
           <box position="relative" flexGrow={1} padding={1}>
-            {route.name === "workspace" ? <WorkspaceView workspace={executableWorkspace} sourceItems={sourceItems} /> : null}
-            {route.name === "items" ? <ItemsView workspace={executableWorkspace} sourceItems={sourceItems} /> : null}
+            {route.name === "workspace" ? <WorkspaceView workspace={executableWorkspace} sourceItems={sourceItems} pipelineExecutions={pipelineExecutions} /> : null}
+            {route.name === "items" ? <ItemsView workspace={executableWorkspace} sourceItems={sourceItems} pipelineExecutions={pipelineExecutions} /> : null}
             {route.name === "source" ? <SourceView key={route.sourceId} /> : null}
             {route.name === "item" ? (<ItemView key={`${route.sourceId}:${route.itemId}`} />) : null}
             {route.name === "action-item" ? (<ActionItemView key={`${route.sourceId}:${route.itemId}:${route.actionIndex}`} />) : null}

@@ -16,10 +16,11 @@ export async function storedItems(workspacePath: string): Promise<unknown[]> {
 async function renderList(workspace: Awaited<ReturnType<typeof loadWorkspace>>, asJson: boolean): Promise<string> {
   if (asJson) {
     const snapshots = await readStoreViews(workspace);
-    return `${JSON.stringify(snapshots.map(({ sourceId, state, items, collectionStatus }) => ({
+    return `${JSON.stringify(snapshots.map(({ sourceId, state, items, pipeline, collectionStatus }) => ({
       source_id: sourceId,
       snapshot: state,
       collection_status: collectionStatus,
+      pipeline: (pipeline ?? []).map(({ item, state: pipelineState }) => ({ item, state: pipelineState })),
       items: items.map(({ item, actionState }) => ({
         item,
         result: actionState === "succeeded" ? "success" : actionState === "failed" ? "error" : "pending",
@@ -40,6 +41,9 @@ export function renderListHuman(snapshots: Awaited<ReturnType<typeof readStoreVi
     } else {
       lines.push("Reference ID\tTitle\tStatus\tAction Plan Result");
       lines.push(...snapshot.items.map(({ item, actionState }) => `${item.reference_id}\t${item.title}\t${item.status}\t${actionState === "succeeded" ? "success" : actionState === "failed" ? "error" : "pending"}`));
+    }
+    for (const execution of snapshot.pipeline ?? []) {
+      lines.push(`Pipeline\t${execution.state}\t${execution.item.reference_id}\t${execution.item.title}`);
     }
     if (snapshot.collectionStatus?.error) lines.splice(-1, 0, `Collection error: ${snapshot.collectionStatus.error}`);
     lines.push("");

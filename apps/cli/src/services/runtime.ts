@@ -2,6 +2,7 @@ import {
   pluginFor,
   type ActionResult,
   type Item,
+  type PipelineState,
 } from "@clankpipe/core/config";
 
 import type { LoadedWorkspace } from "./config/workspace.ts";
@@ -14,8 +15,12 @@ import {
   acquireWorkspaceLock,
   actionKey,
   appendActionAttempt,
+  appendPipelineState,
   appendSourceSnapshot,
+  actionPlanHash,
+  readPipelineExecutions,
   renderedActionHash,
+  markStalePipelineExecutions,
   setSourceCollectionStatus,
   successfulActionKeys,
 } from "./store.ts";
@@ -35,6 +40,7 @@ export interface SourceRunResult {
   readonly uses: string;
   readonly items: readonly Item[];
   readonly actions: readonly ActionRunResult[];
+  readonly pipeline?: readonly import("./store.ts").PipelineExecution[];
   readonly error?: string;
 }
 
@@ -131,7 +137,7 @@ export async function runItem(
   const releaseLock = await acquireWorkspaceLock(workspace, options.storeRoot);
   try {
     const actions = await runActions(workspace, source, [item], options.storeRoot);
-    return { id: source.id, uses: source.packageName, items: [item], actions: actions.results };
+    return { id: source.id, uses: source.packageName, items: [item], actions: actions.results, pipeline: await readPipelineExecutions(workspace, source, options.storeRoot) };
   } finally {
     await releaseLock();
   }
@@ -209,15 +215,18 @@ async function runSource(
 ): Promise<{ readonly result: SourceRunResult; readonly cancelled: boolean }> {
   if (source.cancellation.aborted) {
     return {
-      result: { id: source.id, uses: source.packageName, items: [], actions: [] },
+      result: { id: source.id, uses: source.packageName, items: [], actions: [], pipeline: [] },
       cancelled: true,
     };
   }
-  if (!dryRun) await setSourceCollectionStatus(workspace, source.id, "collecting", undefined, storeRoot);
+  if (!dryRun) {
+    await markStalePipelineExecutions(workspace, source, storeRoot);
+    await setSourceCollectionStatus(workspace, source.id, "collecting", undefined, storeRoot);
+  }
   if (source.cancellation.aborted) {
     if (!dryRun) await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
     return {
-      result: { id: source.id, uses: source.packageName, items: [], actions: [] },
+      result: { id: source.id, uses: source.packageName, items: [], actions: [], pipeline: [] },
       cancelled: true,
     };
   }
@@ -231,7 +240,7 @@ async function runSource(
     }
     if (source.cancellation.aborted && source.actions.length === 0) {
       return {
-        result: { id: source.id, uses: source.packageName, items, actions: [] },
+        result: { id: source.id, uses: source.packageName, items, actions: [], pipeline: [] },
         cancelled: false,
       };
     }
@@ -239,20 +248,20 @@ async function runSource(
     if (source.cancellation.aborted) {
       if (!dryRun) await setSourceCollectionStatus(workspace, source.id, "cancelled", undefined, storeRoot);
       return {
-        result: { id: source.id, uses: source.packageName, items: [], actions: [] },
+        result: { id: source.id, uses: source.packageName, items: [], actions: [], pipeline: [] },
         cancelled: true,
       };
     }
     const message = errorMessage(error);
     if (!dryRun) await setSourceCollectionStatus(workspace, source.id, "failed", message, storeRoot);
     return {
-      result: { id: source.id, uses: source.packageName, items: [], actions: [], error: message },
+      result: { id: source.id, uses: source.packageName, items: [], actions: [], pipeline: [], error: message },
       cancelled: false,
     };
   }
   const actions = await runActions(workspace, source, items, storeRoot, dryRun);
   return {
-    result: { id: source.id, uses: source.packageName, items, actions: actions.results },
+    result: { id: source.id, uses: source.packageName, items, actions: actions.results, pipeline: await readPipelineExecutions(workspace, source, storeRoot) },
     cancelled: actions.cancelled,
   };
 }
@@ -266,9 +275,12 @@ async function runActions(
 ): Promise<{ readonly results: ActionRunResult[]; readonly cancelled: boolean }> {
   const results: ActionRunResult[] = [];
   const successes = await successfulActionKeys(workspace, source, storeRoot);
+  const pipelineHash = actionPlanHash(source);
+  let claims = 0;
   if (source.cancellation.aborted) return { results, cancelled: true };
   for (const item of items) {
     const actions: Record<string, { inputs: unknown }> = {};
+    let claimed = false;
     for (const [actionIndex, action] of source.actions.entries()) {
       let renderedHash = "";
       try {
@@ -315,6 +327,15 @@ async function runActions(
           continue;
         }
         if (source.cancellation.aborted) return { results, cancelled: true };
+        if (!claimed) {
+          if (source.pipeline.claim_limit !== undefined && claims >= source.pipeline.claim_limit) {
+            return { results, cancelled: false };
+          }
+          await recordPipelineState(workspace, source, item, pipelineHash, "claimed", undefined, undefined, storeRoot);
+          claims += 1;
+          claimed = true;
+        }
+        await recordPipelineState(workspace, source, item, pipelineHash, "running", actionIndex, undefined, storeRoot);
         const result = await executeAction(item, inputs, action.runtime, context);
         const persistedResult = source.cancellation.aborted && result.outcome !== "cancelled"
           ? { ...result, outcome: "cancelled" as const, message: "action cancelled" }
@@ -345,6 +366,13 @@ async function runActions(
           }, storeRoot);
         }
         results.push({ itemId: item.id, actionIndex, uses: action.packageName, result: finalResult });
+        if (finalResult.outcome === "success" && actionIndex === source.actions.length - 1) {
+          await recordPipelineState(workspace, source, item, pipelineHash, "succeeded", actionIndex, undefined, storeRoot);
+        } else if (finalResult.outcome === "failure") {
+          await recordPipelineState(workspace, source, item, pipelineHash, "failed", actionIndex, finalResult.message, storeRoot);
+        } else if (finalResult.outcome === "cancelled") {
+          await recordPipelineState(workspace, source, item, pipelineHash, "cancelled", actionIndex, finalResult.message, storeRoot);
+        }
         if (source.cancellation.aborted || finalResult.outcome === "cancelled") {
           return { results, cancelled: true };
         }
@@ -365,6 +393,9 @@ async function runActions(
           stderr: cancelled ? "" : message,
           message,
         }, storeRoot);
+        if (claimed) {
+          await recordPipelineState(workspace, source, item, pipelineHash, cancelled ? "cancelled" : "failed", actionIndex, message, storeRoot);
+        }
         if (source.cancellation.aborted) {
           results.push({ itemId: item.id, actionIndex, uses: action.packageName, error: message });
           return { results, cancelled: true };
@@ -383,6 +414,29 @@ async function runActions(
     }
   }
   return { results, cancelled: false };
+}
+
+async function recordPipelineState(
+  workspace: LoadedWorkspace,
+  source: LoadedWorkspace["sources"][number],
+  item: Item,
+  actionPlanHashValue: string,
+  state: PipelineState,
+  actionIndex: number | undefined,
+  message: string | undefined,
+  storeRoot: string | undefined,
+): Promise<void> {
+  await appendPipelineState(workspace, source, {
+    workspace_id: workspace.id,
+    source_id: source.id,
+    item_id: item.id,
+    action_plan_hash: actionPlanHashValue,
+    state,
+    item,
+    ts: new Date().toISOString(),
+    ...(actionIndex === undefined ? {} : { action_index: actionIndex }),
+    ...(message === undefined ? {} : { message }),
+  }, storeRoot);
 }
 
 function pluginPathInputs(

@@ -4,6 +4,7 @@ import type { LoadedWorkspace } from "../../../services/config/workspace.ts"
 import { runWorkspace, watchWorkspace, type SourceRunResult, type WorkspaceRunResult } from "../../../services/runtime.ts"
 import { loadWorkspace } from "../../../services/workspace.ts"
 import { itemRunMachine } from "../item/item.view.machine.ts"
+import type { PipelineExecution } from "../../../services/store.ts"
 
 /** Identify the view that the navigation region must render. */
 export type AppRoute =
@@ -41,6 +42,7 @@ type MachineContext = {
   runError?: string
   sourceRuns: Record<string, SourceRunResult>
   sourceItems: Record<string, readonly Item[]>
+  pipelineExecutions: Record<string, readonly PipelineExecution[]>
 }
 
 /** Define every event accepted by the root TUI machine. */
@@ -104,6 +106,7 @@ export const tuiMachine = setup({
     runRequest: { mode: "idle", id: 0, stopping: false },
     sourceRuns: {},
     sourceItems: {},
+    pipelineExecutions: {},
   }),
   states: {
     /** Load the Workspace before rendering the active TUI. */
@@ -231,8 +234,15 @@ export const tuiMachine = setup({
 function workspaceResultContext(result: WorkspaceRunResult): Partial<MachineContext> {
   /** Index each Source result by its stable Source ID. */
   return {
-    sourceItems: Object.fromEntries(result.sources.map((source) => [source.id, source.items])),
+    sourceItems: Object.fromEntries(result.sources.map((source) => {
+      const visible = new Map(source.items.map((item) => [item.id, item]));
+      for (const execution of source.pipeline ?? []) {
+        if (execution.state !== "succeeded") visible.set(execution.item_id, execution.item);
+      }
+      return [source.id, [...visible.values()]];
+    })),
     sourceRuns: Object.fromEntries(result.sources.map((source) => [source.id, source])),
+    pipelineExecutions: Object.fromEntries(result.sources.map((source) => [source.id, source.pipeline ?? []])),
     runRequest: { mode: "idle", id: 0, stopping: false },
     runError: undefined,
     message: result.cancelled ? "Stopped" : "Ready",

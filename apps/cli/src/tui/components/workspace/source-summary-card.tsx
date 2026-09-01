@@ -9,18 +9,12 @@ type SourceSummaryAction<T> = {
 type SourceSummary<T, A extends SourceSummaryAction<T>> = {
   sourceId: string;
   items: T[];
+  pipeline?: readonly { state: string }[];
   actions: A[];
   selected?: boolean;
   onClick?: () => void;
 }
 
-/**
- * Source Summary Card component for displaying a summary of a source, including its ID, number of items, and actions.
- *
- * It shows the source, the items in the pipeline and for each action it shows:
- * - the action,
- * - the number of items at that step
- */
 export function SourceSummaryCard<T, A extends SourceSummaryAction<T>>(props: SourceSummary<T, A>) {
   const theme = useTheme()
   const summaryStyle = theme.component("source.summary")
@@ -39,9 +33,10 @@ export function SourceSummaryCard<T, A extends SourceSummaryAction<T>>(props: So
       justifyContent="flex-start"
       onMouseDown={props.onClick}
     >
-      <box flexDirection="column" marginRight={2} >
+      <box flexDirection="column" marginRight={2}>
         <text fg={props.selected ? selectedStyle.fg : idStyle.fg}>{props.sourceId}</text>
         <text>{props.items.length} items</text>
+        {props.pipeline && props.pipeline.length > 0 && <text>{pipelineSummary(props.pipeline)}</text>}
       </box>
       <box flexDirection="row">
         {props.actions.length > 0 && props.actions.map((action) => (
@@ -57,8 +52,11 @@ export function SourceSummaryCard<T, A extends SourceSummaryAction<T>>(props: So
   )
 }
 
-
-
+function pipelineSummary(executions: readonly { state: string }[]): string {
+  const counts = new Map<string, number>()
+  for (const execution of executions) counts.set(execution.state, (counts.get(execution.state) ?? 0) + 1)
+  return [...counts.entries()].map(([state, count]) => `${state}: ${count}`).join(", ")
+}
 
 function SourceSummaryActionStep<T>(props: { actionId: string; step: number, items: T[] }) {
   const theme = useTheme()
@@ -71,9 +69,7 @@ function SourceSummaryActionStep<T>(props: { actionId: string; step: number, ite
         <text fg={actionStyle.fg}>{props.actionId}</text>
       </box>
 
-      {props.items.length > 0 && (
-        <text>{props.items.length} items</text>
-      )}
+      {props.items.length > 0 && <text>{props.items.length} items</text>}
     </box>
   )
 }

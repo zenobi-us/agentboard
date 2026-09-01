@@ -72,6 +72,67 @@ describe("Workspace runtime orchestration", () => {
     }
   });
 
+  test("limits new claims and keeps a terminal pipeline item after Source removal", async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-pipeline-"));
+    let collections = 0;
+    let executions = 0;
+    const path = new URL("./pipeline-state.test.ts", import.meta.url).pathname;
+    const item = (id: string): Item => ({
+      id,
+      reference_id: id,
+      title: `Item ${id}`,
+      status: "ready",
+      url: `https://example.test/${id}`,
+      source_id: "issues",
+      source_kind: "memory",
+      raw: {},
+    });
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: () => ({ collect: () => collections++ === 0 ? [item("one"), item("two")] : [] }),
+      healthCheck: () => undefined,
+    });
+    const actionPlugin = definePlugin(import.meta, {
+      kind: "action",
+      validate: () => undefined,
+      schema: Type.Object({}),
+      runtime: () => ({
+        execute: (): ActionResult => {
+          executions += 1;
+          return { outcome: "failure", stdout: "", stderr: "failed" };
+        },
+      }),
+      healthCheck: () => undefined,
+    });
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{
+        id: "issues",
+        pipeline: { claim_limit: 1 },
+        source: source(sourcePlugin, {}, path),
+        actions: [action(actionPlugin, {}, path)],
+      }],
+    }));
+
+    try {
+      const first = await runWorkspace(workspace, { storeRoot });
+      expect(executions).toBe(1);
+      expect(first.sources[0]?.actions).toHaveLength(1);
+      expect(first.sources[0]?.pipeline).toEqual([
+        expect.objectContaining({ item_id: "one", state: "failed" }),
+      ]);
+
+      const second = await runWorkspace(workspace, { storeRoot });
+      expect(second.sources[0]?.items).toEqual([]);
+      expect(second.sources[0]?.pipeline).toEqual([
+        expect.objectContaining({ item_id: "one", state: "failed" }),
+      ]);
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
   test("runs a QMD Plugin through the Workspace runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-qmd-cli-"));
     const bin = join(root, "qmd");

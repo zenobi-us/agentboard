@@ -8,6 +8,7 @@ import {
   pluginFor,
   source,
   strictPluginSchema,
+  type PipelineConfig,
   type ResolvedAction,
   type ResolvedSource,
   type WorkspaceConfig,
@@ -41,6 +42,7 @@ export interface LoadedWorkspaceSource {
   readonly packageName: string;
   readonly itemBucketIdentity: string;
   readonly source: ResolvedSource<TSchema>;
+  readonly pipeline: PipelineConfig;
   readonly actions: readonly (ResolvedAction<TSchema> & {
     readonly packageName: string;
     readonly runtime?: Awaited<ReturnType<typeof createActionRuntime>>;
@@ -143,6 +145,7 @@ export async function loadExecutableWorkspace(
     const normalizedSource = normalizeInlineIdentity(record.source, path, "source", sourcePosition);
     sources.push({
       ...record,
+      pipeline: record.pipeline ?? {},
       source: normalizedSource,
       packageName: packageNameForPlugin(sourcePlugin, normalizedSource.identity, globalRoot),
       itemBucketIdentity: sourcePlugin.itemBucketIdentity!(normalizedSource.config),
@@ -245,6 +248,7 @@ export async function loadDataWorkspace(
     throwIfCancelled(cancellation);
     sources.push({
       id: item.id,
+      pipeline: item.pipeline ?? {},
       packageName: sourceName,
       itemBucketIdentity: sourcePackage.plugin.itemBucketIdentity!(resolvedSource.config),
       source: resolvedSource,
@@ -328,6 +332,7 @@ function validateUniqueSourceIds(
 function parseDataWorkspace(path: string): {
   sources: Array<{
     id: string;
+    pipeline?: PipelineConfig;
     source: Record<string, unknown>;
     actions?: Array<Record<string, unknown>>;
   }>;
@@ -369,6 +374,7 @@ function validateExecutableWorkspace(
     if (record.actions !== undefined && !Array.isArray(record.actions)) {
       throw new Error(`Executable Workspace configuration failed for ${path}: source ${record.id} actions must be an array`);
     }
+    validatePipelineConfig(record.pipeline, path, `source ${record.id}`);
     try {
       const sourcePlugin = pluginFor(record.source as object);
       if (sourcePlugin.kind !== "source") throw new TypeError("configuration node is not a Source");
@@ -468,6 +474,7 @@ function normalizeInlineIdentity<Configuration extends ResolvedSource<TSchema> |
 function validateWorkspaceData(value: unknown, path: string): asserts value is {
   sources: Array<{
     id: string;
+    pipeline?: PipelineConfig;
     source: Record<string, unknown>;
     actions?: Array<Record<string, unknown>>;
   }>;
@@ -487,6 +494,7 @@ function validateWorkspaceData(value: unknown, path: string): asserts value is {
     const id = record["id"];
     const source = record["source"];
     const actions = record["actions"];
+    const pipeline = record["pipeline"];
     if (typeof id !== "string" || id.length === 0) {
       throw new Error(`Workspace data validation failed for ${path}: source ${index} must define a string "id"`);
     }
@@ -496,6 +504,22 @@ function validateWorkspaceData(value: unknown, path: string): asserts value is {
     if (actions !== undefined && (!Array.isArray(actions) || actions.some((action) => !action || typeof action !== "object" || Array.isArray(action)))) {
       throw new Error(`Workspace data validation failed for ${path}: source ${id} actions must be an array of objects`);
     }
+    validatePipelineConfig(pipeline, path, `source ${id}`);
+  }
+}
+
+function validatePipelineConfig(value: unknown, path: string, location: string): void {
+  if (value === undefined) return;
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Workspace configuration failed for ${path}: ${location} pipeline must be an object`);
+  }
+  const claimLimit = (value as Record<string, unknown>)["claim_limit"];
+  if (claimLimit !== undefined && (!Number.isInteger(claimLimit) || (claimLimit as number) < 1)) {
+    throw new Error(`Workspace configuration failed for ${path}: ${location} pipeline claim_limit must be a positive integer`);
+  }
+  const unexpected = Object.keys(value).filter((key) => key !== "claim_limit");
+  if (unexpected.length > 0) {
+    throw new Error(`Workspace configuration failed for ${path}: ${location} pipeline has unknown fields: ${unexpected.join(", ")}`);
   }
 }
 
@@ -534,6 +558,9 @@ export function createWorkspaceSchemas(registry: PluginRegistry): WorkspaceSchem
   );
   const workspaceSource = Type.Object({
     id: Type.String(),
+    pipeline: Type.Optional(Type.Object({
+      claim_limit: Type.Optional(Type.Integer({ minimum: 1 })),
+    }, { additionalProperties: false })),
     source,
     actions: Type.Optional(Type.Array(action, { default: [] })),
   });

@@ -5,6 +5,7 @@ import { KeymapScope, workspaceKeymap } from "../../services/keymaps.tsx"
 import { workspaceMachine } from "../../services/workspace/workspace.machine.ts"
 import { AppMachineContext } from "../../services/app/provider.tsx"
 import type { LoadedWorkspace } from "../../../services/config/workspace.ts"
+import type { PipelineExecution } from "../../../services/store.ts"
 import { Breadcrumbs } from "../app/breadcrumbs.tsx"
 import { Badge } from "../app/badge.tsx"
 
@@ -16,6 +17,7 @@ import { Badge } from "../app/badge.tsx"
 export function WorkspaceView(props: {
   workspace: LoadedWorkspace
   sourceItems: Record<string, readonly Item[]>
+  pipelineExecutions: Record<string, readonly PipelineExecution[]>
 }) {
   const appActor = AppMachineContext.useActorRef()
   const actor = useActorRef(workspaceMachine, {
@@ -41,6 +43,7 @@ export function WorkspaceView(props: {
               sourceId={sourceId}
               selected={index === snapshot.context.sourceIndex}
               items={[...(props.sourceItems[sourceId] ?? [])]}
+              pipeline={props.pipelineExecutions[sourceId]}
               actions={(source?.actions ?? []).map((action, index) => ({
                 actionId: action.id ?? action.packageName,
                 step: index + 1,

@@ -3,7 +3,7 @@ import { appendFile, mkdir, open, readFile, rename, writeFile } from "node:fs/pr
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { ActionResult, Item } from "@clankpipe/core/config";
+import type { ActionResult, Item, PipelineState } from "@clankpipe/core/config";
 import { pluginFor } from "@clankpipe/core/config";
 import { renderActionInputs } from "./template.ts";
 
@@ -27,6 +27,18 @@ export interface ActionAttempt extends ActionResult {
   readonly source_action_index: number;
   readonly uses: string;
   readonly rendered_action_hash: string;
+}
+
+export interface PipelineExecution {
+  readonly workspace_id: string;
+  readonly source_id: string;
+  readonly item_id: string;
+  readonly action_plan_hash: string;
+  readonly state: PipelineState;
+  readonly item: Item;
+  readonly ts: string;
+  readonly action_index?: number;
+  readonly message?: string;
 }
 
 export function workspaceStoreRoot(workspace: LoadedWorkspace, root?: string): string {
@@ -139,6 +151,46 @@ export async function appendActionAttempt(
   await appendFile(path, `${JSON.stringify(attempt)}\n`);
 }
 
+export async function appendPipelineState(
+  workspace: LoadedWorkspace,
+  source: LoadedWorkspaceSource,
+  execution: PipelineExecution,
+  root?: string,
+): Promise<void> {
+  await mkdir(workspaceStoreRoot(workspace, root), { recursive: true });
+  await appendFile(pipelinePath(workspace, source, root), `${JSON.stringify(execution)}\n`);
+}
+
+export async function readPipelineExecutions(
+  workspace: LoadedWorkspace,
+  source: LoadedWorkspaceSource,
+  root?: string,
+): Promise<PipelineExecution[]> {
+  const records = await readJsonLines<PipelineExecution>(pipelinePath(workspace, source, root));
+  const latest = new Map<string, PipelineExecution>();
+  for (const record of records) {
+    latest.set(`${record.source_id}\0${record.item_id}\0${record.action_plan_hash}`, record);
+  }
+  return [...latest.values()];
+}
+
+export async function markStalePipelineExecutions(
+  workspace: LoadedWorkspace,
+  source: LoadedWorkspaceSource,
+  root?: string,
+): Promise<void> {
+  for (const execution of await readPipelineExecutions(workspace, source, root)) {
+    if (execution.state === "claimed" || execution.state === "running") {
+      await appendPipelineState(workspace, source, {
+        ...execution,
+        state: "stale",
+        ts: new Date().toISOString(),
+        message: "previous Run did not finish",
+      }, root);
+    }
+  }
+}
+
 export function renderedActionHash(uses: string, inputs: unknown): string {
   return hash(stableJson({ uses, with: inputs }));
 }
@@ -163,6 +215,7 @@ export interface StoredSourceSnapshot {
   readonly sourceSlug: string;
   readonly state: "missing" | "ready";
   readonly items: readonly StoredSnapshotItem[];
+  readonly pipeline?: readonly PipelineExecution[];
   readonly collectionStatus?: SourceCollectionStatus;
 }
 
@@ -187,6 +240,7 @@ export async function readStoreViews(workspace: LoadedWorkspace, root?: string):
     const current = boundary
       ? records.filter((value) => value["_agentboard_snapshot_key"] === boundary.snapshot_key && value["_agentboard_snapshot_id"] === boundary.snapshot_id)
       : [];
+    const pipeline = await readPipelineExecutions(workspace, source, root);
     const items = current.map((value) => {
       const item = stripSnapshotFields(value) as unknown as Item;
       return { item, sourceSlug: slug, actionState: actionPlanState(workspace, source, item, attempts) };
@@ -196,6 +250,7 @@ export async function readStoreViews(workspace: LoadedWorkspace, root?: string):
       sourceSlug: slug,
       state: boundary ? "ready" : "missing",
       items,
+      pipeline,
       collectionStatus: await readSourceCollectionStatus(workspace, source.id, root),
     });
   }
@@ -271,10 +326,21 @@ function actionPath(
   source: LoadedWorkspaceSource,
   root?: string,
 ): string {
-  const planHash = configuredSourceHash(source);
+  const planHash = actionPlanHash(source);
   return join(
     workspaceStoreRoot(workspace, root),
     `actions-${sourceSlug(source)}-${planHash}.jsonl`,
+  );
+}
+
+function pipelinePath(
+  workspace: LoadedWorkspace,
+  source: LoadedWorkspaceSource,
+  root?: string,
+): string {
+  return join(
+    workspaceStoreRoot(workspace, root),
+    `pipelines-${sourceSlug(source)}-${actionPlanHash(source)}.jsonl`,
   );
 }
 
@@ -297,7 +363,7 @@ function sourceSnapshotKey(source: LoadedWorkspaceSource): string {
   return defaultHasher([source.id, packageIdentity, config]);
 }
 
-function configuredSourceHash(source: LoadedWorkspaceSource): string {
+export function actionPlanHash(source: LoadedWorkspaceSource): string {
   return shortHash(JSON.stringify({
     id: source.id,
     source: sourceConfig(source),

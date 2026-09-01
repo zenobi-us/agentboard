@@ -56,6 +56,10 @@ _Avoid_: Monitor, control panel
 The current summary of an Item's configured Actions: `error` when a current Rendered Action identity has no success and its latest attempt failed, or when an Action cannot render; `success` when every current identity has succeeded or none are configured; and `pending` otherwise, including when the latest attempt was cancelled.
 _Avoid_: Latest attempt, aggregate Action state, Dashboard Result
 
+**Pipeline Execution**:
+The persisted Workspace and Source scoped state for one Item and Action plan. It remains visible after the Item leaves the current Source Snapshot.
+_Avoid_: Source status, external Item status
+
 **Store**:
 The local append-only record of Item observations, Source Snapshots, and Action attempts for one Workspace.
 _Avoid_: Database, cache when precision matters
@@ -76,7 +80,7 @@ _Avoid_: Cache shard, config hash
 
 - The CLI owns config loading, Plugin discovery, registry resolution, validation orchestration, Store paths, locking, runtime orchestration, and user commands.
 - The CLI does not know Source-specific query semantics or branch on Source package names; it invokes resolved Source behavior.
-- The CLI does not implement Action side effects or branch on Action package names; it invokes resolved Action behavior.
+- The CLI does not implement Action side effects or branch on Action package names; it invokes resolved Action behavior. The CLI owns Pipeline Execution state and claim budgets.
 - The CLI persists raw source payloads with normalized items so source schemas can evolve without bloating the core item model.
 
 ## Pipeline
@@ -85,10 +89,10 @@ _Avoid_: Cache shard, config hash
 workspace config
       |
       v
-load + validate -> collect items -> append store -> render action -> execute action
-      |                 |              |              |                |
-      v                 v              v              v                v
- apps/cli       source packages  apps/cli store   apps/cli      action packages
+load + validate -> collect items -> append store -> claim -> render action -> execute action
+      |                 |              |             |          |                |
+      v                 v              v             v          v                v
+ apps/cli       source packages  apps/cli store  apps/cli  apps/cli      action packages
 ```
 
 ## ADRs
