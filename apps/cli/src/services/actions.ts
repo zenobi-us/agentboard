@@ -17,7 +17,7 @@ export async function executeAction(
 ): Promise<ActionExecutionResult> {
   const result: unknown = await runtime.execute({ ...context, item, inputs });
   if (!isActionResult(result)) {
-    throw new TypeError("Action runtime execute() must return an AgentBoard Action Result");
+    throw new TypeError("Action runtime execute() must return a ClankPipe Action Result");
   }
   return result;
 }
