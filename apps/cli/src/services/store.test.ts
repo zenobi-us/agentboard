@@ -6,7 +6,7 @@ import { join } from "node:path";
 
 const previousDataHome = process.env["XDG_DATA_HOME"];
 import type { Item } from "@clankpipe/core/config";
-import { actionPlanHash, appendActionAttempt, appendPipelineState, appendSourceSnapshot, markStalePipelineExecutions, readPipelineExecutions, readStoreViews, sourceSlug, successfulActionKeys } from "./store.ts";
+import { actionPlanHash, appendActionAttempt, appendPipelineState, appendSourceSnapshot, markStalePipelineExecutions, readPipelineExecutions, readStoreViews, sourceSlug, successfulActionKeys, workspaceStoreRoot } from "./store.ts";
 
 type TestSource = {
   id: string;
@@ -58,6 +58,13 @@ describe("Store bucket paths", () => {
 });
 
 describe("Store migration compatibility", () => {
+  test("writes new records to the ClankPipe data path", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+    process.env["XDG_DATA_HOME"] = root;
+
+    expect(workspaceStoreRoot(workspace([source("issues")]), undefined)).toBe(join(root, "clankpipe", "test"));
+  });
+
   test("reads records from the old AgentBoard data path", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
     process.env["XDG_DATA_HOME"] = root;
@@ -66,6 +73,36 @@ describe("Store migration compatibility", () => {
     await appendSourceSnapshot(workspace([legacy]), legacy as never, [item("legacy", "issues")], new AbortController().signal, join(root, "agentboard"));
 
     expect((await readStoreViews(workspace([configured]), undefined))[0]?.items[0]?.item.id).toBe("legacy");
+  });
+
+  test("prefers current Action attempts when old and new stores coexist", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
+    process.env["XDG_DATA_HOME"] = root;
+    const configured = {
+      ...source("issues"),
+      actions: [{ packageName: "@clankpipe/action-run-cmd", config: { cmd: "true" } }],
+    };
+    const legacy = {
+      ...configured,
+      packageName: "@agentboard/source-github",
+      actions: [{ packageName: "@agentboard/action-run-cmd", config: { cmd: "true" } }],
+    };
+    const attempt = (outcome: "success" | "failure") => ({
+      ts: new Date().toISOString(),
+      outcome,
+      stdout: "",
+      stderr: "",
+      source_id: "issues",
+      item_id: "item-1",
+      source_action_index: 0,
+      uses: "action-run-cmd",
+      rendered_action_hash: "rendered",
+    });
+
+    await appendActionAttempt(workspace([legacy]), legacy as never, attempt("success"), join(root, "agentboard"));
+    await appendActionAttempt(workspace([configured]), configured as never, attempt("failure"), join(root, "clankpipe"));
+
+    expect(await successfulActionKeys(workspace([configured]), configured as never)).toEqual(new Set());
   });
 });
 

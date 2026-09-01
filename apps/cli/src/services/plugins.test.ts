@@ -155,6 +155,15 @@ describe("Plugin Package discovery", () => {
     expect(findProjectPackageRoot(configPath)).toBe(join(root, "nested"));
   });
 
+  test("discovers legacy AgentBoard Plugin Package keywords", () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/legacy", "legacy", pluginSource("source"), ["agentboard-package"]);
+
+    expect(discoverPluginPackages(configPath, join(root, "global")).map((item) => item.name)).toEqual(["legacy"]);
+  });
+
   test("finds the nearest project package root and prefers it over global packages", () => {
     const root = fixture();
     const projectRoot = join(root, "packages/app");
@@ -739,7 +748,7 @@ describe("Plugin Package discovery", () => {
     `);
 
     await expect(loadExecutableWorkspace(configPath)).rejects.toThrow(
-      'Plugin Package "unmarked" must include the "clankpipe-package" keyword',
+      'Plugin Package "unmarked" must include the "clankpipe-package" or "agentboard-package" keyword',
     );
   });
 
@@ -773,7 +782,7 @@ describe("Plugin Package discovery", () => {
     await expect(loadExecutableWorkspace(configPath, defineConfig({
       sources: [{ id: "one", source: source(plugin as never, { query: "ready" } as never, configPath) }],
     }))).rejects.toThrow(
-      'Plugin Package "unmarked" must include the "clankpipe-package" keyword',
+      'Plugin Package "unmarked" must include the "clankpipe-package" or "agentboard-package" keyword',
     );
   });
 

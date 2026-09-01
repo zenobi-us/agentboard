@@ -448,7 +448,7 @@ function externalPluginPackageName(
         name?: unknown;
         keywords?: unknown;
       };
-      if (Array.isArray(manifest.keywords) && manifest.keywords.includes("clankpipe-package")) {
+      if (hasPluginKeyword(manifest.keywords)) {
         if (typeof manifest.name !== "string" || manifest.name.length === 0) {
           throw new Error(`Plugin Package at ${manifestPath} must define package.json name`);
         }
@@ -456,7 +456,7 @@ function externalPluginPackageName(
       }
       if (external) {
         throw new Error(
-          `Plugin Package "${String(manifest.name ?? directory)}" must include the "clankpipe-package" keyword`,
+          `Plugin Package "${String(manifest.name ?? directory)}" must include the "clankpipe-package" or "agentboard-package" keyword`,
         );
       }
     }
@@ -487,6 +487,10 @@ async function linkGlobalPackagesForImport(configPath: string, roots: readonly s
 function discoverPackagePackages(root: string): { name: string; root: string }[] {
   if (!existsSync(root)) return [];
   return discoverPluginPackages(root, root).map((item) => ({ name: item.name, root: item.root }));
+}
+
+function hasPluginKeyword(keywords: unknown): boolean {
+  return Array.isArray(keywords) && (keywords.includes("clankpipe-package") || keywords.includes("agentboard-package"));
 }
 
 function throwIfCancelled(cancellation: AbortSignal): void {

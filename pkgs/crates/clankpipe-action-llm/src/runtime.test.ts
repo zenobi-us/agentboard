@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { resolve } from "node:path";
 import plugin from "./config.ts";
-import { buildHarnessArgs, resolveHerdrCwd } from "./runtime.ts";
+import { buildHarnessArgs, resolveHerdrCwd, runtime } from "./runtime.ts";
 
 test("requires exactly one prompt input", () => {
   expect(() => plugin.validate!({})).toThrow("exactly one of prompt or prompt_file is required");
@@ -17,6 +17,25 @@ test("builds harness arguments with configured options", () => {
 test("defaults to Pi for direct launches", () => {
   expect(buildHarnessArgs(undefined, "fix 'quoted'"))
     .toEqual(["pi", "fix 'quoted'"]);
+});
+
+test("passes ClankPipe and AgentBoard environment names to the harness", async () => {
+  const result = await runtime({ prompt: "ignored" } as never).execute({
+    workspaceId: "workspace",
+    sourceId: "source",
+    item: { id: "item" } as never,
+    inputs: {
+      prompt: "ignored",
+      terminal: {
+        kind: "generic",
+        command: "sh",
+        args: ["-c", "printf '%s|%s' \"$CLANKPIPE_ITEM_ID\" \"$AGENTBOARD_ITEM_ID\""],
+      },
+    } as never,
+    cancellation: new AbortController().signal,
+  });
+
+  expect(result).toMatchObject({ outcome: "success", stdout: "item|item" });
 });
 
 test("resolves relative Herdr working directories", () => {

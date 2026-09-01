@@ -81,7 +81,7 @@ async function readSourceStoreLines<T>(
   path: (storeRoot: string, source: LoadedWorkspaceSource) => string,
   root?: string,
 ): Promise<T[]> {
-  const variants = storeSourceVariants(source).reverse();
+  const variants = storeSourceVariants(source);
   return (await Promise.all(variants.map((variant) => readStoreLines<T>(workspace, (storeRoot) => path(storeRoot, variant), root)))).flat();
 }
 

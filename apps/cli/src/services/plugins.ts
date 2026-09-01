@@ -199,7 +199,7 @@ function readManifest(path: string): PackageManifest {
 }
 
 function hasPluginKeyword(keywords: unknown): boolean {
-  return Array.isArray(keywords) && keywords.includes("clankpipe-package");
+  return Array.isArray(keywords) && (keywords.includes("clankpipe-package") || keywords.includes("agentboard-package"));
 }
 
 async function importPlugin(item: PluginPackage): Promise<LoadedPluginPackage> {
