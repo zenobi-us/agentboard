@@ -33,7 +33,7 @@ An Action whose inputs AgentBoard rendered for one Item. It is ready for Action 
 _Avoid_: Configured Action, Action attempt
 
 **Action Runtime**:
-The Workspace-scoped executor created for one configured Action. Each execution receives one Item and its rendered inputs.
+The Workspace-scoped executor created for one configured Action. Each execution receives one Item and its rendered inputs. It returns a final Action Result or an explicit in-progress launch.
 _Avoid_: Prepared Action, Action attempt
 
 **Rendered Action identity**:
@@ -45,7 +45,7 @@ A recorded result for one Item and Rendered Action identity. It includes renderi
 _Avoid_: Build result, task result
 
 **Action attempt outcome**:
-The result classification of an Action attempt: `success`, `failure`, or `cancelled`. A cancelled outcome records interrupted execution and does not satisfy the Action's previous-success rule.
+The result classification of an Action attempt: `success`, `failure`, or `cancelled`. An in-progress launch is not an Action attempt until it reaches a final outcome. A cancelled outcome records interrupted execution and does not satisfy the Action's previous-success rule.
 _Avoid_: Success flag, exit status
 
 **Pipeline state**:

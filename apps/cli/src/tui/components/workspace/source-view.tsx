@@ -7,6 +7,7 @@ import { useTheme } from "../../services/theme/theme.tsx"
 import { SourceSummaryCard } from "./source-summary-card.tsx"
 import type { LoadedWorkspaceSource } from "../../../services/config/workspace.ts"
 import type { ActionRunResult } from "../../../services/runtime.ts"
+import { pipelineStateLabel } from "../../../services/store.ts"
 import { Breadcrumbs } from "../app/breadcrumbs.tsx"
 import { useAppMachine } from "../../services/app/provider.tsx"
 import { Badge } from "../app/badge.tsx"
@@ -172,7 +173,8 @@ function ActionStepsCard(props: {
 }
 
 function pipelineState(executions: readonly { item_id: string; state: string }[] | undefined, itemId: string): string {
-  return executions?.find((execution) => execution.item_id === itemId)?.state ?? "ready"
+  const state = executions?.find((execution) => execution.item_id === itemId)?.state;
+  return state ? pipelineStateLabel(state) : "ready"
 }
 
 function actionOutput(result: ActionRunResult): string {

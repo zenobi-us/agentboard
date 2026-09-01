@@ -63,7 +63,7 @@ export interface PipelineConfig {
   readonly claim_limit?: number;
 }
 
-/** Result returned after an action attempts to process an item. */
+/** Result returned after an action completes. */
 export interface ActionResult {
   /** Final action outcome. */
   readonly outcome: "success" | "failure" | "cancelled";
@@ -123,10 +123,27 @@ export interface SourceRuntime {
 }
 
 
+/** An Action launch that has not reached a final outcome. */
+export interface ActionInProgress {
+  /** Indicates that launch was accepted and completion is pending. */
+  readonly outcome: "running";
+  /** Output available at launch time. */
+  readonly stdout: string;
+  /** Error output available at launch time. */
+  readonly stderr: string;
+  /** Optional launch detail. */
+  readonly message?: string;
+  /** Final result when the Action can observe completion. */
+  readonly completion?: Promise<ActionResult>;
+}
+
+/** Result returned by an Action execution. */
+export type ActionExecutionResult = ActionResult | ActionInProgress;
+
 /** Workspace-scoped runtime that executes an Action for normalized Items. */
 export interface ActionRuntime<Inputs = unknown> {
-  /** Processes one item and returns its action result. */
-  execute(context: ActionExecutionContext<Inputs>): Promise<ActionResult> | ActionResult;
+  /** Processes one item and returns a final result or an in-progress launch. */
+  execute(context: ActionExecutionContext<Inputs>): Promise<ActionExecutionResult> | ActionExecutionResult;
   /** Reports whether an earlier successful result can be reused. */
   cachedSuccessIsValid?(context: ActionExecutionContext<Inputs>): Promise<boolean> | boolean;
 }

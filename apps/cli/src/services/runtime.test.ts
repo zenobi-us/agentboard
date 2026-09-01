@@ -133,6 +133,65 @@ describe("Workspace runtime orchestration", () => {
     }
   });
 
+  test("keeps an asynchronous Action running until its completion resolves", async () => {
+    const storeRoot = await mkdtemp(join(tmpdir(), "agentboard-async-pipeline-"));
+    let finish!: (result: ActionResult) => void;
+    const completion = new Promise<ActionResult>((resolve) => { finish = resolve; });
+    const path = new URL("./async-action.test.ts", import.meta.url).pathname;
+    const value: Item = {
+      id: "item-1",
+      reference_id: "AB-1",
+      title: "Async item",
+      status: "ready",
+      url: "https://example.test/items/1",
+      source_id: "issues",
+      source_kind: "memory",
+      raw: {},
+    };
+    const sourcePlugin = definePlugin(import.meta, {
+      kind: "source",
+      itemBucketIdentity: () => "memory",
+      schema: Type.Object({}),
+      runtime: () => ({ collect: () => [value] }),
+      healthCheck: () => undefined,
+    });
+    const actionPlugin = definePlugin(import.meta, {
+      kind: "action",
+      validate: () => undefined,
+      schema: Type.Object({}),
+      runtime: () => ({
+        execute: () => ({
+          outcome: "running" as const,
+          stdout: "started",
+          stderr: "",
+          message: "launch accepted",
+          completion,
+        }),
+      }),
+      healthCheck: () => undefined,
+    });
+    const workspace = await loadExecutableWorkspace(path, defineConfig({
+      sources: [{ id: "issues", source: source(sourcePlugin, {}, path), actions: [action(actionPlugin, {}, path)] }],
+    }));
+
+    try {
+      const first = await runWorkspace(workspace, { storeRoot });
+      expect(first.sources[0]?.actions[0]).toMatchObject({ itemId: "item-1", running: true });
+      expect((await readStoreViews(workspace, storeRoot))[0]?.pipeline).toEqual([
+        expect.objectContaining({ item_id: "item-1", state: "running" }),
+      ]);
+
+      finish({ outcome: "success", stdout: "done", stderr: "" });
+      await Bun.sleep(0);
+      await Bun.sleep(0);
+      expect((await readStoreViews(workspace, storeRoot))[0]?.pipeline).toEqual([
+        expect.objectContaining({ item_id: "item-1", state: "succeeded" }),
+      ]);
+    } finally {
+      await rm(storeRoot, { recursive: true, force: true });
+    }
+  });
+
   test("runs a QMD Plugin through the Workspace runtime", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-qmd-cli-"));
     const bin = join(root, "qmd");

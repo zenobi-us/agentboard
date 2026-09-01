@@ -138,6 +138,7 @@ function actionOutcome(
   if (running) return "running"
   if (!result) return "pending"
   if (result.error) return "error"
+  if (result.running) return "running (completion pending)"
   if (result.skipped) return "skipped"
   return result.result?.outcome ?? "pending"
 }
@@ -146,6 +147,7 @@ function statusSymbol(result: SourceRunResult["actions"][number] | undefined, ru
   if (running) return "…"
   if (!result) return "○"
   if (result.error || result.result?.outcome === "failure") return "×"
+  if (result.running) return "…"
   if (result.skipped) return "–"
   if (result.result?.outcome === "success") return "●"
   return "○"

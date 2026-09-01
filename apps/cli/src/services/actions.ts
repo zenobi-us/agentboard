@@ -1,6 +1,6 @@
 import {
   pluginFor,
-  type ActionResult,
+  type ActionExecutionResult,
   type ActionRuntime,
   type ActionRuntimeCreationContext,
   type HealthCheckContext,
@@ -14,7 +14,7 @@ export async function executeAction(
   inputs: unknown,
   runtime: ActionRuntime,
   context: ActionRuntimeCreationContext,
-): Promise<ActionResult> {
+): Promise<ActionExecutionResult> {
   const result: unknown = await runtime.execute({ ...context, item, inputs });
   if (!isActionResult(result)) {
     throw new TypeError("Action runtime execute() must return an AgentBoard Action Result");
@@ -57,12 +57,16 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isActionResult(value: unknown): value is ActionResult {
+function isActionResult(value: unknown): value is ActionExecutionResult {
   if (value === null || typeof value !== "object") return false;
-  if (Object.keys(value).some((key) => !["outcome", "stdout", "stderr", "message"].includes(key))) {
-    return false;
+  const result = value as Partial<ActionExecutionResult>;
+  if (result.outcome === "running") {
+    return typeof result.stdout === "string" &&
+      typeof result.stderr === "string" &&
+      (result.message === undefined || typeof result.message === "string") &&
+      (result.completion === undefined || result.completion instanceof Promise);
   }
-  const result = value as Partial<ActionResult>;
+  if (Object.keys(value).some((key) => !["outcome", "stdout", "stderr", "message"].includes(key))) return false;
   return (result.outcome === "success" || result.outcome === "failure" || result.outcome === "cancelled") &&
     typeof result.stdout === "string" &&
     typeof result.stderr === "string" &&

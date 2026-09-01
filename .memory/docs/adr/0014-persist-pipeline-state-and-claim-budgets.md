@@ -23,15 +23,27 @@ Action plan hash.
 
 The pipeline state vocabulary is:
 
-- `claimed`
-- `running`
-- `succeeded`
-- `failed`
-- `cancelled`
-- `stale`
+- `claimed`: the Item is reserved for this Run.
+- `running`: Action launch was accepted, but the Action has no final result yet.
+- `succeeded`: every Action in the plan completed successfully.
+- `failed`: an Action completed with failure, or execution raised an error.
+- `cancelled`: execution stopped by cancellation.
+- `stale`: a `claimed` or `running` execution was not completed by the prior process.
 
-The CLI runtime owns state transitions and persistence. Source and Action plugin
-runtime contracts do not change.
+`Action.execute()` MUST return a final `ActionResult` for synchronous work. An
+asynchronous Action MUST return an explicit in-progress result. The result MAY
+include a completion Promise when the Action can observe completion. The CLI
+MUST persist final Action attempts only after completion. A launch accepted
+without an observable completion remains `running` until recovery marks it
+`stale` or a later execution records a final result.
+
+The LLM Action observes completion for direct background launches through the
+child process. Terminal launchers such as Herdr, Zellij, and tmux only report
+that the terminal accepted the command. They remain `running` because the
+terminal does not expose agent completion to the Action.
+
+The CLI runtime owns state transitions and persistence. The optional in-progress
+result extends the Action runtime contract without changing Source contracts.
 
 A Workspace Source MAY define `pipeline.claim_limit`. This value limits new
 `eligible` to `claimed` transitions in one Run. Source `limit` remains the
@@ -42,7 +54,8 @@ executions. Dashboard views MUST merge these executions with the current Source
 Snapshot.
 
 A stale `claimed` or `running` execution MUST be visible after a process crash.
-Recovery policy can mark it `stale` before a later retry.
+Recovery policy marks it `stale` before a later retry. The Dashboard MUST label
+`running` as completion pending and `stale` as disconnected.
 
 ## Consequences
 

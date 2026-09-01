@@ -1,3 +1,4 @@
+import { pipelineStateLabel } from "../../../services/store.ts"
 import { useTheme } from "../../services/theme/theme.tsx"
 
 type SourceSummaryAction<T> = {
@@ -55,7 +56,7 @@ export function SourceSummaryCard<T, A extends SourceSummaryAction<T>>(props: So
 function pipelineSummary(executions: readonly { state: string }[]): string {
   const counts = new Map<string, number>()
   for (const execution of executions) counts.set(execution.state, (counts.get(execution.state) ?? 0) + 1)
-  return [...counts.entries()].map(([state, count]) => `${state}: ${count}`).join(", ")
+  return [...counts.entries()].map(([state, count]) => `${pipelineStateLabel(state)}: ${count}`).join(", ")
 }
 
 function SourceSummaryActionStep<T>(props: { actionId: string; step: number, items: T[] }) {

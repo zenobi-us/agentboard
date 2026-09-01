@@ -2,7 +2,7 @@ import { app, watchView } from "./app.ts";
 import { parseRunInterval } from "./run.ts";
 import { installCancellationHandlers } from "./cancellation.ts";
 import { loadWorkspace } from "../services/workspace.ts";
-import { readStoredItems, readStoreViews } from "../services/store.ts";
+import { pipelineStateLabel, readStoredItems, readStoreViews } from "../services/store.ts";
 
 export async function storedItems(workspacePath: string): Promise<unknown[]> {
   const workspace = await loadWorkspace(workspacePath, undefined, undefined, false);
@@ -43,7 +43,7 @@ export function renderListHuman(snapshots: Awaited<ReturnType<typeof readStoreVi
       lines.push(...snapshot.items.map(({ item, actionState }) => `${item.reference_id}\t${item.title}\t${item.status}\t${actionState === "succeeded" ? "success" : actionState === "failed" ? "error" : "pending"}`));
     }
     for (const execution of snapshot.pipeline ?? []) {
-      lines.push(`Pipeline\t${execution.state}\t${execution.item.reference_id}\t${execution.item.title}`);
+      lines.push(`Pipeline\t${pipelineStateLabel(execution.state)}\t${execution.item.reference_id}\t${execution.item.title}`);
     }
     if (snapshot.collectionStatus?.error) lines.splice(-1, 0, `Collection error: ${snapshot.collectionStatus.error}`);
     lines.push("");

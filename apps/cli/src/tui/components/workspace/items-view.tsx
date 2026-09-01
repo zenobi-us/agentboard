@@ -1,6 +1,6 @@
 import type { Item } from "@clankpipe/core/config"
 import type { LoadedWorkspace } from "../../../services/config/workspace.ts"
-import type { PipelineExecution } from "../../../services/store.ts"
+import { pipelineStateLabel, type PipelineExecution } from "../../../services/store.ts"
 import { useTheme } from "../../services/theme/theme.tsx"
 
 export function ItemsView(props: {
@@ -34,5 +34,6 @@ export function ItemsView(props: {
 }
 
 function pipelineState(executions: readonly PipelineExecution[] | undefined, itemId: string): string {
-  return executions?.find((execution) => execution.item_id === itemId)?.state ?? "ready"
+  const state = executions?.find((execution) => execution.item_id === itemId)?.state;
+  return state ? pipelineStateLabel(state) : "ready"
 }

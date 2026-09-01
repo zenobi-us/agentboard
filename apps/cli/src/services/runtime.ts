@@ -32,6 +32,7 @@ export interface ActionRunResult {
   readonly uses: string;
   readonly result?: ActionResult;
   readonly error?: string;
+  readonly running?: boolean;
   readonly skipped?: boolean;
 }
 
@@ -337,6 +338,23 @@ async function runActions(
         }
         await recordPipelineState(workspace, source, item, pipelineHash, "running", actionIndex, undefined, storeRoot);
         const result = await executeAction(item, inputs, action.runtime, context);
+        if (result.outcome === "running") {
+          results.push({ itemId: item.id, actionIndex, uses: action.packageName, running: true });
+          if (result.completion) {
+            void completeAsyncAction({
+              workspace,
+              source,
+              item,
+              actionIndex,
+              actionPackage: action.packageName,
+              renderedHash,
+              pipelineHash,
+              completion: result.completion,
+              storeRoot,
+            });
+          }
+          return { results, cancelled: false };
+        }
         const persistedResult = source.cancellation.aborted && result.outcome !== "cancelled"
           ? { ...result, outcome: "cancelled" as const, message: "action cancelled" }
           : result;
@@ -414,6 +432,42 @@ async function runActions(
     }
   }
   return { results, cancelled: false };
+}
+
+async function completeAsyncAction(options: {
+  workspace: LoadedWorkspace;
+  source: LoadedWorkspace["sources"][number];
+  item: Item;
+  actionIndex: number;
+  actionPackage: string;
+  renderedHash: string;
+  pipelineHash: string;
+  completion: Promise<ActionResult>;
+  storeRoot?: string;
+}): Promise<void> {
+  let result: ActionResult;
+  try {
+    result = await options.completion;
+  } catch (error) {
+    const message = errorMessage(error);
+    result = { outcome: "failure", stdout: "", stderr: message, message };
+  }
+  await appendActionAttempt(options.workspace, options.source, {
+    ts: new Date().toISOString(),
+    ...result,
+    source_id: options.source.id,
+    item_id: options.item.id,
+    source_action_index: options.actionIndex,
+    uses: options.actionPackage,
+    rendered_action_hash: options.renderedHash,
+  }, options.storeRoot);
+  if (result.outcome === "success" && options.actionIndex === options.source.actions.length - 1) {
+    await recordPipelineState(options.workspace, options.source, options.item, options.pipelineHash, "succeeded", options.actionIndex, undefined, options.storeRoot);
+  } else if (result.outcome === "failure") {
+    await recordPipelineState(options.workspace, options.source, options.item, options.pipelineHash, "failed", options.actionIndex, result.message, options.storeRoot);
+  } else if (result.outcome === "cancelled") {
+    await recordPipelineState(options.workspace, options.source, options.item, options.pipelineHash, "cancelled", options.actionIndex, result.message, options.storeRoot);
+  }
 }
 
 async function recordPipelineState(

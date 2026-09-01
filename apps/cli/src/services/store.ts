@@ -198,6 +198,13 @@ export async function appendPipelineState(
   await appendFile(pipelinePath(workspace, source, root), `${JSON.stringify(execution)}\n`);
 }
 
+export function pipelineStateLabel(state: PipelineState | string): string {
+  if (state === "running") return "running (completion pending)";
+  if (state === "stale") return "stale (disconnected)";
+  if (state === "claimed") return "claimed (not started)";
+  return state;
+}
+
 export async function readPipelineExecutions(
   workspace: LoadedWorkspace,
   source: LoadedWorkspaceSource,
