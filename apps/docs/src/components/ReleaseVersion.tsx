@@ -5,7 +5,7 @@ import { useReleaseVersions } from './useReleaseVersions';
 export function ReleaseVersion() {
   const releases = useReleaseVersions();
   const cliVersion = releases.status === 'loaded'
-    ? releases.manifest.packages.find((releasePackage) => releasePackage.name === 'agentboard')?.version
+    ? releases.manifest.packages.find((releasePackage) => releasePackage.name === '@clankpipe/cli')?.version
     : undefined;
 
   return (

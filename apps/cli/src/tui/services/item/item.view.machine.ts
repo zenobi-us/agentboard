@@ -1,4 +1,4 @@
-import type { Item } from "@agentboard/core/config"
+import type { Item } from "@clankpipe/core/config"
 import { fromPromise, assign, sendParent, setup } from "xstate"
 import type { AnyActorRef } from "xstate"
 import type { LoadedWorkspace } from "../../../services/config/workspace.ts"

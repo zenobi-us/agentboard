@@ -2,7 +2,7 @@
 id = "implement"
 
 [sources.source]
-uses = "@agentboard/source-github"
+uses = "@clankpipe/source-github"
 mode = "issue"
 query = '''repo:zenobi-us/agentboard is:open (label:"ready-for-agent" OR label:"agentboard:changes-requested") -label:"agentboard:implementing" -label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:created-asc'''
 limit = 1
@@ -16,7 +16,7 @@ helper = "gh auth token"
 
 [[sources.actions]]
 id = "worktree"
-uses = "@agentboard/action-worktree"
+uses = "@clankpipe/action-worktree"
 
 [sources.actions.with]
 repo = "."
@@ -25,7 +25,7 @@ branch = "agentboard/{{ item.id | slugify }}"
 
 [[sources.actions]]
 id = "run_llm"
-uses = "@agentboard/action-llm"
+uses = "@clankpipe/action-llm"
 
 [sources.actions.with]
 prompt = 'implement {{ item.reference_id }} (Source updated at: {{ item.raw.github.issue.updated_at }})'
@@ -41,7 +41,7 @@ harness_args = ["--approve", "@.pi/prompts/implement.md"]
 id = "review"
 
 [sources.source]
-uses = "@agentboard/source-github"
+uses = "@clankpipe/source-github"
 mode = "issue"
 query = '''repo:zenobi-us/agentboard is:open label:"agentboard:ready-for-review" -label:"agentboard:reviewing" sort:updated-asc'''
 limit = 1
@@ -55,7 +55,7 @@ helper = "gh auth token"
 
 [[sources.actions]]
 id = "worktree"
-uses = "@agentboard/action-worktree"
+uses = "@clankpipe/action-worktree"
 
 [sources.actions.with]
 repo = "."
@@ -64,7 +64,7 @@ branch = "agentboard/{{ item.id | slugify }}"
 
 [[sources.actions]]
 id = "run_llm"
-uses = "@agentboard/action-llm"
+uses = "@clankpipe/action-llm"
 
 [sources.actions.with]
 prompt = 'review {{ item.reference_id }} (Source updated at: {{ item.raw.github.issue.updated_at }})'

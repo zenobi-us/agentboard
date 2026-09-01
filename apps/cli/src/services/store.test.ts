@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Item } from "@agentboard/core/config";
+import type { Item } from "@clankpipe/core/config";
 import { appendActionAttempt, appendSourceSnapshot, readStoreViews, sourceSlug, successfulActionKeys } from "./store.ts";
 
 type TestSource = {
@@ -32,7 +32,7 @@ function workspace(sources: readonly TestSource[]) {
 function source(id: string, config: unknown = {}): TestSource {
   return {
     id,
-    packageName: "@agentboard/source-github",
+    packageName: "@clankpipe/source-github",
     itemBucketIdentity: "github.com",
     source: { config },
     actions: [],
@@ -41,12 +41,12 @@ function source(id: string, config: unknown = {}): TestSource {
 
 describe("Store bucket paths", () => {
   test("uses the registered Source kind and Item Bucket identity", () => {
-    expect(sourceSlug(source("issues") as never)).toBe("github-github-com-d0bc5a474405");
+    expect(sourceSlug(source("issues") as never)).toBe("github-github-com-1fee6d0f9c10");
   });
 
   test("does not truncate long Item Bucket identities", () => {
     const identity = "a".repeat(60);
-    expect(sourceSlug({ ...source("issues"), itemBucketIdentity: identity } as never)).toBe(`github-${identity}-209524c46551`);
+    expect(sourceSlug({ ...source("issues"), itemBucketIdentity: identity } as never)).toBe(`github-${identity}-2d0d4b1e035f`);
   });
 });
 
@@ -56,7 +56,7 @@ describe("Source Snapshot selection", () => {
     const configured = source("issues");
     await appendSourceSnapshot(workspace([configured]), configured as never, [], new AbortController().signal, root);
 
-    const path = join(root, "test", "items-github-github-com-d0bc5a474405.snapshots");
+    const path = join(root, "test", "items-github-github-com-1fee6d0f9c10.snapshots");
     const boundary = JSON.parse((await readFile(path, "utf8")).trim()) as { snapshot_key: string };
     expect(boundary.snapshot_key).toBe("dc7f8a622c44073e");
   });
@@ -68,7 +68,7 @@ describe("Source Snapshot selection", () => {
     await appendSourceSnapshot(workspace([first]), first as never, [item("first", "issues")], new AbortController().signal, root);
     await appendSourceSnapshot(workspace([second]), second as never, [item("second", "issues")], new AbortController().signal, root);
 
-    const path = join(root, "test", "items-github-github-com-d0bc5a474405.snapshots");
+    const path = join(root, "test", "items-github-github-com-1fee6d0f9c10.snapshots");
     const boundaries = (await readFile(path, "utf8")).trim().split("\n").map((line) => JSON.parse(line)) as Array<{ snapshot_key: string }>;
     expect(boundaries[0]?.snapshot_key).toBe(boundaries[1]?.snapshot_key);
   });
@@ -89,7 +89,7 @@ describe("Source Snapshot selection", () => {
   test("does not erase a concurrent boundary after cancellation", async () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
     const configured = source("issues");
-    const boundaryPath = join(root, "test", "items-github-github-com-d0bc5a474405.snapshots");
+    const boundaryPath = join(root, "test", "items-github-github-com-1fee6d0f9c10.snapshots");
     let reads = 0;
     const cancellation = {
       get aborted() {
@@ -110,7 +110,7 @@ describe("Action attempt paths", () => {
     const root = await mkdtemp(join(tmpdir(), "agentboard-store-"));
     const configured = {
       ...source("issues"),
-      actions: [{ packageName: "@agentboard/action-run-cmd", config: { command: "echo ok" } }],
+      actions: [{ packageName: "@clankpipe/action-run-cmd", config: { command: "echo ok" } }],
     };
     const directory = join(root, "test");
     await mkdir(directory, { recursive: true });
@@ -129,7 +129,7 @@ describe("Action attempt paths", () => {
       source_id: "issues",
       item_id: "item-1",
       source_action_index: 0,
-      uses: "@agentboard/action-run-cmd",
+      uses: "@clankpipe/action-run-cmd",
       rendered_action_hash: "rendered",
     }, root);
 

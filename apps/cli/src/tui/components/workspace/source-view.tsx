@@ -1,5 +1,5 @@
 import { useActorRef, useSelector } from "@xstate/react"
-import type { Item } from "@agentboard/core/config"
+import type { Item } from "@clankpipe/core/config"
 import type { AnyActorRef } from "xstate"
 import { KeymapScope, sourceKeymap } from "../../services/keymaps.tsx"
 import { createSourceMachine, type SourceMachineInput } from "../../services/source/source.machine.ts"

@@ -5,7 +5,7 @@
   "bump-patch-for-minor-pre-major": true,
   "packages": {
     "apps/cli": {
-      "component": "agentboard",
+      "component": "clankpipe",
       "group": "application",
       "release-type": "node"
     },

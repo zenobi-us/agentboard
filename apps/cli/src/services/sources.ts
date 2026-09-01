@@ -5,7 +5,7 @@ import {
   type ResolvedSource,
   type SourceRuntime,
   type SourceRuntimeContext,
-} from "@agentboard/core/config";
+} from "@clankpipe/core/config";
 import type { TSchema } from "typebox";
 
 import type { LoadedWorkspaceSource } from "./config/workspace.ts";

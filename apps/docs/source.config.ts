@@ -31,17 +31,23 @@ export const cliDocs = defineDocs({
 export const sourceDocs = defineDocs({
   dir: "../../pkgs/crates",
   docs: {
-    files: ["agentboard-source-*/src/docs.md"],
+    files: ["clankpipe-source-*/src/docs.md"],
     ...docsOptions,
   },
-  meta: metaOptions,
+  meta: {
+    files: ["clankpipe-source-*/src/meta.json"],
+    ...metaOptions,
+  },
 });
 
 export const actionDocs = defineDocs({
   dir: "../../pkgs/crates",
   docs: {
-    files: ["agentboard-action-*/src/docs.md"],
+    files: ["clankpipe-action-*/src/docs.md"],
     ...docsOptions,
   },
-  meta: metaOptions,
+  meta: {
+    files: ["clankpipe-action-*/src/meta.json"],
+    ...metaOptions,
+  },
 });

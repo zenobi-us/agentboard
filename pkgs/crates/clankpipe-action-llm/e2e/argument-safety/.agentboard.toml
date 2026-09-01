@@ -1,0 +1,20 @@
+[[sources]]
+id = "local"
+
+[sources.source]
+uses = "@clankpipe/source-qmd"
+collections = ["tasks"]
+query = "status: ready"
+limit = 10
+
+[[sources.actions]]
+id = "run_llm"
+uses = "@clankpipe/action-llm"
+
+[sources.actions.with]
+prompt = "/implement {{ item.reference_id }}"
+
+[sources.actions.with.terminal]
+kind = "generic"
+command = "/usr/bin/env"
+harness = "fake-llm"

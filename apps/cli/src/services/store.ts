@@ -3,8 +3,8 @@ import { appendFile, mkdir, open, readFile, rename, writeFile } from "node:fs/pr
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { ActionResult, Item } from "@agentboard/core/config";
-import { pluginFor } from "@agentboard/core/config";
+import type { ActionResult, Item } from "@clankpipe/core/config";
+import { pluginFor } from "@clankpipe/core/config";
 import { renderActionInputs } from "./template.ts";
 
 import type { LoadedWorkspace, LoadedWorkspaceSource } from "./config/workspace.ts";
@@ -291,7 +291,7 @@ function sourceKind(source: LoadedWorkspaceSource): string {
 
 function sourceSnapshotKey(source: LoadedWorkspaceSource): string {
   const config = JSON.stringify(source.source.config ?? {});
-  const packageIdentity = source.packageName.startsWith("@agentboard/") || source.packageName.startsWith("agentboard-source-")
+  const packageIdentity = source.packageName.startsWith("@clankpipe/") || source.packageName.startsWith("clankpipe-source-")
     ? sourceKind(source)
     : source.packageName;
   return defaultHasher([source.id, packageIdentity, config]);

@@ -1,5 +1,5 @@
 {
-  "name": "@agentboard/docs",
+  "name": "@clankpipe/docs",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -10,9 +10,9 @@
     "fumadocs-mdx": "^15.0.12",
     "fumadocs-ui": "^16.10.5",
     "fumapress": "^0.6.2",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "typebox": "^1.2.2",
-    "react": "^19.2.7",
-    "react-dom": "^19.2.7",
     "waku": "1.0.0-beta.3"
   },
   "devDependencies": {

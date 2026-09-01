@@ -5,9 +5,9 @@
 `agentboard` is a Moon + proto monorepo for a Bun CLI that collects task-tracking items from external and local sources, stores normalized local copies, then runs workspace-configured actions.
 
 - `apps/cli`: Bun CLI.
-- `pkgs/crates/agentboard-core`: shared model/types.
-- `pkgs/crates/agentboard-source-*`: one package per source adapter.
-- `pkgs/crates/agentboard-action-*`: one package per action executor.
+- `pkgs/crates/clankpipe-core`: shared model/types.
+- `pkgs/crates/clankpipe-source-*`: one package per source adapter.
+- `pkgs/crates/clankpipe-action-*`: one package per action executor.
 - `apps/docs`: docs app scaffold.
 - `pkgs/tools/deployment`: release/deployment helper scripts.
 
@@ -26,8 +26,8 @@ Also read nested `AGENTS.md` files in apps/pkgs.
 ```bash
 bun install
 moon query projects
-moon run agentboard:build
-moon run agentboard:test
+moon run clankpipe:build
+moon run clankpipe:test
 moon run docs:dev
 ```
 

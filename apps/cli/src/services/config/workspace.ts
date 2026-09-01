@@ -11,7 +11,7 @@ import {
   type ResolvedAction,
   type ResolvedSource,
   type WorkspaceConfig,
-} from "@agentboard/core/config";
+} from "@clankpipe/core/config";
 
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -425,7 +425,7 @@ function externalPluginPackageName(
         name?: unknown;
         keywords?: unknown;
       };
-      if (Array.isArray(manifest.keywords) && manifest.keywords.includes("agentboard-package")) {
+      if (Array.isArray(manifest.keywords) && manifest.keywords.includes("clankpipe-package")) {
         if (typeof manifest.name !== "string" || manifest.name.length === 0) {
           throw new Error(`Plugin Package at ${manifestPath} must define package.json name`);
         }
@@ -433,7 +433,7 @@ function externalPluginPackageName(
       }
       if (external) {
         throw new Error(
-          `Plugin Package "${String(manifest.name ?? directory)}" must include the "agentboard-package" keyword`,
+          `Plugin Package "${String(manifest.name ?? directory)}" must include the "clankpipe-package" keyword`,
         );
       }
     }

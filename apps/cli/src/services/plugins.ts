@@ -7,7 +7,7 @@ import {
   isPluginDescriptor,
   type Plugin,
   type PluginRole,
-} from "@agentboard/core/config";
+} from "@clankpipe/core/config";
 import type { TSchema } from "typebox";
 
 type AnyPlugin = Plugin<PluginRole, TSchema>;
@@ -37,7 +37,7 @@ export interface PluginRegistry {
 }
 
 export function globalPluginRoot(): string {
-  return join(homedir(), ".local", "share", "agentboard", "plugins", "npm");
+  return join(homedir(), ".local", "share", "clankpipe", "plugins", "npm");
 }
 
 export function findProjectPackageRoot(configPath: string): string {
@@ -194,7 +194,7 @@ function readManifest(path: string): PackageManifest {
 }
 
 function hasPluginKeyword(keywords: unknown): boolean {
-  return Array.isArray(keywords) && keywords.includes("agentboard-package");
+  return Array.isArray(keywords) && keywords.includes("clankpipe-package");
 }
 
 async function importPlugin(item: PluginPackage): Promise<LoadedPluginPackage> {

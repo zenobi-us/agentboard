@@ -32,7 +32,7 @@ Fix: install QMD or remove the QMD Source from the Workspace.
 
 ## `required command git not found`
 
-The Workspace uses `@agentboard/action-worktree`, but `git` is not on `PATH`.
+The Workspace uses `@clankpipe/action-worktree`, but `git` is not on `PATH`.
 
 Fix: install Git or remove that Action.
 
@@ -48,7 +48,7 @@ Fix the command, credentials, paths, or Source item data. Then run again.
 
 ## Worktree Action refused an existing root
 
-`@agentboard/action-worktree` only manages an exact worktree root from the configured `repo`. It reuses the requested branch, but refuses to switch dirty worktrees or a branch checked out in another worktree.
+`@clankpipe/action-worktree` only manages an exact worktree root from the configured `repo`. It reuses the requested branch, but refuses to switch dirty worktrees or a branch checked out in another worktree.
 
 Fix the `repo` or `root`, commit or remove tracked and untracked changes, or release the requested branch from its other worktree. The Action never forces, resets, or cleans a worktree.
 
@@ -58,13 +58,13 @@ First identify where expansion belongs.
 
 AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
 
-- `@agentboard/action-run-cmd.cwd`
-- `@agentboard/action-worktree.repo`
-- `@agentboard/action-worktree.root`
+- `@clankpipe/action-run-cmd.cwd`
+- `@clankpipe/action-worktree.repo`
+- `@clankpipe/action-worktree.root`
 
 For these fields, check that the variable exists in the environment of the `agentboard` process, not only an interactive shell startup file.
 
-Variables in `@agentboard/action-run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
+Variables in `@clankpipe/action-run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
 
 MiniJinja expressions such as `{{ item.reference_id }}` always render before either kind of environment expansion.
 

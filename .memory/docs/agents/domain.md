@@ -17,11 +17,11 @@ Read these before exploring code:
 Current context docs:
 
 - `apps/cli/CONTEXT.md` for CLI commands, config loading, runtime orchestration, local store, template rendering, and dispatch.
-- `pkgs/crates/agentboard-core/CONTEXT.md` for shared model/config/result types.
-- `pkgs/crates/agentboard-source-qmd/CONTEXT.md` for the QMD source adapter.
-- `pkgs/crates/agentboard-source-jira/CONTEXT.md` for the Jira source adapter.
-- `pkgs/crates/agentboard-action-run-cmd/CONTEXT.md` for the shell command action.
-- `pkgs/crates/agentboard-action-worktree/CONTEXT.md` for the Git worktree action.
+- `pkgs/crates/clankpipe-core/CONTEXT.md` for shared model/config/result types.
+- `pkgs/crates/clankpipe-source-qmd/CONTEXT.md` for the QMD source adapter.
+- `pkgs/crates/clankpipe-source-jira/CONTEXT.md` for the Jira source adapter.
+- `pkgs/crates/clankpipe-action-run-cmd/CONTEXT.md` for the shell command action.
+- `pkgs/crates/clankpipe-action-worktree/CONTEXT.md` for the Git worktree action.
 
 If any listed ADR directory is empty, proceed silently. Do not create new ADR folders just to satisfy layout; producer skills create them when decisions exist.
 

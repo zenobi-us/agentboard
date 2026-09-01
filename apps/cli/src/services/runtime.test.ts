@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Type from "typebox";
-import qmd from "@agentboard/source-qmd";
+import qmd from "@clankpipe/source-qmd";
 
 import {
   action,
@@ -12,7 +12,7 @@ import {
   source,
   type ActionResult,
   type Item,
-} from "@agentboard/core/config";
+} from "@clankpipe/core/config";
 
 import { installCancellationHandlers } from "../cli/cancellation.ts";
 import { parseRunInterval, runExitStatus } from "../cli/run.ts";
@@ -103,15 +103,15 @@ describe("Workspace runtime orchestration", () => {
     const bin = join(root, "qmd");
     const configPath = join(root, "agentboard.config.ts");
     const cliPath = new URL("../cli/index.ts", import.meta.url).pathname;
-    const qmdConfig = new URL("../../../../pkgs/crates/agentboard-source-qmd/src/config.ts", import.meta.url).href;
-    const coreConfig = new URL("../../../../pkgs/crates/agentboard-core/src/config.ts", import.meta.url).href;
+    const qmdConfig = new URL("../../../../pkgs/crates/clankpipe-source-qmd/src/config.ts", import.meta.url).href;
+    const coreConfig = new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href;
     await writeFile(bin, "#!/bin/sh\nprintf '%s' '[{\"path\":\"/notes/AB-1.md\",\"body\":\"---\\nid: AB-1\\ntitle: Do it\\nstatus: ready\\n---\\nBody\"}]'\n");
     await chmod(bin, 0o755);
     await writeFile(join(root, "package.json"), "{\"name\":\"qmd-cli-test\"}\n");
-    await mkdir(join(root, "node_modules", "@agentboard"), { recursive: true });
+    await mkdir(join(root, "node_modules", "@clankpipe"), { recursive: true });
     await symlink(
-      new URL("../../../../pkgs/crates/agentboard-source-qmd", import.meta.url).pathname,
-      join(root, "node_modules", "@agentboard", "source-qmd"),
+      new URL("../../../../pkgs/crates/clankpipe-source-qmd", import.meta.url).pathname,
+      join(root, "node_modules", "@clankpipe", "source-qmd"),
       "dir",
     );
     await writeFile(configPath, `import { defineConfig, source } from ${JSON.stringify(coreConfig)};\nimport qmd from ${JSON.stringify(qmdConfig)};\nexport default defineConfig({ sources: [{ id: "tasks", source: source(qmd, { collections: ["tasks"], query: "status:ready" }, import.meta.url) }] });\n`);
@@ -1265,14 +1265,14 @@ describe("Workspace runtime orchestration", () => {
       source: {
         id: "issues",
         source: { uses: "memory" },
-        actions: [{ uses: "@agentboard/action-worktree" }],
+        actions: [{ uses: "@clankpipe/action-worktree" }],
       },
       item: { raw: { value: 1 } },
       actions: { worktree: { inputs: { root: "/tmp/worktree" } } },
     });
 
     expect(rendered).toEqual({
-      source: "memory|@agentboard/action-worktree",
+      source: "memory|@clankpipe/action-worktree",
       bracket: "/tmp/worktree",
       statement: "/tmp/worktree",
       expression: "2",

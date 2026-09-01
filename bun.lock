@@ -3,14 +3,14 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "agentboard",
+      "name": "clankpipe",
       "dependencies": {
-        "@agentboard/action-llm": "workspace:*",
-        "@agentboard/action-run-cmd": "workspace:*",
-        "@agentboard/action-worktree": "workspace:*",
-        "@agentboard/source-github": "workspace:*",
-        "@agentboard/source-jira": "workspace:*",
-        "@agentboard/source-qmd": "workspace:*",
+        "@clankpipe/action-llm": "workspace:*",
+        "@clankpipe/action-run-cmd": "workspace:*",
+        "@clankpipe/action-worktree": "workspace:*",
+        "@clankpipe/source-github": "workspace:*",
+        "@clankpipe/source-jira": "workspace:*",
+        "@clankpipe/source-qmd": "workspace:*",
         "@moonrepo/cli": "*",
         "@playwright/cli": "^0.1.14",
         "@types/bun": "^1.3.14",
@@ -20,18 +20,18 @@
       },
     },
     "apps/cli": {
-      "name": "@agentboard/cli",
+      "name": "@clankpipe/cli",
       "version": "0.0.1",
       "bin": {
         "agentboard": "dist/cli",
       },
       "dependencies": {
-        "@agentboard/action-run-cmd": "workspace:*",
-        "@agentboard/action-worktree": "workspace:*",
-        "@agentboard/core": "workspace:*",
-        "@agentboard/source-github": "workspace:*",
-        "@agentboard/source-jira": "workspace:*",
-        "@agentboard/source-qmd": "workspace:*",
+        "@clankpipe/action-run-cmd": "workspace:*",
+        "@clankpipe/action-worktree": "workspace:*",
+        "@clankpipe/core": "workspace:*",
+        "@clankpipe/source-github": "workspace:*",
+        "@clankpipe/source-jira": "workspace:*",
+        "@clankpipe/source-qmd": "workspace:*",
         "@opentui/core": "^0.5.6",
         "@opentui/react": "^0.5.6",
         "@xstate/react": "^6.1.0",
@@ -51,9 +51,9 @@
     "apps/demo": {
       "name": "agentboard-demo",
       "dependencies": {
-        "@agentboard/action-run-cmd": "workspace:*",
-        "@agentboard/action-worktree": "workspace:*",
-        "@agentboard/source-github": "workspace:*",
+        "@clankpipe/action-run-cmd": "workspace:*",
+        "@clankpipe/action-worktree": "workspace:*",
+        "@clankpipe/source-github": "workspace:*",
       },
       "devDependencies": {
         "@eslint/css": "^1.4.0",
@@ -65,7 +65,7 @@
       },
     },
     "apps/docs": {
-      "name": "@agentboard/docs",
+      "name": "@clankpipe/docs",
       "version": "0.0.1",
       "dependencies": {
         "@radix-ui/react-slot": "^1.3.0",
@@ -74,8 +74,8 @@
         "fumadocs-mdx": "^15.0.12",
         "fumadocs-ui": "^16.10.5",
         "fumapress": "^0.6.2",
-        "react": "^19.2.7",
-        "react-dom": "^19.2.7",
+        "react": "19.2.8",
+        "react-dom": "19.2.8",
         "typebox": "^1.2.2",
         "waku": "1.0.0-beta.3",
       },
@@ -89,37 +89,25 @@
         "vite": "8.0.16",
       },
     },
-    "pkgs/crates/agentboard-action-llm": {
-      "name": "@agentboard/action-llm",
+    "pkgs/crates/clankpipe-action-llm": {
+      "name": "@clankpipe/action-llm",
       "version": "0.0.1",
       "dependencies": {
-        "@agentboard/core": "workspace:*",
+        "@clankpipe/core": "workspace:*",
         "typebox": "^1.3.4",
       },
       "devDependencies": {
-        "@agentboard/action-worktree": "workspace:*",
-        "@agentboard/source-qmd": "workspace:*",
+        "@clankpipe/action-worktree": "workspace:*",
+        "@clankpipe/source-qmd": "workspace:*",
         "@types/bun": "^1.3.14",
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/agentboard-action-run-cmd": {
-      "name": "@agentboard/action-run-cmd",
+    "pkgs/crates/clankpipe-action-run-cmd": {
+      "name": "@clankpipe/action-run-cmd",
       "version": "0.0.1",
       "dependencies": {
-        "@agentboard/core": "workspace:*",
-        "typebox": "^1.3.4",
-      },
-      "devDependencies": {
-        "@types/bun": "^1.3.14",
-        "typescript": "^6.0.3",
-      },
-    },
-    "pkgs/crates/agentboard-action-worktree": {
-      "name": "@agentboard/action-worktree",
-      "version": "0.0.1",
-      "dependencies": {
-        "@agentboard/core": "workspace:*",
+        "@clankpipe/core": "workspace:*",
         "typebox": "^1.3.4",
       },
       "devDependencies": {
@@ -127,8 +115,20 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/agentboard-core": {
-      "name": "@agentboard/core",
+    "pkgs/crates/clankpipe-action-worktree": {
+      "name": "@clankpipe/action-worktree",
+      "version": "0.0.1",
+      "dependencies": {
+        "@clankpipe/core": "workspace:*",
+        "typebox": "^1.3.4",
+      },
+      "devDependencies": {
+        "@types/bun": "^1.3.14",
+        "typescript": "^6.0.3",
+      },
+    },
+    "pkgs/crates/clankpipe-core": {
+      "name": "@clankpipe/core",
       "version": "0.0.1",
       "dependencies": {
         "typebox": "^1.3.4",
@@ -138,11 +138,11 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/agentboard-source-github": {
-      "name": "@agentboard/source-github",
+    "pkgs/crates/clankpipe-source-github": {
+      "name": "@clankpipe/source-github",
       "version": "0.0.1",
       "dependencies": {
-        "@agentboard/core": "workspace:*",
+        "@clankpipe/core": "workspace:*",
         "typebox": "^1.3.4",
       },
       "devDependencies": {
@@ -150,11 +150,11 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/agentboard-source-jira": {
-      "name": "@agentboard/source-jira",
+    "pkgs/crates/clankpipe-source-jira": {
+      "name": "@clankpipe/source-jira",
       "version": "0.0.1",
       "dependencies": {
-        "@agentboard/core": "workspace:*",
+        "@clankpipe/core": "workspace:*",
         "typebox": "^1.3.4",
       },
       "devDependencies": {
@@ -162,11 +162,11 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/agentboard-source-qmd": {
-      "name": "@agentboard/source-qmd",
+    "pkgs/crates/clankpipe-source-qmd": {
+      "name": "@clankpipe/source-qmd",
       "version": "0.0.1",
       "dependencies": {
-        "@agentboard/core": "workspace:*",
+        "@clankpipe/core": "workspace:*",
         "typebox": "^1.3.4",
       },
       "devDependencies": {
@@ -179,23 +179,23 @@
     "vite": "8.0.16",
   },
   "packages": {
-    "@agentboard/action-llm": ["@agentboard/action-llm@workspace:pkgs/crates/agentboard-action-llm"],
+    "@clankpipe/action-llm": ["@clankpipe/action-llm@workspace:pkgs/crates/clankpipe-action-llm"],
 
-    "@agentboard/action-run-cmd": ["@agentboard/action-run-cmd@workspace:pkgs/crates/agentboard-action-run-cmd"],
+    "@clankpipe/action-run-cmd": ["@clankpipe/action-run-cmd@workspace:pkgs/crates/clankpipe-action-run-cmd"],
 
-    "@agentboard/action-worktree": ["@agentboard/action-worktree@workspace:pkgs/crates/agentboard-action-worktree"],
+    "@clankpipe/action-worktree": ["@clankpipe/action-worktree@workspace:pkgs/crates/clankpipe-action-worktree"],
 
-    "@agentboard/cli": ["@agentboard/cli@workspace:apps/cli"],
+    "@clankpipe/cli": ["@clankpipe/cli@workspace:apps/cli"],
 
-    "@agentboard/core": ["@agentboard/core@workspace:pkgs/crates/agentboard-core"],
+    "@clankpipe/core": ["@clankpipe/core@workspace:pkgs/crates/clankpipe-core"],
 
-    "@agentboard/docs": ["@agentboard/docs@workspace:apps/docs"],
+    "@clankpipe/docs": ["@clankpipe/docs@workspace:apps/docs"],
 
-    "@agentboard/source-github": ["@agentboard/source-github@workspace:pkgs/crates/agentboard-source-github"],
+    "@clankpipe/source-github": ["@clankpipe/source-github@workspace:pkgs/crates/clankpipe-source-github"],
 
-    "@agentboard/source-jira": ["@agentboard/source-jira@workspace:pkgs/crates/agentboard-source-jira"],
+    "@clankpipe/source-jira": ["@clankpipe/source-jira@workspace:pkgs/crates/clankpipe-source-jira"],
 
-    "@agentboard/source-qmd": ["@agentboard/source-qmd@workspace:pkgs/crates/agentboard-source-qmd"],
+    "@clankpipe/source-qmd": ["@clankpipe/source-qmd@workspace:pkgs/crates/clankpipe-source-qmd"],
 
     "@crustjs/core": ["@crustjs/core@0.0.19", "", { "dependencies": { "@crustjs/utils": "0.0.3" }, "peerDependencies": { "typescript": "^6.0.3" } }, "sha512-RV/1TDJ+RZ9DFSbIHXPIyZV7bvJjf9RaElly2BvNGor1HxuEfiu6BdR8SBWzAa+PyvXQk2hkXuSjmaNIE+jbCQ=="],
 
@@ -1313,7 +1313,11 @@
 
     "zwitch": ["zwitch@2.0.4", "", {}, "sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A=="],
 
-    "@agentboard/cli/react": ["react@19.2.8", "", {}, "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="],
+    "@clankpipe/cli/react": ["react@19.2.8", "", {}, "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="],
+
+    "@clankpipe/docs/react": ["react@19.2.8", "", {}, "sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw=="],
+
+    "@clankpipe/docs/react-dom": ["react-dom@19.2.8", "", { "dependencies": { "scheduler": "^0.27.0" }, "peerDependencies": { "react": "^19.2.8" } }, "sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ=="],
 
     "@eslint-community/eslint-utils/eslint-visitor-keys": ["eslint-visitor-keys@3.4.3", "", {}, "sha512-wpc+LXeiyiisxPlEkUzU6svyS1frIO3Mgxj1fdy7Pm8Ygzguax2N3Fa/D/ag1WqbOprdI+uY6wMUl8/a2G+iag=="],
 

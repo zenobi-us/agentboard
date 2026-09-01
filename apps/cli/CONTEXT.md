@@ -13,7 +13,7 @@ A package descriptor that provides one Source or Action. Every Plugin declares r
 _Avoid_: Configured Source, configured Action, runtime instance
 
 **Plugin Package**:
-An installed package marked with the `agentboard-package` keyword. One Plugin Package provides one Plugin.
+An installed package marked with the `clankpipe-package` keyword. One Plugin Package provides one Plugin.
 _Avoid_: Extension package, adapter package
 
 **Executable Configuration**:

@@ -1,0 +1,22 @@
+{
+  "name": "@clankpipe/action-llm",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/config.ts"
+  },
+  "dependencies": {
+    "typebox": "^1.3.4",
+    "@clankpipe/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@clankpipe/action-worktree": "workspace:*",
+    "@clankpipe/source-qmd": "workspace:*",
+    "@types/bun": "^1.3.14",
+    "typescript": "^6.0.3"
+  },
+  "keywords": [
+    "clankpipe-package"
+  ]
+}
