@@ -4,7 +4,7 @@ backend: github
 
 # Issue tracker: GitHub
 
-Issues and PRDs for this repo live in GitHub Issues for `zenobi-us/agentboard`. Use the `gh` CLI for all issue tracker operations.
+Issues and PRDs for this repo live in GitHub Issues for `zenobi-us/clankpipe`. Use the `gh` CLI for all issue tracker operations.
 
 ## Conventions
 
@@ -41,7 +41,7 @@ Infer the repo from `git remote -v`; `gh` does this automatically inside this cl
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue in `zenobi-us/agentboard`.
+Create a GitHub issue in `zenobi-us/clankpipe`.
 
 ## When a skill says "fetch the relevant ticket"
 
