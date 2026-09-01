@@ -53,12 +53,17 @@ export function findProjectPackageRoot(configPath: string): string {
 
 export function discoverPluginPackages(
   configPath: string,
-  globalRoot = globalPluginRoot(),
+  globalRoot?: string,
 ): PluginPackage[] {
   const local = discoverNodeModules(join(findProjectPackageRoot(configPath), "node_modules"));
-  const global = discoverPackageDirectory(globalRoot);
+  const roots = globalRoot ? [globalRoot] : [
+    join(homedir(), ".local", "share", "clankpipe", "plugins", "npm"),
+    join(homedir(), ".local", "share", "agentboard", "plugins", "npm"),
+  ];
+  const global = roots.flatMap(discoverPackageDirectory);
   const localNames = new Set(local.map((item) => item.name));
-  return [...local, ...global.filter((item) => !localNames.has(item.name))];
+  const names = new Set(localNames);
+  return [...local, ...global.filter((item) => !names.has(item.name) && names.add(item.name))];
 }
 
 export async function loadAllPlugins(
@@ -194,7 +199,7 @@ function readManifest(path: string): PackageManifest {
 }
 
 function hasPluginKeyword(keywords: unknown): boolean {
-  return Array.isArray(keywords) && keywords.includes("clankpipe-package");
+  return Array.isArray(keywords) && (keywords.includes("clankpipe-package") || keywords.includes("agentboard-package"));
 }
 
 async function importPlugin(item: PluginPackage): Promise<LoadedPluginPackage> {

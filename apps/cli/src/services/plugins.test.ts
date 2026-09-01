@@ -17,6 +17,7 @@ import {
   loadDataWorkspace,
   loadExecutableWorkspace,
   loadWorkspacePlugins,
+  resolveWorkspaceConfigPath,
   type LoadedWorkspace,
 } from "./config/workspace.ts";
 import { loadWorkspace } from "./workspace.ts";
@@ -121,12 +122,80 @@ afterEach(() => {
   for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true });
 });
 
+describe("Workspace migration compatibility", () => {
+  test("prefers an existing ClankPipe data Workspace over old executable names", () => {
+    const root = fixture();
+    const configPath = join(root, ".clankpipe.toml");
+    writeFileSync(configPath, "sources = []\n");
+    writeFileSync(join(root, "agentboard.config.ts"), "export default { sources: [{ id: \"old\" }] };\n");
+
+    expect(resolveWorkspaceConfigPath(configPath)).toBe(configPath);
+  });
+
+  test("keeps old executable names when the ClankPipe data Workspace is absent", () => {
+    const root = fixture();
+    writeFileSync(join(root, "agentboard.config.ts"), "export default { sources: [] };\n");
+
+    expect(resolveWorkspaceConfigPath(join(root, ".clankpipe.toml"))).toBe(join(root, "agentboard.config.ts"));
+  });
+
+  test("loads a real ClankPipe data Workspace", async () => {
+    const root = fixture();
+    const configPath = join(root, ".clankpipe.toml");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/source-package", "source-package", configurablePluginSource("source"));
+    writeFileSync(configPath, `[[sources]]\nid = "one"\n[sources.source]\nuses = "source-package"\nquery = "ready"\n`);
+
+    const loaded = await loadDataWorkspace(configPath, join(root, "global"), undefined, false);
+
+    expect(loaded.sources[0]?.packageName).toBe("source-package");
+  });
+
+  test("loads ClankPipe executable Workspace names", async () => {
+    const root = fixture();
+    for (const name of ["clankpipe.config.ts", "clankpipe.config.js"]) {
+      const configPath = join(root, name);
+      writeFileSync(configPath, "export default { sources: [] };\n");
+      const defaultPath = resolveWorkspaceConfigPath(join(root, ".clankpipe.toml"));
+
+      expect(defaultPath).toBe(configPath);
+      await expect(loadExecutableWorkspace(defaultPath, undefined, undefined, false)).resolves.toBeDefined();
+      rmSync(configPath);
+    }
+  });
+
+  test("loads executable Plugins from the legacy global namespace", async () => {
+    const root = fixture();
+    const globalRoot = join(root, "global");
+    const configPath = join(root, ".clankpipe.toml");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(globalRoot, "@agentboard/source-memory", "@agentboard/source-memory", pluginSource("source"));
+    writeFileSync(join(root, "agentboard.config.ts"), `
+      import { defineConfig, source } from ${JSON.stringify(new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href)};
+      import plugin from "@agentboard/source-memory";
+      export default defineConfig({ sources: [{ id: "one", source: source(plugin, { query: "ready" }, import.meta.url) }] });
+    `);
+
+    const loaded = await loadWorkspace(configPath, globalRoot, undefined, false);
+    expect(loaded).toBeDefined();
+  });
+});
+
 describe("Plugin Package discovery", () => {
   test("uses the config directory when no project package.json exists", () => {
     const root = fixture();
     const configPath = join(root, "nested", "agentboard.toml");
 
     expect(findProjectPackageRoot(configPath)).toBe(join(root, "nested"));
+  });
+
+  test("discovers legacy AgentBoard Plugin Package keywords", () => {
+    const root = fixture();
+    const configPath = join(root, "agentboard.config.ts");
+    writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
+    packageFixture(root, "node_modules/legacy", "legacy", pluginSource("source"), ["agentboard-package"]);
+
+    expect(discoverPluginPackages(configPath, join(root, "global")).map((item) => item.name)).toEqual(["legacy"]);
   });
 
   test("finds the nearest project package root and prefers it over global packages", () => {
@@ -713,7 +782,7 @@ describe("Plugin Package discovery", () => {
     `);
 
     await expect(loadExecutableWorkspace(configPath)).rejects.toThrow(
-      'Plugin Package "unmarked" must include the "clankpipe-package" keyword',
+      'Plugin Package "unmarked" must include the "clankpipe-package" or "agentboard-package" keyword',
     );
   });
 
@@ -747,7 +816,7 @@ describe("Plugin Package discovery", () => {
     await expect(loadExecutableWorkspace(configPath, defineConfig({
       sources: [{ id: "one", source: source(plugin as never, { query: "ready" } as never, configPath) }],
     }))).rejects.toThrow(
-      'Plugin Package "unmarked" must include the "clankpipe-package" keyword',
+      'Plugin Package "unmarked" must include the "clankpipe-package" or "agentboard-package" keyword',
     );
   });
 

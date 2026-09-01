@@ -11,7 +11,7 @@ export async function loadSchemaWorkspace(configPath: string) {
 
 export const schemaCmd = app
   .sub("schema")
-  .args([{ name: "workspace", type: "string", default: ".agentboard.toml" }])
+  .args([{ name: "workspace", type: "string", default: ".clankpipe.toml" }])
   .meta({ description: "Print the Workspace JSON Schema" })
   .run(async ({ args }) => {
     const registry = await loadSchemaWorkspace(args.workspace);

@@ -4,6 +4,6 @@ import { startTui } from "../tui/main.tsx";
 
 export const tuiCmd = app
   .sub("tui")
-  .args([{ name: "workspace", type: "string", default: ".agentboard.toml" }])
+  .args([{ name: "workspace", type: "string", default: ".clankpipe.toml" }])
   .meta({ description: "Open the experimental terminal interface" })
   .run(({ args }) => startTui(args.workspace, pkg.version));
