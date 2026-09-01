@@ -1,6 +1,6 @@
-# AgentBoard
+# ClankPipe
 
-- [Why AgentBoard](/why)
+- [Why ClankPipe](/why)
 - [Quickstart](/quickstart)
 
 - **Cli**

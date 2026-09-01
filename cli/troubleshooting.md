@@ -6,11 +6,11 @@
 
 ## Item Store requires `reference_id` [#item-store-requires-reference_id]
 
-The Item Store was written by an older AgentBoard version and cannot be loaded
+The Item Store was written by an older ClankPipe version and cannot be loaded
 by the current schema.
 
 Fix: remove the affected `items-<source.slug>.jsonl` path named in the error,
-then run the Workspace again. AgentBoard rebuilds Item observations from the
+then run the Workspace again. ClankPipe rebuilds Item observations from the
 Source.
 
 For Jira, QMD, and GitHub Sources with `field_map.id`, Item identities changed
@@ -38,7 +38,7 @@ Fix: install Git or remove that Action.
 
 ## Action keeps retrying [#action-keeps-retrying]
 
-AgentBoard retries failed Actions until one succeeds for the same retry identity:
+ClankPipe retries failed Actions until one succeeds for the same retry identity:
 
 ```text
 (source_id, item.id, source_action_index, rendered_action_hash)
@@ -56,13 +56,13 @@ Fix the `repo` or `root`, commit or remove tracked and untracked changes, or rel
 
 First identify where expansion belongs.
 
-AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
+ClankPipe expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
 
 * `@clankpipe/action-run-cmd.cwd`
 * `@clankpipe/action-worktree.repo`
 * `@clankpipe/action-worktree.root`
 
-For these fields, check that the variable exists in the environment of the `agentboard` process, not only an interactive shell startup file.
+For these fields, check that the variable exists in the environment of the `clankpipe` process, not only an interactive shell startup file.
 
 Variables in `@clankpipe/action-run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
 
@@ -94,7 +94,7 @@ Workspace config denies unknown fields, including inputs under `[sources.actions
 Use the schema:
 
 ```bash
-agentboard schema > agentboard.schema.json
+clankpipe schema > clankpipe.schema.json
 ```
 
 ## `list` shows unexpected Items [#list-shows-unexpected-items]
@@ -102,3 +102,14 @@ agentboard schema > agentboard.schema.json
 `list` shows the latest committed Source Snapshot for each configured Source. It does not show older observations that are not members of that Snapshot.
 
 If the Snapshot is missing, run the Workspace successfully. If an Item remains unexpected, inspect the Source query and the matching Snapshot records in the Store.
+
+## Migration from AgentBoard [#migration-from-agentboard]
+
+ClankPipe replaces AgentBoard. The old `agentboard` executable remains available as a compatibility alias.
+
+ClankPipe accepts old `agentboard` configuration and data paths. The compatibility alias remains through the 0.x release line. The project will remove it in the first stable major release. Rename these paths when you migrate a workspace:
+
+* `.agentboard.toml` to `.clankpipe.toml`
+* `agentboard.config.ts` or `agentboard.config.js` to `clankpipe.config.ts` or `clankpipe.config.js`
+* `~/.config/agentboard` to `~/.config/clankpipe`
+* `~/.local/share/agentboard` to `~/.local/share/clankpipe`

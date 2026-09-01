@@ -13,7 +13,7 @@ id = "github-ready"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = "repo:zenobi-us/agentboard is:open label:ready"
+query = "repo:zenobi-us/clankpipe is:open label:ready"
 limit = 50
 
 [sources.source.credentials]

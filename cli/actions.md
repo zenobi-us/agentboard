@@ -27,7 +27,7 @@ cmd = "echo {{ item.id }}"
 
 Sources run concurrently. Item Actions inside one Source are serial.
 
-For each Item returned by a Source, AgentBoard executes Actions in the order defined in the `sources.actions` array.
+For each Item returned by a Source, ClankPipe executes Actions in the order defined in the `sources.actions` array.
 
 Actions are blocking per item. If action `0` fails for an item, action `1` for that item does not run during that Run.
 
@@ -52,4 +52,4 @@ Failed Actions retry on the next `run`, including `run --watch`, until they succ
 
 ## Trust Model [#trust-model]
 
-Workspace configs are trusted local code, like a `Makefile`. AgentBoard does not sandbox commands.
+Workspace configs are trusted local code, like a `Makefile`. ClankPipe does not sandbox commands.

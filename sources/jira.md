@@ -29,7 +29,7 @@ token_env = "JIRA_API_TOKEN"
 jql = "project = AB ORDER BY updated DESC"
 ```
 
-Or configure a credential helper. AgentBoard writes Git-style request lines to
+Or configure a credential helper. ClankPipe writes Git-style request lines to
 stdin (`protocol`, `host`) and reads either `username`/`password` or
 `email`/`token` lines from stdout.
 
@@ -40,19 +40,19 @@ site = "https://example.atlassian.net"
 jql = "project = AB ORDER BY updated DESC"
 
 [sources.source.credentials]
-helper = "agentboard-jira-credentials"
+helper = "clankpipe-jira-credentials"
 ```
 
 ## Field mapping [#field-mapping]
 
-AgentBoard uses Jira's internal issue `id` as stable `item.id` inside the Jira
+ClankPipe uses Jira's internal issue `id` as stable `item.id` inside the Jira
 site's Item Store. The Jira issue key is the default `item.reference_id`.
 
 Defaults map `reference_id` from `key`, `title` from `fields.summary`, `status`
 from `fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
 when you need custom Jira fields. Use `status_map` to normalize Jira status names.
 
-AgentBoard automatically requests Jira fields referenced by mapping paths that
+ClankPipe automatically requests Jira fields referenced by mapping paths that
 start with `fields.`. For example, `fields.customfield_10010.value` requests
 the top-level Jira field `customfield_10010`.
 
@@ -66,7 +66,7 @@ url = "fields.customfield_10010"
 
 `field_map.id` changes `item.reference_id`; it does not change `item.id`.
 
-Use `status_map` when Jira's status names should normalize to AgentBoard statuses.
+Use `status_map` when Jira's status names should normalize to ClankPipe statuses.
 
 ```toml
 status_map = { "To Do" = "ready", "In Progress" = "doing" }

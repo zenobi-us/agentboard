@@ -4,7 +4,7 @@
 
 # Quickstart [#quickstart]
 
-This demo copies the repository's `apps/demo` fixture into a private throwaway GitHub repository, creates twelve coding issues, and runs three GitHub Sources through one AgentBoard Watch:
+This demo copies the repository's `apps/demo` fixture into a private throwaway GitHub repository, creates twelve coding issues, and runs three GitHub Sources through one ClankPipe Watch:
 
 ```text
 ready-for-agent
@@ -19,13 +19,13 @@ ready-for-agent
                     -> remove worktree
 ```
 
-AgentBoard records successful actions. GitHub labels, PR state, and your cleanup approval record lifecycle completion.
+ClankPipe records successful actions. GitHub labels, PR state, and your cleanup approval record lifecycle completion.
 
 ## Prerequisites [#prerequisites]
 
 The demo uses a launcher to open Pi in a new pane, tab, or terminal window. Install and configure:
 
-* AgentBoard
+* ClankPipe
 * [GitHub CLI](https://cli.github.com/) authenticated with `gh auth login`
 * Git
 * [Bun](https://bun.sh/)
@@ -35,41 +35,41 @@ The demo uses a launcher to open Pi in a new pane, tab, or terminal window. Inst
 
 ## 1. Create the private demo repository [#1-create-the-private-demo-repository]
 
-From the AgentBoard repository, run the local setup script:
+From the ClankPipe repository, run the local setup script:
 
 ```sh
-env REPO=OWNER/agentboard-quickstart-demo \
-    TARGET_DIR="$HOME/agentboard-quickstart-demo" \
+env REPO=OWNER/clankpipe-quickstart-demo \
+    TARGET_DIR="$HOME/clankpipe-quickstart-demo" \
     ./apps/demo/setup.sh
 ```
 
 You can also run the setup script without a local checkout:
 
 ```sh
-curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh | sh
+curl https://raw.githubusercontent.com/zenobi-us/clankpipe/refs/heads/main/apps/demo/setup.sh | sh
 ```
 
-When prompted, enter the new GitHub repository as `OWNER/agentboard-quickstart-demo`. To skip the prompt, pass `REPO` to the setup shell:
+When prompted, enter the new GitHub repository as `OWNER/clankpipe-quickstart-demo`. To skip the prompt, pass `REPO` to the setup shell:
 
 ```sh
-curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh \
-  | env REPO=OWNER/agentboard-quickstart-demo sh
+curl https://raw.githubusercontent.com/zenobi-us/clankpipe/refs/heads/main/apps/demo/setup.sh \
+  | env REPO=OWNER/clankpipe-quickstart-demo sh
 ```
 
-By default, the script clones the repository into `./agentboard-quickstart-demo`. Set `TARGET_DIR` to choose another exact local path:
+By default, the script clones the repository into `./clankpipe-quickstart-demo`. Set `TARGET_DIR` to choose another exact local path:
 
 ```sh
-curl https://raw.githubusercontent.com/zenobi-us/agentboard/refs/heads/main/apps/demo/setup.sh \
-  | env REPO=OWNER/agentboard-quickstart-demo \
-    TARGET_DIR="$HOME/agentboard-quickstart-demo" sh
+curl https://raw.githubusercontent.com/zenobi-us/clankpipe/refs/heads/main/apps/demo/setup.sh \
+  | env REPO=OWNER/clankpipe-quickstart-demo \
+    TARGET_DIR="$HOME/clankpipe-quickstart-demo" sh
 ```
 
 The setup script:
 
 1. creates a private GitHub repository;
 2. clones it into the selected local path;
-3. downloads and copies only AgentBoard's `apps/demo` directory;
-4. renders the repository-specific query in `.agentboard.toml`;
+3. downloads and copies only ClankPipe's `apps/demo` directory;
+4. renders the repository-specific query in `.clankpipe.toml`;
 5. installs ESLint, Husky, and lint-staged;
 6. creates a pre-commit hook that lints staged `*.html` and `*.css` files with ESLint;
 7. commits and pushes the demo;
@@ -78,55 +78,55 @@ The setup script:
 Enter the generated repository:
 
 ```sh
-cd agentboard-quickstart-demo
+cd clankpipe-quickstart-demo
 ```
 
 The generated Workspace contains three configured GitHub Sources:
 
-1. **implement** — open issues labelled `agentboard:ready-for-agent`;
-2. **review** — open issues labelled `agentboard:ready-for-review`;
-3. **cleanup** — closed issues labelled both `agentboard:review-complete` and `agentboard:cleanup-approved`.
+1. **implement** — open issues labelled `clankpipe:ready-for-agent`;
+2. **review** — open issues labelled `clankpipe:ready-for-review`;
+3. **cleanup** — closed issues labelled both `clankpipe:review-complete` and `clankpipe:cleanup-approved`.
 
 ## 2. Start Watch Mode and release two issues [#2-start-watch-mode-and-release-two-issues]
 
-Start AgentBoard from the standalone repository:
+Start ClankPipe from the standalone repository:
 
 ```sh
-agentboard run .agentboard.toml --watch --interval 15s
+clankpipe run .clankpipe.toml --watch --interval 15s
 ```
 
-The launcher uses Herdr when the process runs inside Herdr, Zellij when it runs inside Zellij, and then the first supported desktop terminal. Set `AGENTBOARD_LAUNCHER` to select one explicitly:
+The launcher uses Herdr when the process runs inside Herdr, Zellij when it runs inside Zellij, and then the first supported desktop terminal. Set `CLANKPIPE_LAUNCHER` to select one explicitly:
 
 ```sh
-AGENTBOARD_LAUNCHER=gnome-terminal agentboard run .agentboard.toml --watch --interval 15s
-AGENTBOARD_LAUNCHER=xterm agentboard run .agentboard.toml --watch --interval 15s
-AGENTBOARD_LAUNCHER=zellij AGENTBOARD_LAUNCH_MODE=tab agentboard run .agentboard.toml --watch --interval 15s
+CLANKPIPE_LAUNCHER=gnome-terminal clankpipe run .clankpipe.toml --watch --interval 15s
+CLANKPIPE_LAUNCHER=xterm clankpipe run .clankpipe.toml --watch --interval 15s
+CLANKPIPE_LAUNCHER=zellij CLANKPIPE_LAUNCH_MODE=tab clankpipe run .clankpipe.toml --watch --interval 15s
 ```
 
 From another terminal, list the seeded issues and release two of them:
 
 ```sh
 gh issue list
-gh issue edit <number> --add-label agentboard:ready-for-agent
-gh issue edit <number> --add-label agentboard:ready-for-agent
+gh issue edit <number> --add-label clankpipe:ready-for-agent
+gh issue edit <number> --add-label clankpipe:ready-for-agent
 ```
 
-GitHub Search can take several seconds to index a label change. On the next matching run, AgentBoard creates or reuses the issue worktree, installs its JavaScript dependencies with Bun, and launches Pi through the selected launcher.
+GitHub Search can take several seconds to index a label change. On the next matching run, ClankPipe creates or reuses the issue worktree, installs its JavaScript dependencies with Bun, and launches Pi through the selected launcher.
 
 ## 3. Observe implementation and review [#3-observe-implementation-and-review]
 
-The implementation Pi session reads the issue and implements its written acceptance criteria. On commit, Husky runs lint-staged and ESLint against staged HTML and CSS files. Pi fixes hook failures, pushes, and creates or updates a PR containing `Closes #<issue>`. It then moves the issue to `agentboard:ready-for-review`.
+The implementation Pi session reads the issue and implements its written acceptance criteria. On commit, Husky runs lint-staged and ESLint against staged HTML and CSS files. Pi fixes hook failures, pushes, and creates or updates a PR containing `Closes #<issue>`. It then moves the issue to `clankpipe:ready-for-review`.
 
 The review Source launches a separate reviewer Pi session in the same issue worktree:
 
-* **Pass:** Pi comments with review evidence, approves and merges the PR, and applies `agentboard:review-complete`. Confirm that the issue is closed.
-* **Changes requested:** Pi comments, applies `agentboard:changes-requested`, and returns the issue to `agentboard:ready-for-agent`. The implementation Source launches another Pi session in the existing worktree.
+* **Pass:** Pi comments with review evidence, approves and merges the PR, and applies `clankpipe:review-complete`. Confirm that the issue is closed.
+* **Changes requested:** Pi comments, applies `clankpipe:changes-requested`, and returns the issue to `clankpipe:ready-for-agent`. The implementation Source launches another Pi session in the existing worktree.
 
-After an accepted PR is merged, apply `agentboard:cleanup-approved` to its closed issue. The cleanup Source removes the issue worktree.
+After an accepted PR is merged, apply `clankpipe:cleanup-approved` to its closed issue. The cleanup Source removes the issue worktree.
 
 ## 4. Tear down the throwaway demo [#4-tear-down-the-throwaway-demo]
 
-Stop AgentBoard with <kbd>Ctrl</kbd>+<kbd>C</kbd>. Record the repository name, then delete the private GitHub repository:
+Stop ClankPipe with <kbd>Ctrl</kbd>+<kbd>C</kbd>. Record the repository name, then delete the private GitHub repository:
 
 ```sh
 repo="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
@@ -142,17 +142,17 @@ gh auth refresh -h github.com -s delete_repo
 After remote deletion succeeds, leave the directory and remove the local throwaway clone.
 
 
-# Why AgentBoard (/why)
+# Why ClankPipe (/why)
 
 
 
-# Why AgentBoard [#why-agentboard]
+# Why ClankPipe [#why-clankpipe]
 
 Task trackers are good at tracking. Agents need repeatable local work queues.
 
-AgentBoard copies task-like items from sources like QMD-backed markdown into a local store, then runs configured actions such as creating worktrees and launching commands.
+ClankPipe copies task-like items from sources like QMD-backed markdown into a local store, then runs configured actions such as creating worktrees and launching commands.
 
-AgentBoard is deliberately not a tracker replacement. Keep truth upstream. Use AgentBoard as the local automation bridge.
+ClankPipe is deliberately not a tracker replacement. Keep truth upstream. Use ClankPipe as the local automation bridge.
 
 
 # Actions (/cli/actions)
@@ -184,7 +184,7 @@ cmd = "echo {{ item.id }}"
 
 Sources run concurrently. Item Actions inside one Source are serial.
 
-For each Item returned by a Source, AgentBoard executes Actions in the order defined in the `sources.actions` array.
+For each Item returned by a Source, ClankPipe executes Actions in the order defined in the `sources.actions` array.
 
 Actions are blocking per item. If action `0` fails for an item, action `1` for that item does not run during that Run.
 
@@ -209,7 +209,7 @@ Failed Actions retry on the next `run`, including `run --watch`, until they succ
 
 ## Trust Model [#trust-model]
 
-Workspace configs are trusted local code, like a `Makefile`. AgentBoard does not sandbox commands.
+Workspace configs are trusted local code, like a `Makefile`. ClankPipe does not sandbox commands.
 
 
 # Commands (/cli/commands)
@@ -218,50 +218,50 @@ Workspace configs are trusted local code, like a `Makefile`. AgentBoard does not
 
 # Commands [#commands]
 
-Operational commands accept a Workspace path. If omitted, they use `.agentboard.toml` in the current directory. AgentBoard does not search parent directories.
+Operational commands accept a Workspace path. If omitted, they use `.clankpipe.toml` in the current directory. ClankPipe does not search parent directories.
 
 ## `workspace` [#workspace]
 
 Create an empty Workspace. The command creates the path you provide and does not overwrite an existing file:
 
 ```bash
-agentboard workspace init ./work.toml
+clankpipe workspace init ./work.toml
 ```
 
-List TOML files in the platform config directory under `agentboard`. On Linux, this is normally `~/.config/agentboard`. The output is a JSON array of file stems:
+List TOML files in the platform config directory under `clankpipe`. On Linux, this is normally `~/.config/clankpipe`. The output is a JSON array of file stems:
 
 ```bash
-agentboard workspace list
+clankpipe workspace list
 ```
 
 Open a Workspace in `$EDITOR`:
 
 ```bash
-EDITOR=vi agentboard workspace edit ./work.toml
+EDITOR=vi clankpipe workspace edit ./work.toml
 ```
 
-`EDITOR` must contain an executable command. AgentBoard passes the absolute Workspace path as its only argument.
+`EDITOR` must contain an executable command. ClankPipe passes the absolute Workspace path as its only argument.
 
-`agentboard workspaces` remains an alias for `agentboard workspace list`.
+`clankpipe workspaces` remains an alias for `clankpipe workspace list`.
 
 ## `run` [#run]
 
 Collect Items, commit a Source Snapshot, render Actions, and execute pending Actions:
 
 ```bash
-agentboard run ./work.toml
+clankpipe run ./work.toml
 ```
 
 Dry run collects Items and renders Actions. It does not acquire the Workspace lock, write Store files, or execute Actions:
 
 ```bash
-agentboard run ./work.toml --dry-run
+clankpipe run ./work.toml --dry-run
 ```
 
 Watch Mode repeats normal Runs until Ctrl-C. The default interval is 60 seconds. A watched dry run performs one dry Run and then exits.
 
 ```bash
-agentboard run ./work.toml --watch --interval 30s
+clankpipe run ./work.toml --watch --interval 30s
 ```
 
 `--interval` accepts seconds with an optional `s`, such as `30` or `30s`.
@@ -273,8 +273,8 @@ Use `--json` or `--output-format json` for structured Run output. Use global `--
 List Items from the latest committed Snapshot for each configured Source:
 
 ```bash
-agentboard list ./work.toml
-agentboard list ./work.toml --json
+clankpipe list ./work.toml
+clankpipe list ./work.toml --json
 ```
 
 JSON output contains `source_id`, `snapshot`, `collection_status`, and `items`. Each Item result is `success`, `error`, or `pending`. A missing Snapshot is different from a committed empty Snapshot.
@@ -286,19 +286,19 @@ JSON output contains `source_id`, `snapshot`, `collection_status`, and `items`. 
 Show one stored Item and its Action attempts:
 
 ```bash
-agentboard show ./work.toml AB-001
-agentboard show AB-001
-agentboard show ./work.toml AB-001 --json
+clankpipe show ./work.toml AB-001
+clankpipe show AB-001
+clankpipe show ./work.toml AB-001 --json
 ```
 
-The short form uses `.agentboard.toml`. The command matches either `item.id` or `item.reference_id`. `show --watch` refreshes the human view and cannot use `--json` or redirected stdout.
+The short form uses `.clankpipe.toml`. The command matches either `item.id` or `item.reference_id`. `show --watch` refreshes the human view and cannot use `--json` or redirected stdout.
 
 ## `dashboard` [#dashboard]
 
 Open the read-only Store dashboard:
 
 ```bash
-agentboard dashboard ./work.toml
+clankpipe dashboard ./work.toml
 ```
 
 The Dashboard requires interactive stdin and stdout. It reads committed Snapshots and collection status. It does not collect Sources, execute Actions, acquire the Workspace lock, or write Store files. It refreshes every 60 seconds. Press `r` to refresh or `q` or Esc to exit.
@@ -308,7 +308,7 @@ The Dashboard requires interactive stdin and stdout. It reads committed Snapshot
 Open the experimental OpenTUI shell:
 
 ```bash
-agentboard tui
+clankpipe tui
 ```
 
 This shell requires a terminal. It is not a supported Store-backed view.
@@ -318,7 +318,7 @@ This shell requires a terminal. It is not a supported Store-backed view.
 Validate a Workspace and its local environment:
 
 ```bash
-agentboard doctor ./work.toml
+clankpipe doctor ./work.toml
 ```
 
 The command checks Source configuration, Action configuration, and package-specific health requirements. It prints JSON and exits with status `1` when a check reports an error.
@@ -328,7 +328,7 @@ The command checks Source configuration, Action configuration, and package-speci
 Print the JSON Schema built from the registered Source and Action packages:
 
 ```bash
-agentboard schema > agentboard.schema.json
+clankpipe schema > clankpipe.schema.json
 ```
 
 The schema describes structure and types. It does not express every semantic rule, such as unique Source ids, non-empty Source maps, or required built-in Action inputs.
@@ -371,7 +371,7 @@ They are run concurrently, and when a source has finished retrieving items, its 
 
 ## Normalized Item Shape [#normalized-item-shape]
 
-After downloading or reading items from a source, agentboard normalizes them into a small model that is stored in the Workspace store.
+After downloading or reading items from a source, clankpipe normalizes them into a small model that is stored in the Workspace store.
 
 They are stored in a common shape, so Actions can be written to work with any Source.
 
@@ -417,7 +417,7 @@ Source packages own Source-specific validation and collection behavior.
 
 # Store [#store]
 
-The Store contains AgentBoard's append-only records of Item observations, Source
+The Store contains ClankPipe's append-only records of Item observations, Source
 Snapshot boundaries, and Action attempts. It also contains the latest collection
 status for each Source.
 
@@ -425,10 +425,10 @@ It is not the source of truth. The tracker or markdown collection remains the so
 
 ## Location [#location]
 
-AgentBoard stores data under the user's XDG data directory:
+ClankPipe stores data under the user's XDG data directory:
 
 ```text
-${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
+${XDG_DATA_HOME:-~/.local/share}/clankpipe/<workspace-id>/
   run.lock
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
@@ -448,7 +448,7 @@ latest committed Snapshot. A committed empty Snapshot is valid.
 Sources that share an Item Store keep separate Snapshot membership and their
 source-specific normalized Item values.
 
-The global `--log-file` option appends one structured `run.complete` event to the given JSONL path. AgentBoard does not create `events.jsonl` in the Store.
+The global `--log-file` option appends one structured `run.complete` event to the given JSONL path. ClankPipe does not create `events.jsonl` in the Store.
 
 Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 
@@ -535,8 +535,8 @@ This is display state, not tracker state.
 The Store records are plain JSONL, and collection status files are JSON. Use normal shell tools:
 
 ```bash
-tail -n 20 ~/.local/share/agentboard/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl
-jq . ~/.local/share/agentboard/work/items-jira-team-a-atlassian-net-abc123.jsonl
+tail -n 20 ~/.local/share/clankpipe/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl
+jq . ~/.local/share/clankpipe/work/items-jira-team-a-atlassian-net-abc123.jsonl
 ```
 
 ## Store schema migration [#store-schema-migration]
@@ -631,7 +631,7 @@ stable identity used by the Store and Action retry checks.
 
 ## Filters [#filters]
 
-AgentBoard registers `slugify` for conservative path and branch names:
+ClankPipe registers `slugify` for conservative path and branch names:
 
 ```jinja
 {{ item.title | slugify }}
@@ -645,10 +645,10 @@ Example:
 
 ## Rendering and expansion order [#rendering-and-expansion-order]
 
-AgentBoard processes Action inputs in three stages:
+ClankPipe processes Action inputs in three stages:
 
 1. MiniJinja renders every input.
-2. AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
+2. ClankPipe expands leading `~/`, `$VAR`, and `${VAR}` only in path inputs:
    * `@clankpipe/action-run-cmd`: `cwd`
    * `@clankpipe/action-worktree`: `repo`, `root`
 3. `@clankpipe/action-run-cmd` passes `cmd` and `healthcheck` to `sh -c`. The shell expands command variables after changing to `cwd`.
@@ -668,17 +668,17 @@ cwd = "$WORKTREE_ROOT/{{ item.id | slugify }}"
 cmd = '''printf '%s: %s\n' "{{ item.reference_id }}" "$PWD"'''
 ```
 
-Here AgentBoard expands `$WORKTREE_ROOT` in path fields, MiniJinja renders item fields, and the spawned shell resolves `$PWD` from its configured `cwd`.
+Here ClankPipe expands `$WORKTREE_ROOT` in path fields, MiniJinja renders item fields, and the spawned shell resolves `$PWD` from its configured `cwd`.
 
 ## Action hash [#action-hash]
 
-AgentBoard hashes the final inputs after MiniJinja and AgentBoard-time path expansion. Those exact strings are passed to the Action, so shell variables in `cmd` remain literal in both the hash and the command given to `sh -c`. The hash is part of retry identity:
+ClankPipe hashes the final inputs after MiniJinja and ClankPipe-time path expansion. Those exact strings are passed to the Action, so shell variables in `cmd` remain literal in both the hash and the command given to `sh -c`. The hash is part of retry identity:
 
 ```text
 (source_id, item.id, source_action_index, rendered_action_hash)
 ```
 
-If a template renders different inputs, AgentBoard treats it as new work.
+If a template renders different inputs, ClankPipe treats it as new work.
 
 ## Examples [#examples]
 
@@ -708,11 +708,11 @@ cwd = "~/Projects/MyProject"
 
 ## Item Store requires `reference_id` [#item-store-requires-reference_id]
 
-The Item Store was written by an older AgentBoard version and cannot be loaded
+The Item Store was written by an older ClankPipe version and cannot be loaded
 by the current schema.
 
 Fix: remove the affected `items-<source.slug>.jsonl` path named in the error,
-then run the Workspace again. AgentBoard rebuilds Item observations from the
+then run the Workspace again. ClankPipe rebuilds Item observations from the
 Source.
 
 For Jira, QMD, and GitHub Sources with `field_map.id`, Item identities changed
@@ -740,7 +740,7 @@ Fix: install Git or remove that Action.
 
 ## Action keeps retrying [#action-keeps-retrying]
 
-AgentBoard retries failed Actions until one succeeds for the same retry identity:
+ClankPipe retries failed Actions until one succeeds for the same retry identity:
 
 ```text
 (source_id, item.id, source_action_index, rendered_action_hash)
@@ -758,13 +758,13 @@ Fix the `repo` or `root`, commit or remove tracked and untracked changes, or rel
 
 First identify where expansion belongs.
 
-AgentBoard expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
+ClankPipe expands leading `~/`, `$VAR`, and `${VAR}` after MiniJinja rendering only for path inputs:
 
 * `@clankpipe/action-run-cmd.cwd`
 * `@clankpipe/action-worktree.repo`
 * `@clankpipe/action-worktree.root`
 
-For these fields, check that the variable exists in the environment of the `agentboard` process, not only an interactive shell startup file.
+For these fields, check that the variable exists in the environment of the `clankpipe` process, not only an interactive shell startup file.
 
 Variables in `@clankpipe/action-run-cmd.cmd` and `healthcheck` are left literal until `sh -c` runs. The shell starts in the configured `cwd`, so `$PWD` resolves there. Check shell syntax, quoting, exported variables, and whether the shell process receives the expected environment.
 
@@ -796,7 +796,7 @@ Workspace config denies unknown fields, including inputs under `[sources.actions
 Use the schema:
 
 ```bash
-agentboard schema > agentboard.schema.json
+clankpipe schema > clankpipe.schema.json
 ```
 
 ## `list` shows unexpected Items [#list-shows-unexpected-items]
@@ -804,6 +804,17 @@ agentboard schema > agentboard.schema.json
 `list` shows the latest committed Source Snapshot for each configured Source. It does not show older observations that are not members of that Snapshot.
 
 If the Snapshot is missing, run the Workspace successfully. If an Item remains unexpected, inspect the Source query and the matching Snapshot records in the Store.
+
+## Migration from AgentBoard [#migration-from-agentboard]
+
+ClankPipe replaces AgentBoard. The old `agentboard` executable remains available as a compatibility alias.
+
+ClankPipe accepts old `agentboard` configuration and data paths. The compatibility alias remains through the 0.x release line. The project will remove it in the first stable major release. Rename these paths when you migrate a workspace:
+
+* `.agentboard.toml` to `.clankpipe.toml`
+* `agentboard.config.ts` or `agentboard.config.js` to `clankpipe.config.ts` or `clankpipe.config.js`
+* `~/.config/agentboard` to `~/.config/clankpipe`
+* `~/.local/share/agentboard` to `~/.local/share/clankpipe`
 
 
 # Workspaces (/cli/workspaces)
@@ -816,22 +827,22 @@ A Workspace is one TOML file. It names Sources and the Actions for each Source.
 
 ## File selection [#file-selection]
 
-Operational commands use `.agentboard.toml` in the current directory when no Workspace argument is provided:
+Operational commands use `.clankpipe.toml` in the current directory when no Workspace argument is provided:
 
 ```bash
-agentboard run
+clankpipe run
 ```
 
-AgentBoard does not search parent directories. A supplied path selects exactly one file. AgentBoard does not merge files, load profiles, or apply field-level CLI overrides.
+ClankPipe does not search parent directories. A supplied path selects exactly one file. ClankPipe does not merge files, load profiles, or apply field-level CLI overrides.
 
 Named Workspaces are not resolved by operational commands. `workspace list` only lists `*.toml` files under the platform config directory. Pass the listed file path to another command:
 
 ```bash
-agentboard workspace list
-agentboard run "$HOME/.config/agentboard/work.toml"
+clankpipe workspace list
+clankpipe run "$HOME/.config/clankpipe/work.toml"
 ```
 
-The config directory follows the platform. On Linux, `XDG_CONFIG_HOME` sets the base directory; otherwise AgentBoard uses `~/.config`. AgentBoard adds the `agentboard` directory below that base.
+The config directory follows the platform. On Linux, `XDG_CONFIG_HOME` sets the base directory; otherwise ClankPipe uses `~/.config`. ClankPipe adds the `clankpipe` directory below that base.
 
 The Workspace id uses the canonical path, so moving a Workspace creates a different Store location.
 
@@ -866,7 +877,7 @@ Validation has two layers:
 
 Action ids are optional. When present, an Action id must match `[A-Za-z_][A-Za-z0-9_]*` and be unique within its Source. Later named Actions can use the id in templates.
 
-`agentboard schema` describes structural fields and types. It does not express every runtime rule. Use `doctor` to test the configured environment.
+`clankpipe schema` describes structural fields and types. It does not express every runtime rule. Use `doctor` to test the configured environment.
 
 ## Source and Action docs [#source-and-action-docs]
 
@@ -892,7 +903,7 @@ id = "github-ready"
 [sources.source]
 uses = "@clankpipe/source-github"
 mode = "issue"
-query = "repo:zenobi-us/agentboard is:open label:ready"
+query = "repo:zenobi-us/clankpipe is:open label:ready"
 limit = 50
 
 [sources.source.credentials]
@@ -970,7 +981,7 @@ token_env = "JIRA_API_TOKEN"
 jql = "project = AB ORDER BY updated DESC"
 ```
 
-Or configure a credential helper. AgentBoard writes Git-style request lines to
+Or configure a credential helper. ClankPipe writes Git-style request lines to
 stdin (`protocol`, `host`) and reads either `username`/`password` or
 `email`/`token` lines from stdout.
 
@@ -981,19 +992,19 @@ site = "https://example.atlassian.net"
 jql = "project = AB ORDER BY updated DESC"
 
 [sources.source.credentials]
-helper = "agentboard-jira-credentials"
+helper = "clankpipe-jira-credentials"
 ```
 
 ## Field mapping [#field-mapping]
 
-AgentBoard uses Jira's internal issue `id` as stable `item.id` inside the Jira
+ClankPipe uses Jira's internal issue `id` as stable `item.id` inside the Jira
 site's Item Store. The Jira issue key is the default `item.reference_id`.
 
 Defaults map `reference_id` from `key`, `title` from `fields.summary`, `status`
 from `fields.status.name`, and `url` to `{site}/browse/{key}`. Override mappings
 when you need custom Jira fields. Use `status_map` to normalize Jira status names.
 
-AgentBoard automatically requests Jira fields referenced by mapping paths that
+ClankPipe automatically requests Jira fields referenced by mapping paths that
 start with `fields.`. For example, `fields.customfield_10010.value` requests
 the top-level Jira field `customfield_10010`.
 
@@ -1007,7 +1018,7 @@ url = "fields.customfield_10010"
 
 `field_map.id` changes `item.reference_id`; it does not change `item.id`.
 
-Use `status_map` when Jira's status names should normalize to AgentBoard statuses.
+Use `status_map` when Jira's status names should normalize to ClankPipe statuses.
 
 ```toml
 status_map = { "To Do" = "ready", "In Progress" = "doing" }
@@ -1040,8 +1051,8 @@ query = "intent: Find ready work items\nlex: status ready"
 limit = 50
 ```
 
-AgentBoard runs `qmd query --format json --full -n <limit>` and reads each result's raw
-document body. It passes each configured collection with `-c <collection>`. Each matched note must have YAML frontmatter with string values at the paths configured by `map` for `id`, `title`, and `status`. `url` is optional; when absent AgentBoard uses the QMD document reference.
+ClankPipe runs `qmd query --format json --full -n <limit>` and reads each result's raw
+document body. It passes each configured collection with `-c <collection>`. Each matched note must have YAML frontmatter with string values at the paths configured by `map` for `id`, `title`, and `status`. `url` is optional; when absent ClankPipe uses the QMD document reference.
 
 `collections` and `query` are required. `limit` defaults to 50 and must be positive. `map` is optional and defaults to the paths `id`, `title`, `status`, and `url`.
 
@@ -1055,7 +1066,7 @@ Use `map` when your frontmatter uses different names or nested fields.
 
 ```toml
 [sources.source.map]
-id = "agentboard.id"
+id = "clankpipe.id"
 title = "title"
 status = "workflow.status"
 url = "links.issue"
@@ -1082,12 +1093,12 @@ mode = "foreground"
 kind = "herdr"
 container = "tab"
 harness = "pi"
-harness_args = ["--no-session"]
+harness_args = ["--approve"]
 cwd = "/home/me/dev/project"
 ```
 
 Set exactly one of `prompt` or `prompt_file`. The prompt file path is read after
-AgentBoard renders action inputs.
+ClankPipe renders action inputs.
 
 Use `worktree` to create or reuse a clean Git worktree before the agent starts.
 The action does not switch an existing worktree to another branch.
@@ -1096,14 +1107,21 @@ The action does not switch an existing worktree to another branch.
 [sources.actions.with.worktree]
 repo = "/home/me/dev/project"
 root = "/home/me/dev/project.trees/{{ item.id }}"
-branch = "agentboard/{{ item.id }}"
+branch = "clankpipe/{{ item.id }}"
 ```
 
 Set `terminal` to `zellij`, `herdr`, `tmux`, or `generic`. Set `harness` to the
 agent harness executable and `harness_args` to its arguments. The rendered
-prompt is the final harness argument. Terminal launches return after the
-terminal command starts. Direct launches wait for Pi in `foreground` mode and
-return after launch in `background` mode.
+prompt is the final harness argument. Pi starts a new saved session by default.
+Configure `--session-id` or `--no-session` explicitly when you need different behavior. Direct launches wait for Pi in
+`foreground` mode. Direct `background` launches return `running` immediately
+and ClankPipe records the final result when the child exits.
+
+Terminal launchers return `running` after they accept the command. Herdr
+worktree launches create a new tab in the worktree workspace. Herdr, Zellij,
+and tmux do not expose agent completion to this Action. ClankPipe
+marks such executions `stale (disconnected)` during recovery unless a later
+Action execution records completion.
 
 
 # Run command action (/actions/run-cmd)
@@ -1122,14 +1140,16 @@ uses = "@clankpipe/action-run-cmd"
 cmd = "echo {{ item.id }} {{ item.title }}"
 ```
 
-AgentBoard runs the command through `sh -c`. Templates can use the collected
+ClankPipe runs the command through `sh -c`. Templates can use the collected
 item and source fields.
 
 The command receives these environment variables:
 
-* `AGENTBOARD_WORKSPACE_ID`
-* `AGENTBOARD_SOURCE_ID`
-* `AGENTBOARD_ITEM_ID`
+* `CLANKPIPE_WORKSPACE_ID`
+* `CLANKPIPE_SOURCE_ID`
+* `CLANKPIPE_ITEM_ID`
+
+The old `AGENTBOARD_*` names remain available as aliases.
 
 Set `cwd` when the command should run from a specific directory.
 
@@ -1140,7 +1160,7 @@ cmd = "pi --prompt '{{ item.title }}'"
 ```
 
 For asynchronous launch commands, set `healthcheck` to a shell probe that
-reports readiness with exit status `0`. AgentBoard runs the probe immediately
+reports readiness with exit status `0`. ClankPipe runs the probe immediately
 after a successful launch, then polls until it passes or times out.
 
 ```toml
@@ -1154,7 +1174,7 @@ healthcheck_timeout = "30s"
 
 The interval defaults to `1s`; the timeout defaults to `30s`. Both accept
 human-readable durations such as `250ms`, `5s`, or `2m`. The healthcheck uses
-the same `cwd` and AgentBoard environment variables as `cmd`. A launch failure
+the same `cwd` and ClankPipe environment variables as `cmd`. A launch failure
 skips the healthcheck. A timeout fails the action, so a later run retries it.
 
 

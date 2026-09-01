@@ -4,7 +4,7 @@
 
 # Store [#store]
 
-The Store contains AgentBoard's append-only records of Item observations, Source
+The Store contains ClankPipe's append-only records of Item observations, Source
 Snapshot boundaries, and Action attempts. It also contains the latest collection
 status for each Source.
 
@@ -12,10 +12,10 @@ It is not the source of truth. The tracker or markdown collection remains the so
 
 ## Location [#location]
 
-AgentBoard stores data under the user's XDG data directory:
+ClankPipe stores data under the user's XDG data directory:
 
 ```text
-${XDG_DATA_HOME:-~/.local/share}/agentboard/<workspace-id>/
+${XDG_DATA_HOME:-~/.local/share}/clankpipe/<workspace-id>/
   run.lock
   items-<source.slug>.jsonl
   actions-<source.slug>-<source.hash>.jsonl
@@ -35,7 +35,7 @@ latest committed Snapshot. A committed empty Snapshot is valid.
 Sources that share an Item Store keep separate Snapshot membership and their
 source-specific normalized Item values.
 
-The global `--log-file` option appends one structured `run.complete` event to the given JSONL path. AgentBoard does not create `events.jsonl` in the Store.
+The global `--log-file` option appends one structured `run.complete` event to the given JSONL path. ClankPipe does not create `events.jsonl` in the Store.
 
 Legacy `sources/<source-id>/items.jsonl` and `sources/<source-id>/actions.jsonl` files are not migrated automatically.
 
@@ -122,8 +122,8 @@ This is display state, not tracker state.
 The Store records are plain JSONL, and collection status files are JSON. Use normal shell tools:
 
 ```bash
-tail -n 20 ~/.local/share/agentboard/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl
-jq . ~/.local/share/agentboard/work/items-jira-team-a-atlassian-net-abc123.jsonl
+tail -n 20 ~/.local/share/clankpipe/work/actions-jira-team-a-atlassian-net-abc123-def456.jsonl
+jq . ~/.local/share/clankpipe/work/items-jira-team-a-atlassian-net-abc123.jsonl
 ```
 
 ## Store schema migration [#store-schema-migration]
