@@ -31,7 +31,7 @@ XState can model this flow, but it does not replace the Store, workspace lock, p
 - The Dashboard reads Store files. It does not execute a Run or share an in-memory runtime.
 - `apps/cli` uses Bun and TypeScript. `apps/cli/package.json` does not currently depend on `xstate`.
 
-Relevant decisions: [ADR 0012](../adr/0012-use-cooperative-cancellation-through-runtime-contexts.md), [CLI ADR 0001](../adr/apps/cli/0001-use-run-as-public-pipeline-command.md), [CLI ADR 0002](../adr/apps/cli/0002-store-items-and-actions-as-per-source-jsonl.md), and [CLI ADR 0003](../adr/apps/cli/0003-share-source-collection-status-with-dashboard.md).
+Relevant decisions: [ADR 0012](../adr/0012-use-cooperative-cancellation-through-runtime-contexts.md), [CLI ADR 0001](../adr/apps/cli/0001-use-run-as-public-pipeline-command.md), [CLI ADR 0002](../adr/apps/cli/0002-store-items-and-actions-as-per-source-jsonl.md), and [CLI ADR 0003](../adr/apps/cli/0003-share-source-collection-status-with-tui.md).
 
 ## XState capabilities relevant to AgentBoard
 

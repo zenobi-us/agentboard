@@ -7,7 +7,7 @@ Accepted
 ## Context
 
 A Source Snapshot contains only Items that match the current Source query.
-An Item can leave that query after an Action claims it. The Dashboard then loses
+An Item can leave that query after an Action claims it. The TUI then loses
 visibility of work that AgentBoard still owns.
 
 The existing Source `limit` controls collection size. It does not control the
@@ -46,15 +46,21 @@ The CLI runtime owns state transitions and persistence. The optional in-progress
 result extends the Action runtime contract without changing Source contracts.
 
 A Workspace Source MAY define `pipeline.claim_limit`. This value limits new
-`eligible` to `claimed` transitions in one Run. Source `limit` remains the
-collection limit.
+Available Item to `claimed` transitions in one Action Run. Source `limit` remains
+the collection limit. A Force Claim bypasses `pipeline.claim_limit` for one
+Available Item.
 
-The Store MUST preserve the last Item snapshot for non-succeeded pipeline
-executions. Dashboard views MUST merge these executions with the current Source
-Snapshot.
+An Item without a previous successful Action result remains eligible for a
+later Action Run. This includes failed, cancelled, and stale executions.
+
+The Store MUST preserve the last Item snapshot for every pipeline execution.
+TUI views MUST merge these executions with the current Source Snapshot.
+The TUI groups Items with no pipeline execution as `Available` and all
+other pipeline Items as `Claimed`, under the next Action. The `claimed` state is
+shown by the `Claimed` group, not by a child state glyph.
 
 A stale `claimed` or `running` execution MUST be visible after a process crash.
-Recovery policy marks it `stale` before a later retry. The Dashboard MUST label
+Recovery policy marks it `stale` before a later retry. The TUI MUST label
 `running` as completion pending and `stale` as disconnected.
 
 ## Consequences

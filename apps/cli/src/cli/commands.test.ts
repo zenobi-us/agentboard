@@ -103,12 +103,4 @@ describe("Bun CLI command surface", () => {
       expect(result.stderr + result.stdout).toContain("--watch cannot be combined with --json");
     }
   });
-
-  test("keeps dashboard read-only and requires a terminal", async () => {
-    const workspace = `/tmp/agentboard-dashboard-${process.pid}.toml`;
-    await Bun.write(workspace, "sources = []\n");
-    const result = await run("dashboard", workspace);
-    expect(result.code).not.toBe(0);
-    expect(result.stderr + result.stdout).toContain("Dashboard requires interactive stdin and stdout");
-  });
 });

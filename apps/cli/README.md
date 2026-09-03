@@ -54,8 +54,7 @@ clankpipe workspaces
 clankpipe run [workspace] [--dry-run] [--watch] [--interval 60s]
 clankpipe list [workspace] [--json] [--watch] [--interval 60s]
 clankpipe show [workspace] <item> [--json] [--watch] [--interval 60s]
-clankpipe dashboard [workspace]
-clankpipe tui
+clankpipe tui [workspace]
 clankpipe doctor [workspace]
 clankpipe schema
 ```
@@ -72,4 +71,4 @@ Operational commands use `.clankpipe.toml` when the Workspace argument is omitte
 - [Commands](docs/commands.md) — command reference.
 - [Troubleshooting](docs/troubleshooting.md) — common errors.
 
-The `tui` command is an experimental OpenTUI shell. It is not the Store-backed `dashboard` command and does not provide a supported data view.
+The `tui` command is the interactive Store-backed terminal view. It shows one focused Workspace tree and opens Workspace, Source, Action, and Item details in drawers.

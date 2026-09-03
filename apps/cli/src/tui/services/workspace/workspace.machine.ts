@@ -28,7 +28,7 @@ export const workspaceMachine = setup({
     sourceIndex: 0,
     itemIndex: 0,
     sources: input.sources,
-    items: ["Fix sync failure", "Review source mapping", "Update dashboard"],
+    items: ["Fix sync failure", "Review source mapping"],
   }),
   states: {
     ready: {
