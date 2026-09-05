@@ -7,11 +7,11 @@ This repo uses a multi-context domain-doc layout. Read this file first, then rea
 | Path | Context doc | ADR scope | Scope |
 | --- | --- | --- | --- |
 | `apps/cli` | `apps/cli/CONTEXT.md` | `.memory/docs/adr/apps/cli/` | CLI commands, config loading, built-in registration, runtime orchestration, and local store. |
-| `pkgs/crates/clankpipe-core` | `pkgs/crates/clankpipe-core/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-core/` | Shared model, config envelopes, registration contracts, action/result structs, and cross-package helpers. |
-| `pkgs/crates/clankpipe-source-qmd` | `pkgs/crates/clankpipe-source-qmd/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-source-qmd/` | QMD collection/query source adapter. |
-| `pkgs/crates/clankpipe-source-jira` | `pkgs/crates/clankpipe-source-jira/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-source-jira/` | Jira JQL/API source adapter. |
-| `pkgs/crates/clankpipe-action-run-cmd` | `pkgs/crates/clankpipe-action-run-cmd/CONTEXT.md` | _none yet_ | Shell command action executor. |
-| `pkgs/crates/clankpipe-action-worktree` | `pkgs/crates/clankpipe-action-worktree/CONTEXT.md` | `.memory/docs/adr/pkgs/crates/clankpipe-action-worktree/` | Git worktree action executor. |
+| `pkgs/packages/clankpipe-core` | `pkgs/packages/clankpipe-core/CONTEXT.md` | `.memory/docs/adr/pkgs/packages/clankpipe-core/` | Shared model, config envelopes, registration contracts, action/result structs, and cross-package helpers. |
+| `pkgs/packages/clankpipe-source-qmd` | `pkgs/packages/clankpipe-source-qmd/CONTEXT.md` | `.memory/docs/adr/pkgs/packages/clankpipe-source-qmd/` | QMD collection/query source adapter. |
+| `pkgs/packages/clankpipe-source-jira` | `pkgs/packages/clankpipe-source-jira/CONTEXT.md` | `.memory/docs/adr/pkgs/packages/clankpipe-source-jira/` | Jira JQL/API source adapter. |
+| `pkgs/packages/clankpipe-action-run-cmd` | `pkgs/packages/clankpipe-action-run-cmd/CONTEXT.md` | _none yet_ | Shell command action executor. |
+| `pkgs/packages/clankpipe-action-worktree` | `pkgs/packages/clankpipe-action-worktree/CONTEXT.md` | `.memory/docs/adr/pkgs/packages/clankpipe-action-worktree/` | Git worktree action executor. |
 | `apps/docs` | _none yet_ | _none yet_ | Docs app. Uses ClankPipe terms from the CLI/core contexts when documenting product behavior. |
 | `pkgs/tools/deployment` | _none yet_ | _none yet_ | Release/deployment helper scripts. No separate domain language resolved yet. |
 | `.github` | _none yet_ | `.memory/docs/adr/` | Release coordination, publish dispatch, and CI helper scripts. |
@@ -44,7 +44,7 @@ source package -> normalized item -> apps/cli store -> rendered action -> action
 - Read `.memory/docs/adr/` for system-wide decisions if files exist there.
 - Read the scoped ADR directory listed above for the path being changed.
 - If changing a seam between contexts, read both contexts and both scoped ADR directories.
-- If a new decision applies to one crate, write its ADR under that crate's scoped ADR directory.
+- If a new decision applies to one package, write its ADR under that package's scoped ADR directory.
 - If a new decision applies across multiple contexts, write it under `.memory/docs/adr/` and name the affected contexts in the ADR.
 
 ## Agent artifact rules

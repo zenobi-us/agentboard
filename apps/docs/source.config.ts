@@ -29,7 +29,7 @@ export const cliDocs = defineDocs({
 });
 
 export const sourceDocs = defineDocs({
-  dir: "../../pkgs/crates",
+  dir: "../../pkgs/packages",
   docs: {
     files: ["clankpipe-source-*/src/docs.md"],
     ...docsOptions,
@@ -41,7 +41,7 @@ export const sourceDocs = defineDocs({
 });
 
 export const actionDocs = defineDocs({
-  dir: "../../pkgs/crates",
+  dir: "../../pkgs/packages",
   docs: {
     files: ["clankpipe-action-*/src/docs.md"],
     ...docsOptions,

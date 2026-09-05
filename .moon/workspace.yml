@@ -5,7 +5,7 @@ projects:
     github: ".github"
   globs:
     - "apps/*"
-    - "pkgs/crates/*"
+    - "pkgs/packages/*"
     - "pkgs/tools/*"
 
 vcs:

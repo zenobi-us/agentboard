@@ -23,8 +23,8 @@
       "name": "@clankpipe/cli",
       "version": "0.0.1",
       "bin": {
-        "agentboard": "dist/agentboard",
         "clankpipe": "dist/cli",
+        "agentboard": "dist/agentboard",
       },
       "dependencies": {
         "@clankpipe/action-run-cmd": "workspace:*",
@@ -90,7 +90,7 @@
         "vite": "8.0.16",
       },
     },
-    "pkgs/crates/clankpipe-action-llm": {
+    "pkgs/packages/clankpipe-action-llm": {
       "name": "@clankpipe/action-llm",
       "version": "0.0.1",
       "dependencies": {
@@ -104,7 +104,7 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/clankpipe-action-run-cmd": {
+    "pkgs/packages/clankpipe-action-run-cmd": {
       "name": "@clankpipe/action-run-cmd",
       "version": "0.0.1",
       "dependencies": {
@@ -116,7 +116,7 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/clankpipe-action-worktree": {
+    "pkgs/packages/clankpipe-action-worktree": {
       "name": "@clankpipe/action-worktree",
       "version": "0.0.1",
       "dependencies": {
@@ -128,7 +128,7 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/clankpipe-core": {
+    "pkgs/packages/clankpipe-core": {
       "name": "@clankpipe/core",
       "version": "0.0.1",
       "dependencies": {
@@ -139,7 +139,7 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/clankpipe-source-github": {
+    "pkgs/packages/clankpipe-source-github": {
       "name": "@clankpipe/source-github",
       "version": "0.0.1",
       "dependencies": {
@@ -151,7 +151,7 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/clankpipe-source-jira": {
+    "pkgs/packages/clankpipe-source-jira": {
       "name": "@clankpipe/source-jira",
       "version": "0.0.1",
       "dependencies": {
@@ -163,7 +163,7 @@
         "typescript": "^6.0.3",
       },
     },
-    "pkgs/crates/clankpipe-source-qmd": {
+    "pkgs/packages/clankpipe-source-qmd": {
       "name": "@clankpipe/source-qmd",
       "version": "0.0.1",
       "dependencies": {
@@ -180,23 +180,23 @@
     "vite": "8.0.16",
   },
   "packages": {
-    "@clankpipe/action-llm": ["@clankpipe/action-llm@workspace:pkgs/crates/clankpipe-action-llm"],
+    "@clankpipe/action-llm": ["@clankpipe/action-llm@workspace:pkgs/packages/clankpipe-action-llm"],
 
-    "@clankpipe/action-run-cmd": ["@clankpipe/action-run-cmd@workspace:pkgs/crates/clankpipe-action-run-cmd"],
+    "@clankpipe/action-run-cmd": ["@clankpipe/action-run-cmd@workspace:pkgs/packages/clankpipe-action-run-cmd"],
 
-    "@clankpipe/action-worktree": ["@clankpipe/action-worktree@workspace:pkgs/crates/clankpipe-action-worktree"],
+    "@clankpipe/action-worktree": ["@clankpipe/action-worktree@workspace:pkgs/packages/clankpipe-action-worktree"],
 
     "@clankpipe/cli": ["@clankpipe/cli@workspace:apps/cli"],
 
-    "@clankpipe/core": ["@clankpipe/core@workspace:pkgs/crates/clankpipe-core"],
+    "@clankpipe/core": ["@clankpipe/core@workspace:pkgs/packages/clankpipe-core"],
 
     "@clankpipe/docs": ["@clankpipe/docs@workspace:apps/docs"],
 
-    "@clankpipe/source-github": ["@clankpipe/source-github@workspace:pkgs/crates/clankpipe-source-github"],
+    "@clankpipe/source-github": ["@clankpipe/source-github@workspace:pkgs/packages/clankpipe-source-github"],
 
-    "@clankpipe/source-jira": ["@clankpipe/source-jira@workspace:pkgs/crates/clankpipe-source-jira"],
+    "@clankpipe/source-jira": ["@clankpipe/source-jira@workspace:pkgs/packages/clankpipe-source-jira"],
 
-    "@clankpipe/source-qmd": ["@clankpipe/source-qmd@workspace:pkgs/crates/clankpipe-source-qmd"],
+    "@clankpipe/source-qmd": ["@clankpipe/source-qmd@workspace:pkgs/packages/clankpipe-source-qmd"],
 
     "@crustjs/core": ["@crustjs/core@0.0.19", "", { "dependencies": { "@crustjs/utils": "0.0.3" }, "peerDependencies": { "typescript": "^6.0.3" } }, "sha512-RV/1TDJ+RZ9DFSbIHXPIyZV7bvJjf9RaElly2BvNGor1HxuEfiu6BdR8SBWzAa+PyvXQk2hkXuSjmaNIE+jbCQ=="],
 

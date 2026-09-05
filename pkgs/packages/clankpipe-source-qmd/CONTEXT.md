@@ -26,4 +26,4 @@ _Avoid_: Schema migration, transform pipeline
 
 ## ADRs
 
-Read `.memory/docs/adr/pkgs/crates/clankpipe-source-qmd/` before changing query handling, frontmatter mapping, or raw payload storage.
+Read `.memory/docs/adr/pkgs/packages/clankpipe-source-qmd/` before changing query handling, frontmatter mapping, or raw payload storage.

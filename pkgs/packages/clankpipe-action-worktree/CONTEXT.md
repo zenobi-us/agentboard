@@ -21,4 +21,4 @@ _Avoid_: Existing directory success; arbitrary directories are errors
 
 ## ADRs
 
-Read `.memory/docs/adr/pkgs/crates/clankpipe-action-worktree/` before changing git/worktree behavior.
+Read `.memory/docs/adr/pkgs/packages/clankpipe-action-worktree/` before changing git/worktree behavior.

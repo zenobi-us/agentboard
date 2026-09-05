@@ -54,7 +54,7 @@ _Avoid_: Item status, Action outcome
 
 ## Boundaries
 
-- Core owns shared types, Source and Action registration contracts, the internal Registry, and tiny cross-crate helpers.
+- Core owns shared types, Source and Action registration contracts, the internal Registry, and tiny cross-package helpers.
 - Core must not depend on CLI orchestration, source packages, or action packages.
 - The Bun runtime resolves discovered Plugin Descriptors into Core configuration nodes.
 - Keep normalized `Item` small and store source-specific payloads in `raw`.
@@ -62,4 +62,4 @@ _Avoid_: Item status, Action outcome
 
 ## ADRs
 
-Read `.memory/docs/adr/pkgs/crates/clankpipe-core/` before changing shared model names, config shape, or action identity fields.
+Read `.memory/docs/adr/pkgs/packages/clankpipe-core/` before changing shared model names, config shape, or action identity fields.

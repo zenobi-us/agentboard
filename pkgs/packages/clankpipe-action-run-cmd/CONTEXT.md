@@ -10,7 +10,7 @@ _Avoid_: Script runner plugin
 
 **Rendered inputs**:
 The action `with` values after MiniJinja rendering and environment expansion by the CLI.
-_Avoid_: Template config inside this crate
+_Avoid_: Template config inside this package
 
 **Launch healthcheck**:
 An optional shell probe that confirms an asynchronous handoff is ready after the launch command exits successfully.
@@ -25,4 +25,4 @@ _Avoid_: Continuous session monitor, harness lifecycle
 
 ## ADRs
 
-Read `.memory/docs/adr/pkgs/crates/clankpipe-action-run-cmd/` before changing process execution semantics or action output behavior.
+Read `.memory/docs/adr/pkgs/packages/clankpipe-action-run-cmd/` before changing process execution semantics or action output behavior.

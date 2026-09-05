@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-AgentBoard models a Source as a configured provider of task-like items plus source-owned query semantics (`pkgs/crates/clankpipe-core/CONTEXT.md`). Source adapters preserve raw provider payloads and normalize provider records into small Items (`apps/cli/CONTEXT.md`). Source configuration and runtime behavior are registered explicitly through the static Registry (`.memory/docs/adr/0010-use-explicit-static-source-and-action-registration.md`).
+AgentBoard models a Source as a configured provider of task-like items plus source-owned query semantics (`pkgs/packages/clankpipe-core/CONTEXT.md`). Source adapters preserve raw provider payloads and normalize provider records into small Items (`apps/cli/CONTEXT.md`). Source configuration and runtime behavior are registered explicitly through the static Registry (`.memory/docs/adr/0010-use-explicit-static-source-and-action-registration.md`).
 
 GitHub exposes issue data through the GraphQL issue search API, while GitHub Projects v2 uses GraphQL project item, field, and content-union APIs. Issue mode uses the `ISSUE_ADVANCED` search type so its query follows GitHub's advanced search syntax, including grouped `OR` expressions. Project mode adds custom fields/status and different auth requirements, so it is not the same collector as issue mode (`.memory/docs/agents/github-source-implications.md`).
 

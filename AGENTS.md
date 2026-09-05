@@ -5,9 +5,9 @@
 `clankpipe` is a Moon + proto monorepo for a Bun CLI that collects task-tracking items from external and local sources, stores normalized local copies, then runs workspace-configured actions.
 
 - `apps/cli`: Bun CLI.
-- `pkgs/crates/clankpipe-core`: shared model/types.
-- `pkgs/crates/clankpipe-source-*`: one package per source adapter.
-- `pkgs/crates/clankpipe-action-*`: one package per action executor.
+- `pkgs/packages/clankpipe-core`: shared model/types.
+- `pkgs/packages/clankpipe-source-*`: one package per source adapter.
+- `pkgs/packages/clankpipe-action-*`: one package per action executor.
 - `apps/docs`: docs app scaffold.
 - `pkgs/tools/deployment`: release/deployment helper scripts.
 

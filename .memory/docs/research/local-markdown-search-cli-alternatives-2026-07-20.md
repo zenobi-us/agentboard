@@ -4,7 +4,7 @@ Date: 2026-07-20
 
 ## Decision summary
 
-**Do not add one AgentBoard source crate per Markdown CLI. Add one mapped command source and keep the dedicated QMD source.** The command source should execute an argv vector, parse JSON or JSONL, select result rows through a configurable value path, optionally enrich each row by reading its referenced Markdown document, and apply the same shared field-mapping behavior used by first-party sources. This preserves each tool's query semantics behind the Source seam while avoiding a growing set of thin subprocess adapters. [Source registration contract](../../../pkgs/crates/agentboard-core/src/registry.rs) [QMD Source definition and runtime](../../../pkgs/crates/agentboard-source-qmd/src/lib.rs) [source-query ownership ADR](../adr/pkgs/crates/agentboard-source-qmd/0007-source-adapters-own-query-semantics.md)
+**Do not add one AgentBoard source crate per Markdown CLI. Add one mapped command source and keep the dedicated QMD source.** The command source should execute an argv vector, parse JSON or JSONL, select result rows through a configurable value path, optionally enrich each row by reading its referenced Markdown document, and apply the same shared field-mapping behavior used by first-party sources. This preserves each tool's query semantics behind the Source seam while avoiding a growing set of thin subprocess adapters. [Source registration contract](../../../pkgs/packages/agentboard-core/src/registry.rs) [QMD Source definition and runtime](../../../pkgs/packages/agentboard-source-qmd/src/lib.rs) [source-query ownership ADR](../adr/pkgs/packages/agentboard-source-qmd/0007-source-adapters-own-query-semantics.md)
 
 **This works across the candidate set, but not with arbitrary native output unchanged.** Tools already returning complete mapped rows—VaultDB, mdq, Markbase, mdbasequery, Vori, Krafna, and dotmd—need only output-path/field-path configuration. Hyalo and FMQL expose nested metadata suitable for mapping. mdvs and vlt return paths plus search evidence, so the command source must optionally load the selected Markdown file and map from parsed frontmatter. fmd returns plain paths and needs a tiny JSON wrapper before AgentBoard can consume it. A generic source unifies transport and normalization; it does not add missing search operators, upstream limits, or index lifecycle management.
 
@@ -36,7 +36,7 @@ workspace config
   -> normalize Item and preserve raw result/frontmatter/body
 ```
 
-The adapter requires each selected document to expose string `id`, `title`, and `status`; `url` is optional. It supports nested dot-path mappings, uses the backend document reference as `item.id`, stores the mapped frontmatter id as `item.reference_id`, and preserves backend output, frontmatter, and body in `raw`. [`pkgs/crates/agentboard-source-qmd/src/lib.rs`](../../../pkgs/crates/agentboard-source-qmd/src/lib.rs) [`pkgs/crates/agentboard-source-qmd/src/docs.md`](../../../pkgs/crates/agentboard-source-qmd/src/docs.md)
+The adapter requires each selected document to expose string `id`, `title`, and `status`; `url` is optional. It supports nested dot-path mappings, uses the backend document reference as `item.id`, stores the mapped frontmatter id as `item.reference_id`, and preserves backend output, frontmatter, and body in `raw`. [`pkgs/packages/agentboard-source-qmd/src/lib.rs`](../../../pkgs/packages/agentboard-source-qmd/src/lib.rs) [`pkgs/packages/agentboard-source-qmd/src/docs.md`](../../../pkgs/packages/agentboard-source-qmd/src/docs.md)
 
 An alternative therefore needs:
 
@@ -543,8 +543,8 @@ The following checks used upstream source clones and temporary fixtures containi
 
 ### AgentBoard
 
-- [`agentboard-source-qmd` implementation](../../../pkgs/crates/agentboard-source-qmd/src/lib.rs)
-- [QMD source documentation](../../../pkgs/crates/agentboard-source-qmd/src/docs.md)
+- [`agentboard-source-qmd` implementation](../../../pkgs/packages/agentboard-source-qmd/src/lib.rs)
+- [QMD source documentation](../../../pkgs/packages/agentboard-source-qmd/src/docs.md)
 
 ### Hyalo
 

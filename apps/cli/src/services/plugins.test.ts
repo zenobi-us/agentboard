@@ -34,7 +34,7 @@ function fixture(): string {
 function pluginSource(kind: "source" | "action"): string {
   return `
     import { definePlugin } from ${JSON.stringify(
-      new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
+      new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href,
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
@@ -59,7 +59,7 @@ function configurablePluginSource(
 ): string {
   return `
     import { definePlugin } from ${JSON.stringify(
-      new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
+      new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href,
     )};
     export default definePlugin(import.meta, {
       kind: ${JSON.stringify(kind)},
@@ -171,7 +171,7 @@ describe("Workspace migration compatibility", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
     packageFixture(globalRoot, "@agentboard/source-memory", "@agentboard/source-memory", pluginSource("source"));
     writeFileSync(join(root, "agentboard.config.ts"), `
-      import { defineConfig, source } from ${JSON.stringify(new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href)};
+      import { defineConfig, source } from ${JSON.stringify(new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href)};
       import plugin from "@agentboard/source-memory";
       export default defineConfig({ sources: [{ id: "one", source: source(plugin, { query: "ready" }, import.meta.url) }] });
     `);
@@ -391,7 +391,7 @@ describe("Plugin Package discovery", () => {
       "multiple",
       `
         import { definePlugin } from ${JSON.stringify(
-          new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
+          new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href,
         )};
         const definition = {
           itemBucketIdentity: () => "memory",
@@ -437,7 +437,7 @@ describe("Plugin Package discovery", () => {
     const descriptor = (marker: string) => `
       import { writeFileSync } from "node:fs";
       import { definePlugin } from ${JSON.stringify(
-        new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
+        new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href,
       )};
       writeFileSync(${JSON.stringify(marker)}, "imported");
       export default definePlugin(import.meta, {
@@ -534,7 +534,7 @@ describe("Plugin Package discovery", () => {
     workspacePackage(
       root,
       "@clankpipe/core",
-      new URL("../../../../pkgs/crates/clankpipe-core", import.meta.url).pathname,
+      new URL("../../../../pkgs/packages/clankpipe-core", import.meta.url).pathname,
     );
     writeFileSync(
       executablePath,
@@ -637,7 +637,7 @@ describe("Plugin Package discovery", () => {
       "action-package",
       `
         import { definePlugin } from ${JSON.stringify(
-          new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
+          new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href,
         )};
         export default definePlugin(import.meta, {
           kind: "action",
@@ -675,7 +675,7 @@ describe("Plugin Package discovery", () => {
       "action-package",
       `
         import { definePlugin } from ${JSON.stringify(
-          new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
+          new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href,
         )};
         export default definePlugin(import.meta, {
           kind: "action",
@@ -707,7 +707,7 @@ describe("Plugin Package discovery", () => {
     workspacePackage(
       root,
       "@clankpipe/core",
-      new URL("../../../../pkgs/crates/clankpipe-core", import.meta.url).pathname,
+      new URL("../../../../pkgs/packages/clankpipe-core", import.meta.url).pathname,
     );
     writeFileSync(
       configPath,
@@ -770,7 +770,7 @@ describe("Plugin Package discovery", () => {
     writeFileSync(join(root, "package.json"), JSON.stringify({ name: "project" }));
     packageFixture(root, "node_modules/unmarked", "unmarked", pluginSource("source"), []);
     const coreConfig = new URL(
-      "../../../../pkgs/crates/clankpipe-core/src/config.ts",
+      "../../../../pkgs/packages/clankpipe-core/src/config.ts",
       import.meta.url,
     ).href;
     writeFileSync(configPath, `
@@ -871,7 +871,7 @@ describe("Plugin Package discovery", () => {
       configPath,
       `
         import { definePlugin, source } from ${JSON.stringify(
-          new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
+          new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href,
         )};
         const plugin = definePlugin(import.meta, {
           kind: "source",
@@ -1002,7 +1002,7 @@ describe("Plugin Package discovery", () => {
     const descriptor = (marker: string) => `
       import { writeFileSync } from "node:fs";
       import { definePlugin } from ${JSON.stringify(
-        new URL("../../../../pkgs/crates/clankpipe-core/src/config.ts", import.meta.url).href,
+        new URL("../../../../pkgs/packages/clankpipe-core/src/config.ts", import.meta.url).href,
       )};
       writeFileSync(${JSON.stringify(marker)}, "imported");
       export default definePlugin(import.meta, {

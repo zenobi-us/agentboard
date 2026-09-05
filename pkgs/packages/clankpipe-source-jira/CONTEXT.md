@@ -28,4 +28,4 @@ _Avoid_: Login flow
 
 ## ADRs
 
-Read `.memory/docs/adr/pkgs/crates/clankpipe-source-jira/` before changing async source behavior, credential handling, or JQL/query ownership.
+Read `.memory/docs/adr/pkgs/packages/clankpipe-source-jira/` before changing async source behavior, credential handling, or JQL/query ownership.

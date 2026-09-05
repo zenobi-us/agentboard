@@ -8,8 +8,8 @@ The action accepts one rendered prompt or prompt file, passes the prompt to a co
 
 ## Validation
 
-- `bun run --cwd pkgs/crates/agentboard-action-llm typecheck`: passed.
-- `bun test pkgs/crates/agentboard-action-llm/src apps/cli/src/services/runtime.test.ts`: passed; 41 tests, 119 assertions.
+- `bun run --cwd pkgs/packages/agentboard-action-llm typecheck`: passed.
+- `bun test pkgs/packages/agentboard-action-llm/src apps/cli/src/services/runtime.test.ts`: passed; 41 tests, 119 assertions.
 
 ## Known limits
 

@@ -16,9 +16,9 @@ Reviewed and implemented the action item view QA feedback.
 
 ## Verification
 
-- `bun test apps/cli/src/services/open-item.test.ts apps/cli/src/services/plugins.test.ts pkgs/crates/agentboard-core/src/config.test.ts`
+- `bun test apps/cli/src/services/open-item.test.ts apps/cli/src/services/plugins.test.ts pkgs/packages/agentboard-core/src/config.test.ts`
 - `bunx tsc --noEmit -p apps/cli/tsconfig.json`
-- `bunx tsc --noEmit -p pkgs/crates/agentboard-core/tsconfig.json`
+- `bunx tsc --noEmit -p pkgs/packages/agentboard-core/tsconfig.json`
 - `git diff --check`
 
 All checks passed.
