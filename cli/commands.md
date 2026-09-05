@@ -79,25 +79,15 @@ clankpipe show ./work.toml AB-001 --json
 
 The short form uses `.clankpipe.toml`. The command matches either `item.id` or `item.reference_id`. `show --watch` refreshes the human view and cannot use `--json` or redirected stdout.
 
-## `dashboard` [#dashboard]
-
-Open the read-only Store dashboard:
-
-```bash
-clankpipe dashboard ./work.toml
-```
-
-The Dashboard requires interactive stdin and stdout. It reads committed Snapshots and collection status. It does not collect Sources, execute Actions, acquire the Workspace lock, or write Store files. It refreshes every 60 seconds. Press `r` to refresh or `q` or Esc to exit.
-
 ## `tui` [#tui]
 
 Open the experimental OpenTUI shell:
 
 ```bash
-clankpipe tui
+clankpipe tui ./work.toml
 ```
 
-This shell requires a terminal. It is not a supported Store-backed view.
+The TUI requires a terminal. It shows one focused Workspace tree. Source, Action, and Item details open in drawers.
 
 ## `doctor` [#doctor]
 

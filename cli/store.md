@@ -58,9 +58,13 @@ status is `collecting`, `complete`, `failed`, or `cancelled`.
 * `failed` means that the query returned an error. The file keeps a short error message.
 * `cancelled` means that collection stopped before the query completed.
 
-The file keeps the last status and its update time. If the file says `collecting`
-but the Workspace lock is free, the Dashboard treats the status as `cancelled`.
-Collection status does not replace the authoritative Source Snapshot.
+The file keeps the latest status and its update time. If the file says
+`collecting` but the Workspace lock is free, the TUI treats the status as
+`cancelled`. Collection status does not replace the authoritative Source
+Snapshot.
+
+The Store also keeps an append-only Source Fetch Log. Each collection event
+records the Source status, time, and error when collection fails. The TUI shows the full log in the Source drawer.
 
 ## `items-<source.slug>.jsonl` [#items-sourceslugjsonl]
 
@@ -102,7 +106,7 @@ Successful attempts are used to skip completed work on later Runs.
 
 ## Action Plan Result [#action-plan-result]
 
-`list` and `dashboard` derive one result from the current rendered Action
+`list` and `tui` derive one result from the current rendered Action
 identities for each Item:
 
 * `success` — every current Action identity succeeded, or no Actions exist.

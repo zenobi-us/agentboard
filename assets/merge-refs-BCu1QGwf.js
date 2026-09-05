@@ -1,0 +1,1 @@
+import{t as e}from"./createLucideIcon-C61BjkT4.js";var t=e(`check`,[[`path`,{d:`M20 6 9 17l-5-5`,key:`1gmf2c`}]]);function n(...e){return t=>{e.forEach(e=>{typeof e==`function`?e(t):e&&(e.current=t)})}}export{t as n,n as t};
